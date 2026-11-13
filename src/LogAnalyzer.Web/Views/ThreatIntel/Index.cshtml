@@ -2,58 +2,78 @@
 @{
     ViewData["Title"] = "Threat intelligence";
     var downgradedTotal = Model.Downgrades.Sum(d => d.Count);
+    var configured = Model.Providers.Count(s => s.Provider.IsConfigured);
+
+    static (string Icon, string Tint) ProviderStyle(string slug) => slug switch
+    {
+        "abuseipdb" => ("bi-flag-fill", "lg-tint-red"),
+        "greynoise" => ("bi-broadcast", "lg-tint-teal"),
+        "virustotal" => ("bi-shield-fill-check", "lg-tint-blue"),
+        _ => ("bi-globe2", "lg-tint-gray")
+    };
 }
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
-    <h1 class="h3 mb-0">Threat intelligence</h1>
-    <form asp-action="Lookup" method="get" class="d-flex gap-2">
-        <input name="ip" class="form-control form-control-sm font-monospace" placeholder="IP address, e.g. 185.220.101.45" maxlength="45" required />
-        <button type="submit" class="btn btn-sm btn-primary text-nowrap"><i class="bi bi-search"></i> Look up</button>
-    </form>
-</div>
+@section Head {
+    <link rel="stylesheet" href="~/css/views-c.css" asp-append-version="true" />
+}
 
-<p class="text-body-secondary small">
-    After each log file is analysed, the source IPs of its alerts are checked at every configured provider
-    (answers are cached and lookups are limited per run to respect free quotas). Private addresses are never sent out.
-    API keys are stored with <code>dotnet user-secrets</code>, never in <code>appsettings.json</code>.
-</p>
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title">Threat intelligence</h1>
+        <p class="lg-subtitle">
+            Attacker IPs are checked at @configured of @Model.Providers.Count providers after each log file is analysed.
+            Answers are cached, and private addresses never leave this server.
+        </p>
+    </div>
+    <div class="lg-actions">
+        <form asp-action="Lookup" method="get" class="d-flex gap-2" role="search">
+            <label for="ti-ip" class="visually-hidden">IP address</label>
+            <input id="ti-ip" name="ip" class="form-control form-control-sm font-monospace" placeholder="IP address, e.g. 185.220.101.45" maxlength="45" required />
+            <button type="submit" class="btn btn-sm btn-primary text-nowrap"><i class="bi bi-search" aria-hidden="true"></i> Look up</button>
+        </form>
+    </div>
+</header>
 
 <div class="row g-3 mb-4">
     @foreach (var s in Model.Providers)
     {
         var p = s.Provider;
+        var (icon, tint) = ProviderStyle(p.Slug);
         <div class="col-lg-4">
             <div class="card h-100">
                 <div class="card-body d-flex flex-column">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h2 class="h5 mb-0">@p.Name</h2>
-                        @if (p.IsConfigured)
-                        {
-                            <span class="badge text-bg-success"><i class="bi bi-check-circle"></i> Configured</span>
-                        }
-                        else
-                        {
-                            <span class="badge text-bg-dark border">No API key</span>
-                        }
+                    <div class="d-flex align-items-center gap-3 mb-3">
+                        <span class="lg-icon @tint"><i class="bi @icon" aria-hidden="true"></i></span>
+                        <div class="flex-grow-1 min-w-0">
+                            <h2 class="h5 mb-0">@p.Name</h2>
+                            @if (p.IsConfigured)
+                            {
+                                <span class="badge text-bg-success"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Configured</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-dark">No API key</span>
+                            }
+                        </div>
                     </div>
                     <p class="small mb-2">@p.Description</p>
-                    <p class="small text-body-secondary mb-2">@p.QuotaNote Automatic lookups: up to @p.MaxPerRun IP(s) per log file.</p>
+                    <p class="small text-body-secondary mb-3">@p.QuotaNote Automatic lookups: up to @p.MaxPerRun IP(s) per log file.</p>
                     @if (!p.IsConfigured)
                     {
-                        <div class="small mb-2">
-                            Set the key (in <code>src\LogAnalyzer.Web</code>), then restart the app:
-                            <code class="d-block mt-1 text-break">dotnet user-secrets set "@p.ApiKeySetting" "YOUR_KEY"</code>
-                        </div>
+                        <div class="small text-body-secondary mb-1">Set the key in <code>src\LogAnalyzer.Web</code>, then restart the app:</div>
+                        <pre class="lg-code mb-3"><code>dotnet user-secrets set "@p.ApiKeySetting" "YOUR_KEY"</code></pre>
                     }
-                    <div class="small mb-3">
-                        <span class="text-body-secondary">Cached answers:</span> <strong>@s.Total</strong>
+                    <div class="d-flex flex-wrap align-items-center gap-1 mb-3">
+                        <span class="small text-body-secondary me-1">Cached answers <strong class="text-body">@s.Total</strong></span>
                         @foreach (var (verdict, count) in s.Verdicts.OrderByDescending(v => v.Key))
                         {
-                            <span class="badge @Format.VerdictBadge(verdict) ms-1">@verdict @count</span>
+                            <span class="badge @Format.VerdictBadge(verdict)">@verdict @count</span>
                         }
                     </div>
                     <div class="mt-auto">
-                        <a asp-action="Provider" asp-route-id="@p.Slug" class="btn btn-sm btn-outline-secondary">Details</a>
+                        <a asp-action="Provider" asp-route-id="@p.Slug" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-sliders" aria-hidden="true"></i> Details and test
+                        </a>
                     </div>
                 </div>
             </div>
@@ -63,54 +83,80 @@
 
 <div class="row g-3">
     <div class="col-lg-5">
-        <div class="card h-100"><div class="card-body">
-            <h2 class="h6">GreyNoise severity rule</h2>
-            <p class="small text-body-secondary">
-                Alerts whose source IP GreyNoise classifies as <em>benign</em> (search engines, research scanners,
-                RIOT business services) are lowered one severity level. The original severity is kept for evaluation.
-            </p>
-            @if (downgradedTotal == 0)
-            {
-                <p class="small mb-0">No alerts lowered yet (of @Model.TotalAlerts.ToString("N0") alerts).</p>
-            }
-            else
-            {
-                <p class="small"><strong>@downgradedTotal</strong> of @Model.TotalAlerts.ToString("N0") alerts lowered:</p>
-                <ul class="small mb-0">
-                    @foreach (var d in Model.Downgrades)
-                    {
-                        <li>@d.From → @d.To: @d.Count</li>
-                    }
-                </ul>
-            }
-        </div></div>
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="lg-section-title">
+                    <span class="lg-icon lg-icon-sm lg-tint-teal"><i class="bi bi-arrow-down-circle" aria-hidden="true"></i></span>
+                    GreyNoise severity rule
+                </h2>
+                <p class="small text-body-secondary">
+                    Alerts from IPs that GreyNoise classifies as <em>benign</em> (search engines, research scanners,
+                    RIOT business services) are lowered one severity level. The original severity is kept for evaluation.
+                </p>
+                <div class="d-flex align-items-baseline gap-2 mb-3">
+                    <span class="lg-big-number" data-countup>@downgradedTotal</span>
+                    <span class="text-body-secondary small">of @Model.TotalAlerts.ToString("N0") alerts lowered</span>
+                </div>
+                @if (Model.Downgrades.Count > 0)
+                {
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var d in Model.Downgrades)
+                        {
+                            <span class="lg-chip">
+                                <span class="badge @Format.SeverityBadge(d.From)">@d.From</span>
+                                <i class="bi bi-arrow-right" aria-hidden="true"></i><span class="visually-hidden">to</span>
+                                <span class="badge @Format.SeverityBadge(d.To)">@d.To</span>
+                                <strong>@d.Count</strong>
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
     </div>
     <div class="col-lg-7">
-        <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Latest lookups</h2>
-            @if (Model.Recent.Count == 0)
-            {
-                <p class="small text-body-secondary mb-0">No lookups yet.</p>
-            }
-            else
-            {
-                <div class="table-responsive">
-                    <table class="table table-sm small align-middle mb-0">
-                        <tbody>
-                            @foreach (var r in Model.Recent)
-                            {
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="lg-section-title">
+                    <span class="lg-icon lg-icon-sm lg-tint-indigo"><i class="bi bi-clock-history" aria-hidden="true"></i></span>
+                    Latest lookups
+                </h2>
+                @if (Model.Recent.Count == 0)
+                {
+                    <div class="lg-empty py-3">
+                        <i class="bi bi-search" aria-hidden="true"></i>
+                        <p class="mb-0">No lookups yet. They appear here after a log file is analysed or an IP is looked up.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm small align-middle">
+                            <thead>
                                 <tr>
-                                    <td class="font-monospace"><a asp-action="Lookup" asp-route-ip="@r.Ip">@r.Ip</a></td>
-                                    <td>@r.Provider</td>
-                                    <td><span class="badge @Format.VerdictBadge(r.Verdict)">@r.Verdict</span></td>
-                                    <td class="summary-cell" title="@(r.Error ?? r.Summary)">@(r.Error ?? r.Summary)</td>
-                                    <td class="text-body-secondary text-nowrap">@Format.TimeAgo(r.CheckedAt)</td>
+                                    <th scope="col">IP</th>
+                                    <th scope="col">Provider</th>
+                                    <th scope="col">Verdict</th>
+                                    <th scope="col">Summary</th>
+                                    <th scope="col">Checked</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </div></div>
+                            </thead>
+                            <tbody>
+                                @foreach (var r in Model.Recent)
+                                {
+                                    <tr>
+                                        <td class="font-monospace"><a asp-action="Lookup" asp-route-ip="@r.Ip">@r.Ip</a></td>
+                                        <td>@r.Provider</td>
+                                        <td><span class="badge @Format.VerdictBadge(r.Verdict)">@r.Verdict</span></td>
+                                        <td class="summary-cell" title="@(r.Error ?? r.Summary)">@(r.Error ?? r.Summary)</td>
+                                        <td class="text-body-secondary text-nowrap">@Format.TimeAgo(r.CheckedAt)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
     </div>
 </div>

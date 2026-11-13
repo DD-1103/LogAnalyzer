@@ -1,19 +1,28 @@
-@* One provider's cached answer about an IP, with Look up / Refresh and a link to the vendor's page. *@
+@* One provider's cached answer about an IP, with Look up / Refresh and a link to the vendor's page.
+   Uses only glass.css classes, because it is rendered on pages owned by different views. *@
 @model ReputationCardModel
 @{
     var p = Model.Provider;
     var r = Model.Result;
+    var (icon, tint) = p.Slug switch
+    {
+        "abuseipdb" => ("bi-flag-fill", "lg-tint-red"),
+        "greynoise" => ("bi-broadcast", "lg-tint-teal"),
+        "virustotal" => ("bi-shield-fill-check", "lg-tint-blue"),
+        _ => ("bi-globe2", "lg-tint-gray")
+    };
 }
 <div class="card h-100">
-    <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-            <div>
+    <div class="card-body d-flex flex-column">
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <span class="lg-icon lg-icon-sm @tint"><i class="bi @icon" aria-hidden="true"></i></span>
+            <div class="flex-grow-1">
                 <h3 class="h6 mb-0">
-                    <a asp-controller="ThreatIntel" asp-action="Provider" asp-route-id="@p.Slug" class="text-reset">@p.Name</a>
+                    <a asp-controller="ThreatIntel" asp-action="Provider" asp-route-id="@p.Slug" class="text-reset text-decoration-none">@p.Name</a>
                 </h3>
                 @if (r is not null)
                 {
-                    <div class="small text-body-secondary" title="@r.CheckedAt.ToString("u")">checked @Format.TimeAgo(r.CheckedAt)</div>
+                    <div class="small text-body-secondary" title="@r.CheckedAt.ToString("u")">Checked @Format.TimeAgo(r.CheckedAt)</div>
                 }
             </div>
             @if (r is not null)
@@ -22,44 +31,45 @@
             }
             else if (!p.IsConfigured)
             {
-                <span class="badge text-bg-dark border">No API key</span>
+                <span class="badge text-bg-dark">No API key</span>
             }
         </div>
 
         @if (r is null)
         {
-            <p class="small text-body-secondary mb-2">
+            <div class="small text-body-secondary mb-3">
                 @if (!p.IsConfigured)
                 {
-                    <span>Add a key to see data: <code>dotnet user-secrets set "@p.ApiKeySetting" "KEY"</code></span>
+                    <p class="mb-1">Add a key to see data:</p>
+                    <code class="d-block text-break">dotnet user-secrets set "@p.ApiKeySetting" "KEY"</code>
                 }
                 else if (!Model.IsPublic)
                 {
-                    <span>Private / reserved address – never sent to external services.</span>
+                    <span>Private or reserved address: never sent to external services.</span>
                 }
                 else
                 {
                     <span>Not looked up yet.</span>
                 }
-            </p>
+            </div>
         }
         else
         {
-            <p class="small mb-2">@r.Summary</p>
+            <p class="small fw-semibold mb-2">@r.Summary</p>
             var attributes = r.GetAttributes();
             if (attributes.Count > 0)
             {
-                <dl class="row small mb-2">
+                <dl class="row small mb-3 lg-kv">
                     @foreach (var (key, value) in attributes)
                     {
-                        <dt class="col-6 fw-normal text-body-secondary">@key</dt>
-                        <dd class="col-6 mb-1 text-break">@value</dd>
+                        <dt class="col-6">@key</dt>
+                        <dd class="col-6 text-break">@value</dd>
                     }
                 </dl>
             }
         }
 
-        <div class="d-flex flex-wrap gap-2 align-items-center">
+        <div class="d-flex flex-wrap gap-2 align-items-center mt-auto">
             @if (p.IsConfigured && Model.IsPublic)
             {
                 <form asp-controller="ThreatIntel" asp-action="Refresh" method="post" class="d-inline">
@@ -67,14 +77,14 @@
                     <input type="hidden" name="provider" value="@p.Slug" />
                     <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
                     <button type="submit" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-arrow-repeat"></i> @(r is null ? "Look up" : "Refresh")
+                        <i class="bi bi-arrow-repeat" aria-hidden="true"></i> @(r is null ? "Look up" : "Refresh")
                     </button>
                 </form>
             }
             @if (Model.IsPublic)
             {
-                <a href="@p.WebLink(Model.Ip)" target="_blank" rel="noopener noreferrer" class="small">
-                    open on @p.Name <i class="bi bi-box-arrow-up-right"></i>
+                <a href="@p.WebLink(Model.Ip)" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                    Open on @p.Name <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                 </a>
             }
         </div>

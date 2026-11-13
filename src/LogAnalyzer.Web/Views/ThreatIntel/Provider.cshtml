@@ -3,76 +3,128 @@
     var p = Model.Provider;
     ViewData["Title"] = p.Name;
     var isAdmin = User.IsInRole(Roles.Admin);
+    var (icon, tint) = p.Slug switch
+    {
+        "abuseipdb" => ("bi-flag-fill", "lg-tint-red"),
+        "greynoise" => ("bi-broadcast", "lg-tint-teal"),
+        "virustotal" => ("bi-shield-fill-check", "lg-tint-blue"),
+        _ => ("bi-globe2", "lg-tint-gray")
+    };
+}
+
+@section Head {
+    <link rel="stylesheet" href="~/css/views-c.css" asp-append-version="true" />
 }
 
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a asp-action="Index">Threat intelligence</a></li>
-        <li class="breadcrumb-item active">@p.Name</li>
+        <li class="breadcrumb-item active" aria-current="page">@p.Name</li>
     </ol>
 </nav>
 
-<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    <h1 class="h3 mb-0">@p.Name</h1>
-    @if (p.IsConfigured)
-    {
-        <span class="badge text-bg-success"><i class="bi bi-check-circle"></i> Configured</span>
-    }
-    else
-    {
-        <span class="badge text-bg-dark border">No API key</span>
-    }
-</div>
+<header class="lg-page-header">
+    <div class="d-flex align-items-center gap-3">
+        <span class="lg-icon lg-icon-lg @tint"><i class="bi @icon" aria-hidden="true"></i></span>
+        <div class="min-w-0">
+            <h1 class="lg-title">@p.Name</h1>
+            <p class="lg-subtitle">@p.Description</p>
+        </div>
+    </div>
+    <div class="lg-actions">
+        @if (p.IsConfigured)
+        {
+            <span class="badge text-bg-success"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Configured</span>
+        }
+        else
+        {
+            <span class="badge text-bg-dark">No API key</span>
+        }
+        @if (isAdmin)
+        {
+            <form asp-action="Test" asp-route-id="@p.Slug" method="post">
+                <button type="submit" class="btn btn-primary" disabled="@(!p.IsConfigured)">
+                    <i class="bi bi-plug" aria-hidden="true"></i> Test with 8.8.8.8
+                </button>
+            </form>
+        }
+    </div>
+</header>
 
 <div class="row g-3 mb-4">
     <div class="col-lg-7">
-        <div class="card h-100"><div class="card-body">
-            <p>@p.Description</p>
-            <dl class="row small mb-0">
-                <dt class="col-sm-4">Quota</dt>
-                <dd class="col-sm-8">@p.QuotaNote</dd>
-                <dt class="col-sm-4">Automatic lookups</dt>
-                <dd class="col-sm-8">up to @p.MaxPerRun IP(s) per log file@(p.MinInterval > TimeSpan.Zero ? $", at least {p.MinInterval.TotalSeconds:0} s apart" : "")</dd>
-                <dt class="col-sm-4">Configuration key</dt>
-                <dd class="col-sm-8"><code>@p.ApiKeySetting</code></dd>
-                <dt class="col-sm-4">Get a free key</dt>
-                <dd class="col-sm-8"><a href="@p.SignupUrl" target="_blank" rel="noopener noreferrer">@p.SignupUrl</a> (use your university e-mail)</dd>
-                <dt class="col-sm-4">JSON route</dt>
-                <dd class="col-sm-8"><code>/ThreatIntel/Api/@p.Slug/{ip}</code></dd>
-            </dl>
-        </div></div>
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="lg-section-title">
+                    <span class="lg-icon lg-icon-sm lg-tint-gray"><i class="bi bi-info-circle" aria-hidden="true"></i></span>
+                    How it is used
+                </h2>
+                <dl class="row small mb-0 lg-kv">
+                    <dt class="col-sm-4">Quota</dt>
+                    <dd class="col-sm-8">@p.QuotaNote</dd>
+                    <dt class="col-sm-4">Automatic lookups</dt>
+                    <dd class="col-sm-8">Up to @p.MaxPerRun IP(s) per log file@(p.MinInterval > TimeSpan.Zero ? $", at least {p.MinInterval.TotalSeconds:0} s apart" : "")</dd>
+                    <dt class="col-sm-4">Configuration key</dt>
+                    <dd class="col-sm-8"><code>@p.ApiKeySetting</code></dd>
+                    <dt class="col-sm-4">Free key</dt>
+                    <dd class="col-sm-8">
+                        <a href="@p.SignupUrl" target="_blank" rel="noopener noreferrer">@p.SignupUrl <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
+                        <div class="text-body-secondary">Sign up with your university e-mail.</div>
+                    </dd>
+                    <dt class="col-sm-4">JSON route</dt>
+                    <dd class="col-sm-8"><code>/ThreatIntel/Api/@p.Slug/{ip}</code></dd>
+                </dl>
+            </div>
+        </div>
     </div>
     <div class="col-lg-5">
-        <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Setup</h2>
-            <ol class="small">
-                <li>Create a free account and copy the API key.</li>
-                <li>In <code>src\LogAnalyzer.Web</code> run:<br /><code class="text-break">dotnet user-secrets set "@p.ApiKeySetting" "YOUR_KEY"</code></li>
-                <li>Restart the app, then press <em>Test</em>.</li>
-            </ol>
-            @if (isAdmin)
-            {
-                <form asp-action="Test" asp-route-id="@p.Slug" method="post">
-                    <button type="submit" class="btn btn-sm btn-primary" disabled="@(!p.IsConfigured)">
-                        <i class="bi bi-plug"></i> Test with 8.8.8.8
-                    </button>
-                </form>
-            }
-        </div></div>
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="lg-section-title">
+                    <span class="lg-icon lg-icon-sm lg-tint-green"><i class="bi bi-key" aria-hidden="true"></i></span>
+                    Setup
+                </h2>
+                <ol class="lg-steps">
+                    <li>Create a free account and copy the API key.</li>
+                    <li>
+                        In <code>src\LogAnalyzer.Web</code> run:
+                        <pre class="lg-code mt-2 mb-0"><code>dotnet user-secrets set "@p.ApiKeySetting" "YOUR_KEY"</code></pre>
+                    </li>
+                    <li>Restart the app, then press <em>Test with 8.8.8.8</em>.</li>
+                </ol>
+                @if (!isAdmin)
+                {
+                    <p class="small text-body-secondary mb-0">Only administrators can run the test.</p>
+                }
+            </div>
+        </div>
     </div>
 </div>
 
-<h2 class="h5">Cached answers <span class="text-body-secondary small">(@Model.TotalCount.ToString("N0"))</span></h2>
+<h2 class="lg-section-title">
+    Cached answers <span class="lg-count">@Model.TotalCount.ToString("N0")</span>
+</h2>
 @if (Model.Results.Count == 0)
 {
-    <p class="text-body-secondary">No answers yet@(p.IsConfigured ? "." : " – add an API key first.")</p>
+    <div class="card">
+        <div class="lg-empty">
+            <i class="bi bi-inbox" aria-hidden="true"></i>
+            <p class="mb-0">No answers yet@(p.IsConfigured ? ". They appear after the next analysed log file or IP lookup." : ". Add an API key first.")</p>
+        </div>
+    </div>
 }
 else
 {
     <div class="table-responsive">
         <table class="table table-sm small align-middle">
             <thead>
-                <tr><th>IP</th><th>Verdict</th><th class="text-end">Score</th><th>Summary</th><th>Checked</th></tr>
+                <tr>
+                    <th scope="col">IP</th>
+                    <th scope="col">Verdict</th>
+                    <th scope="col" class="text-end">Score</th>
+                    <th scope="col">Summary</th>
+                    <th scope="col">Checked</th>
+                </tr>
             </thead>
             <tbody>
                 @foreach (var r in Model.Results)
@@ -90,13 +142,15 @@ else
     </div>
     @if (Model.TotalPages > 1)
     {
-        <nav><ul class="pagination pagination-sm">
-            @for (var i = 1; i <= Model.TotalPages; i++)
-            {
-                <li class="page-item @(i == Model.Page ? "active" : "")">
-                    <a class="page-link" asp-action="Provider" asp-route-id="@p.Slug" asp-route-page="@i">@i</a>
-                </li>
-            }
-        </ul></nav>
+        <nav aria-label="Cached answers pages">
+            <ul class="pagination pagination-sm flex-wrap">
+                @for (var i = 1; i <= Model.TotalPages; i++)
+                {
+                    <li class="page-item @(i == Model.Page ? "active" : "")">
+                        <a class="page-link" asp-action="Provider" asp-route-id="@p.Slug" asp-route-page="@i">@i</a>
+                    </li>
+                }
+            </ul>
+        </nav>
     }
 }

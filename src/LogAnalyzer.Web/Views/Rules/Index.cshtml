@@ -3,112 +3,187 @@
     ViewData["Title"] = "Detection rules";
     var counts = (Dictionary<int, int>)ViewBag.AlertCounts;
     var isAdmin = User.IsInRole(Roles.Admin);
+    var enabled = Model.Count(r => r.IsEnabled);
+
+    // Icon tile per rule kind
+    static (string Icon, string Tint) KindStyle(RuleKind kind) => kind switch
+    {
+        RuleKind.Signature => ("bi-fingerprint", "lg-tint-indigo"),
+        RuleKind.Threshold => ("bi-speedometer2", "lg-tint-orange"),
+        _ => ("bi-stars", "lg-tint-teal")
+    };
 }
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
-    <h1 class="h3 mb-0">Detection rules</h1>
+@section Head {
+    <link rel="stylesheet" href="~/css/views-c.css" asp-append-version="true" />
+}
+
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title">Detection rules</h1>
+        <p class="lg-subtitle">
+            @enabled of @Model.Count rules are on. Signature rules match single requests, threshold rules count
+            requests per IP, and the anomaly rule learns what normal traffic looks like.
+        </p>
+    </div>
     @if (isAdmin)
     {
-        <div class="dropdown">
-            <button class="btn btn-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                <i class="bi bi-plus-lg"></i> New rule
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end">
-                <li><a class="dropdown-item" asp-action="Create" asp-route-kind="Signature">Signature (regex on one request)</a></li>
-                <li><a class="dropdown-item" asp-action="Create" asp-route-kind="Threshold">Threshold (N requests in a window)</a></li>
-                <li><a class="dropdown-item" asp-action="Create" asp-route-kind="Anomaly">Anomaly (Isolation Forest)</a></li>
-            </ul>
+        <div class="lg-actions">
+            <div class="dropdown">
+                <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-plus-lg" aria-hidden="true"></i> New rule
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li>
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Signature">
+                            <i class="bi bi-fingerprint" aria-hidden="true"></i> Signature: a pattern in one request
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Threshold">
+                            <i class="bi bi-speedometer2" aria-hidden="true"></i> Threshold: many requests in a window
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Anomaly">
+                            <i class="bi bi-stars" aria-hidden="true"></i> Anomaly: Isolation Forest
+                        </a>
+                    </li>
+                </ul>
+            </div>
         </div>
     }
-</div>
+    else
+    {
+        <div class="lg-actions">
+            <span class="lg-chip"><i class="bi bi-lock" aria-hidden="true"></i> Only administrators can change rules</span>
+        </div>
+    }
+</header>
 
-@if (!isAdmin)
+@if (Model.Count == 0)
 {
-    <p class="small text-body-secondary">Only administrators can change rules.</p>
-}
-
-<div class="table-responsive">
-    <table class="table align-middle">
-        <thead>
-            <tr>
-                <th>Rule</th>
-                <th>Kind</th>
-                <th>Severity</th>
-                <th>Logic</th>
-                <th class="text-end">Alerts</th>
-                <th>Enabled</th>
-                @if (isAdmin) { <th></th> }
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var r in Model)
+    <div class="card">
+        <div class="lg-empty">
+            <i class="bi bi-funnel" aria-hidden="true"></i>
+            <p>There are no detection rules yet.</p>
+            @if (isAdmin)
             {
-                var alertCount = counts.TryGetValue(r.Id, out var c) ? c : 0;
-                <tr class="@(r.IsEnabled ? "" : "opacity-50")">
-                    <td>
-                        <div class="fw-semibold">@r.Name</div>
-                        <div class="small text-body-secondary">@r.Description</div>
-                        <div class="small">@Format.AttackLabel(r.AttackType)</div>
-                    </td>
-                    <td><span class="badge text-bg-secondary">@r.Kind</span></td>
-                    <td><span class="badge @Format.SeverityBadge(r.Severity)">@r.Severity</span></td>
-                    <td class="small">
-                        @switch (r.Kind)
-                        {
-                            case RuleKind.Signature:
-                                <div>Regex on <strong>@r.Field</strong>:</div>
-                                <code class="text-break rule-pattern">@r.Pattern</code>
-                                break;
-                            case RuleKind.Threshold:
-                                <div>≥ <strong>@r.Threshold</strong> requests from one IP in <strong>@r.WindowSeconds s</strong></div>
-                                <div class="text-body-secondary">
-                                    @if (r.MethodFilter is not null) { <span>method = @r.MethodFilter; </span> }
-                                    @if (r.StatusFilter is not null) { <span>status = @r.StatusFilter; </span> }
-                                    @if (r.PathPattern is not null) { <span>path ~ <code>@r.PathPattern</code></span> }
+                <a asp-action="Create" class="btn btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Create the first rule</a>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th scope="col">Rule</th>
+                    <th scope="col">Severity</th>
+                    <th scope="col">Logic</th>
+                    <th scope="col" class="text-end">Alerts</th>
+                    <th scope="col">Enabled</th>
+                    @if (isAdmin) { <th scope="col" class="text-end"><span class="visually-hidden">Actions</span></th> }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model)
+                {
+                    var alertCount = counts.TryGetValue(r.Id, out var c) ? c : 0;
+                    var (icon, tint) = KindStyle(r.Kind);
+                    <tr class="@(r.IsEnabled ? "" : "lg-row-off")">
+                        <td>
+                            <div class="d-flex align-items-start gap-3">
+                                <span class="lg-icon lg-icon-sm @tint" title="@r.Kind rule"><i class="bi @icon" aria-hidden="true"></i></span>
+                                <div class="min-w-0">
+                                    <div class="fw-semibold">@r.Name</div>
+                                    @if (!string.IsNullOrWhiteSpace(r.Description))
+                                    {
+                                        <div class="small text-body-secondary">@r.Description</div>
+                                    }
+                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                        <span class="lg-chip">@r.Kind</span>
+                                        <span class="lg-chip">@Format.AttackLabel(r.AttackType)</span>
+                                    </div>
                                 </div>
-                                break;
-                            default:
-                                <div>Isolation Forest score ≥ <strong>@r.ScoreThreshold?.ToString("0.00")</strong></div>
-                                <div class="text-body-secondary">IPs with at least @r.Threshold requests; 11 behaviour features</div>
-                                break;
-                        }
-                    </td>
-                    <td class="text-end">
-                        @if (alertCount > 0)
-                        {
-                            <a asp-controller="Alerts" asp-action="Index" asp-route-attackType="@r.AttackType">@alertCount</a>
-                        }
-                        else { @alertCount }
-                    </td>
-                    <td>
-                        @if (isAdmin)
-                        {
-                            <form asp-action="Toggle" asp-route-id="@r.Id" method="post">
-                                <button type="submit" class="btn btn-sm @(r.IsEnabled ? "btn-success" : "btn-outline-secondary")">
-                                    @(r.IsEnabled ? "On" : "Off")
-                                </button>
-                            </form>
-                        }
-                        else
-                        {
-                            @(r.IsEnabled ? "On" : "Off")
-                        }
-                    </td>
-                    @if (isAdmin)
-                    {
-                        <td class="text-nowrap">
-                            <a asp-action="Edit" asp-route-id="@r.Id" class="btn btn-sm btn-outline-secondary" title="Edit / test"><i class="bi bi-pencil"></i></a>
-                            @if (alertCount == 0)
+                            </div>
+                        </td>
+                        <td><span class="badge @Format.SeverityBadge(r.Severity)">@r.Severity</span></td>
+                        <td class="small">
+                            @switch (r.Kind)
                             {
-                                <form asp-action="Delete" asp-route-id="@r.Id" method="post" class="d-inline js-confirm"
-                                      data-confirm="Delete rule '@r.Name'? This cannot be undone.">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
-                                </form>
+                                case RuleKind.Signature:
+                                    <div class="text-body-secondary mb-1">Regex on <strong class="text-body">@r.Field</strong></div>
+                                    <code class="text-break rule-pattern">@r.Pattern</code>
+                                    break;
+                                case RuleKind.Threshold:
+                                    <div>At least <strong>@r.Threshold</strong> requests from one IP in <strong>@r.WindowSeconds s</strong></div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                        @if (r.MethodFilter is not null) { <span class="lg-chip">method @r.MethodFilter</span> }
+                                        @if (r.StatusFilter is not null) { <span class="lg-chip">status @r.StatusFilter</span> }
+                                        @if (r.PathPattern is not null) { <span class="lg-chip">path <code>@r.PathPattern</code></span> }
+                                    </div>
+                                    break;
+                                default:
+                                    <div>Isolation Forest score at least <strong>@r.ScoreThreshold?.ToString("0.00")</strong></div>
+                                    <div class="text-body-secondary">IPs with at least @r.Threshold requests, 11 behaviour features</div>
+                                    break;
                             }
                         </td>
-                    }
-                </tr>
-            }
-        </tbody>
-    </table>
-</div>
+                        <td class="text-end">
+                            @if (alertCount > 0)
+                            {
+                                <a asp-controller="Alerts" asp-action="Index" asp-route-attackType="@r.AttackType" class="badge text-bg-primary">@alertCount</a>
+                            }
+                            else
+                            {
+                                <span class="text-body-secondary">0</span>
+                            }
+                        </td>
+                        <td>
+                            @if (isAdmin)
+                            {
+                                <form asp-action="Toggle" asp-route-id="@r.Id" method="post" class="d-flex align-items-center gap-2">
+                                    <button type="submit" class="lg-switch @(r.IsEnabled ? "is-on" : "")" role="switch"
+                                            aria-checked="@(r.IsEnabled ? "true" : "false")"
+                                            aria-label="@(r.IsEnabled ? "Turn off" : "Turn on") @r.Name"
+                                            title="@(r.IsEnabled ? "On: click to turn off" : "Off: click to turn on")">
+                                        <span class="lg-switch-knob" aria-hidden="true"></span>
+                                    </button>
+                                    <span class="small text-body-secondary">@(r.IsEnabled ? "On" : "Off")</span>
+                                </form>
+                            }
+                            else
+                            {
+                                <span class="badge @(r.IsEnabled ? "text-bg-success" : "text-bg-secondary")">@(r.IsEnabled ? "On" : "Off")</span>
+                            }
+                        </td>
+                        @if (isAdmin)
+                        {
+                            <td class="text-end text-nowrap">
+                                <a asp-action="Edit" asp-route-id="@r.Id" class="btn btn-sm btn-outline-secondary" title="Edit and test">
+                                    <i class="bi bi-pencil" aria-hidden="true"></i><span class="visually-hidden">Edit @r.Name</span>
+                                </a>
+                                @if (alertCount == 0)
+                                {
+                                    <form asp-action="Delete" asp-route-id="@r.Id" method="post" class="d-inline js-confirm"
+                                          data-confirm="Delete rule '@r.Name'? This cannot be undone.">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                            <i class="bi bi-trash" aria-hidden="true"></i><span class="visually-hidden">Delete @r.Name</span>
+                                        </button>
+                                    </form>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="small text-body-secondary">
+        Rules with alerts cannot be deleted, so their evidence stays traceable. Switch them off instead.
+        Changes apply to new uploads; re-run detection on a log file to apply them to existing data.
+    </p>
+}

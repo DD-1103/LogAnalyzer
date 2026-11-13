@@ -1,0 +1,150 @@
+/* =====================================================================================
+   Views C: rules, threat intel, users, audit.
+   Small additions on top of glass.css; everything uses the Liquid Glass tokens, so both
+   themes work without extra rules.
+   ===================================================================================== */
+
+/* Validation summaries are styled as alerts; hide them when there is nothing to show */
+.validation-summary-valid { display: none; }
+.lg-validation ul { margin: 0; padding-left: 1.1rem; }
+
+/* Sections inside one form card */
+.lg-form-section + .lg-form-section {
+    margin-top: 1.4rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--lg-hairline);
+}
+
+/* Right-hand column that follows the page while scrolling (rule tester) */
+@media (min-width: 992px) {
+    .lg-sticky { position: sticky; top: 100px; }
+}
+
+/* iOS-style switch used for rule On/Off (a submit button inside a POST form) */
+.lg-switch {
+    --on: var(--lg-green-rgb);
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    width: 52px;
+    height: 31px;
+    padding: 2px;
+    border-radius: 999px;
+    border: 1px solid var(--lg-hairline);
+    background: rgba(var(--lg-gray-rgb), .3);
+    box-shadow: inset 0 1px 3px rgba(var(--lg-shadow-rgb), .2);
+    cursor: pointer;
+    transition: background-color .3s var(--lg-ease), box-shadow .3s var(--lg-ease), border-color .3s var(--lg-ease);
+}
+.lg-switch.is-on {
+    background: rgb(var(--on));
+    border-color: rgba(var(--on), .6);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .12), 0 6px 16px -8px rgba(var(--on), .9);
+}
+.lg-switch-knob {
+    width: 25px;
+    height: 25px;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .25), 0 0 0 .5px rgba(0, 0, 0, .05);
+    transform: translateX(0);
+    transition: transform .45s var(--lg-spring), width .25s var(--lg-ease);
+}
+.lg-switch.is-on .lg-switch-knob { transform: translateX(21px); }
+.lg-switch:active .lg-switch-knob { width: 30px; }
+.lg-switch.is-on:active .lg-switch-knob { transform: translateX(16px); }
+.lg-switch:hover { border-color: rgba(var(--lg-accent-rgb), .35); }
+.lg-switch:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--lg-base), 0 0 0 6px rgba(var(--lg-accent-rgb), .55); }
+
+/* Disabled rule rows: dim the content, keep the switch fully visible */
+.lg-row-off > td > :not(form) { opacity: .55; }
+
+/* Command / setup code block */
+.lg-code {
+    margin: 0;
+    padding: .6rem .8rem;
+    border-radius: var(--lg-radius-sm);
+    background: var(--lg-surface-sunken);
+    border: 1px solid var(--lg-hairline);
+    font-size: .78rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--lg-text);
+}
+.lg-code code { padding: 0; background: none; color: inherit; font-size: inherit; }
+
+/* Small number tiles inside a card (rule tester results) */
+.lg-mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+.lg-mini-stat {
+    padding: .75rem .85rem;
+    border-radius: var(--lg-radius-md);
+    background: var(--lg-surface-sunken);
+    border: 1px solid var(--lg-hairline);
+}
+.lg-mini-label { font-size: .75rem; font-weight: 560; color: var(--lg-text-2); }
+.lg-mini-value {
+    font-family: var(--lg-font-display);
+    font-size: 1.4rem;
+    font-weight: 720;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+.lg-mini-stat.lg-mini-accent { background: rgba(var(--lg-accent-rgb), .1); border-color: rgba(var(--lg-accent-rgb), .25); }
+.lg-mini-stat.lg-mini-accent .lg-mini-value { color: var(--lg-accent-ink); }
+
+/* Numbered setup steps (this content is a real sequence) */
+.lg-steps { list-style: none; counter-reset: step; padding: 0; margin: 0 0 1rem; }
+.lg-steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 .75rem 2.25rem;
+    font-size: .9rem;
+}
+.lg-steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: -.05rem;
+    display: grid;
+    place-items: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 700;
+    color: var(--lg-accent-ink);
+    background: rgba(var(--lg-accent-rgb), .12);
+    border: 1px solid rgba(var(--lg-accent-rgb), .25);
+}
+
+/* Large IP heading on the lookup page */
+.lg-ip {
+    font-family: var(--lg-font-mono);
+    font-size: clamp(1.4rem, 1.1rem + 1.2vw, 2rem);
+    font-weight: 700;
+    letter-spacing: -.02em;
+    overflow-wrap: anywhere;
+}
+
+/* Initials avatar in the users table */
+.lg-avatar { font-size: .78rem; font-weight: 700; letter-spacing: .02em; }
+
+/* Big number in a panel (GreyNoise rule) */
+.lg-big-number {
+    font-family: var(--lg-font-display);
+    font-size: 2.4rem;
+    font-weight: 760;
+    letter-spacing: -.035em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lg-switch, .lg-switch-knob { transition: none; }
+}
+
+/* Flex children that may contain long text */
+.min-w-0 { min-width: 0; }
