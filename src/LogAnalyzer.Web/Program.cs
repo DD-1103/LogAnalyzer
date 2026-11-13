@@ -19,9 +19,15 @@ builder.Services
         options.Lockout.MaxFailedAccessAttempts = 5;
         options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
         options.User.RequireUniqueEmail = true;
+        // "Confirmed" = not disabled by an administrator (see EnabledUserConfirmation).
+        options.SignIn.RequireConfirmedAccount = true;
     })
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
+builder.Services.AddScoped<IUserConfirmation<AppUser>, EnabledUserConfirmation>();
+
+// Re-check the security stamp every minute, so disabling a user or changing a role takes effect quickly.
+builder.Services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.FromMinutes(1));
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -50,7 +56,9 @@ builder.Services.AddSingleton<LogProcessingQueue>();
 builder.Services.AddHostedService<LogProcessingWorker>();
 
 // Detection and evaluation
+builder.Services.AddSingleton<AnomalyDetector>();
 builder.Services.AddScoped<DetectionEngine>();
+builder.Services.AddScoped<RuleTester>();
 builder.Services.AddScoped<EvaluationService>();
 
 // IP enrichment: offline GeoIP + threat-intel providers (API keys in user-secrets, see README)

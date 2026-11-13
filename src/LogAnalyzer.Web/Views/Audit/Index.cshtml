@@ -1,0 +1,58 @@
+@model AuditViewModel
+@{
+    ViewData["Title"] = "Audit log";
+}
+
+<h1 class="h3 mb-3">Audit log</h1>
+<p class="small text-body-secondary">Append-only record of sign-ins, uploads, deletions, rule and user changes, triage, exports and threat-intel lookups.</p>
+
+<form method="get" asp-action="Index" class="row g-2 mb-3">
+    <div class="col-sm-4 col-lg-3">
+        <input name="user" value="@Model.User" class="form-control form-control-sm" placeholder="User contains…" />
+    </div>
+    <div class="col-sm-4 col-lg-3">
+        <select name="type" class="form-select form-select-sm js-autosubmit">
+            <option value="">All actions</option>
+            @foreach (var a in Model.Actions)
+            {
+                <option value="@a" selected="@(a == Model.Action)">@a</option>
+            }
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-outline-primary">Filter</button>
+        <a asp-action="Index" class="btn btn-sm btn-outline-secondary">Reset</a>
+    </div>
+    <div class="col text-end small text-body-secondary align-self-center">@Model.TotalCount.ToString("N0") entries</div>
+</form>
+
+<div class="table-responsive">
+    <table class="table table-sm small align-middle">
+        <thead><tr><th>Time (UTC)</th><th>User</th><th>Action</th><th>Target</th><th>Details</th><th>From</th></tr></thead>
+        <tbody>
+            @foreach (var e in Model.Entries)
+            {
+                <tr>
+                    <td class="text-nowrap">@e.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@(e.UserName ?? "—")</td>
+                    <td><span class="badge @(e.Action.StartsWith("Login.Failed") || e.Action.StartsWith("Login.Locked") ? "text-bg-warning" : "text-bg-secondary")">@e.Action</span></td>
+                    <td class="text-break">@e.Target</td>
+                    <td class="text-break text-body-secondary">@e.Details</td>
+                    <td class="font-monospace text-body-secondary">@e.IpAddress</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (Model.TotalPages > 1)
+{
+    <nav><ul class="pagination pagination-sm flex-wrap">
+        @for (var i = Math.Max(1, Model.Page - 5); i <= Math.Min(Model.TotalPages, Model.Page + 5); i++)
+        {
+            <li class="page-item @(i == Model.Page ? "active" : "")">
+                <a class="page-link" asp-action="Index" asp-route-user="@Model.User" asp-route-type="@Model.Action" asp-route-page="@i">@i</a>
+            </li>
+        }
+    </ul></nav>
+}

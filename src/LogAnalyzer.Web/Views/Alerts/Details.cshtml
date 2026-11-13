@@ -59,6 +59,19 @@
                         <div class="small text-body-secondary">@a.Rule?.Description</div>
                     </dd>
 
+                    @if (a.Score is double anomalyScore)
+                    {
+                        <dt class="col-sm-4">Anomaly score</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge @(anomalyScore >= 0.7 ? "text-bg-danger" : "text-bg-warning")">@anomalyScore.ToString("0.000")</span>
+                            <span class="small text-body-secondary">Isolation Forest (0.5 ≈ normal, 1 = most unusual)</span>
+                            @if (!string.IsNullOrEmpty(a.Details))
+                            {
+                                <div class="small mt-1">Why: @a.Details</div>
+                            }
+                        </dd>
+                    }
+
                     <dt class="col-sm-4">Matching events</dt>
                     <dd class="col-sm-8">@a.EventCount.ToString("N0")</dd>
 

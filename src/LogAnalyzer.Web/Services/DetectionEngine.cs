@@ -1,6 +1,5 @@
 using System.Data;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Models;
 using Microsoft.Data.SqlClient;
@@ -33,129 +32,84 @@ public static class UrlDecoder
 
 /// <summary>
 /// Runs all enabled detection rules over the events of one log file and stores the resulting alerts.
-/// Signature rules match a regex on a single event; threshold rules count matching events per IP
-/// inside a sliding time window. One alert is created per (rule, source IP).
+/// The matching itself is done by <see cref="DetectionCore"/>; this class streams events from the
+/// database and writes one alert per (rule, source IP) with all matching events as evidence.
 /// </summary>
-public sealed class DetectionEngine(AppDbContext db, ILogger<DetectionEngine> logger)
+public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDetector, ILogger<DetectionEngine> logger)
 {
-    // Limits the damage of a badly written (catastrophic backtracking) regex.
-    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
-
-    private sealed record EventRow(long Id, string ClientIp, DateTimeOffset Timestamp, string Method,
-        string Url, int StatusCode, string? UserAgent, string? Referrer);
-
-    private sealed class CompiledRule
-    {
-        public required DetectionRule Rule { get; init; }
-        public Regex? Pattern { get; init; }
-        public Regex? PathPattern { get; init; }
-        public TimeSpan Window { get; init; }
-    }
-
-    private sealed class Hit(string ip)
-    {
-        public string Ip { get; } = ip;
-        public HashSet<long> EventIds { get; } = [];
-        public DateTimeOffset First { get; private set; } = DateTimeOffset.MaxValue;
-        public DateTimeOffset Last { get; private set; } = DateTimeOffset.MinValue;
-
-        public void Add(long id, DateTimeOffset ts)
-        {
-            if (!EventIds.Add(id))
-                return;
-            if (ts < First) First = ts;
-            if (ts > Last) Last = ts;
-        }
-    }
-
     public async Task<int> RunAsync(int logFileId, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
 
         var rules = await db.DetectionRules.AsNoTracking().Where(r => r.IsEnabled).ToListAsync(ct);
-        var compiled = rules.Select(Compile).OfType<CompiledRule>().ToList();
+        var compiled = new List<CompiledRule>();
+        foreach (var rule in rules.Where(r => r.Kind != RuleKind.Anomaly))
+        {
+            if (DetectionCore.TryCompile(rule, out var error) is { } c)
+                compiled.Add(c);
+            else
+                logger.LogWarning("Rule {Rule} was skipped: {Error}", rule.Name, error);
+        }
 
         // Detection is repeatable: previous results for this file are replaced.
         await db.AlertEvidence.Where(e => e.Alert!.LogFileId == logFileId).ExecuteDeleteAsync(ct);
         await db.Alerts.Where(a => a.LogFileId == logFileId).ExecuteDeleteAsync(ct);
 
-        var hits = new Dictionary<(int RuleId, string Ip), Hit>();
-        var windows = new Dictionary<(int RuleId, string Ip), Queue<(DateTimeOffset Ts, long Id)>>();
-
+        var core = new DetectionCore(compiled);
+        var anomalyRules = rules.Where(r => r.Kind == RuleKind.Anomaly).ToList();
+        var features = anomalyRules.Count > 0 ? new IpFeatureAccumulator() : null;
         var events = db.LogEvents.AsNoTracking()
             .Where(e => e.LogFileId == logFileId)
             .OrderBy(e => e.Timestamp).ThenBy(e => e.LineNumber)
-            .Select(e => new EventRow(e.Id, e.ClientIp, e.Timestamp, e.Method, e.Url, e.StatusCode, e.UserAgent, e.Referrer))
+            .Select(e => new DetectionEvent(e.Id, e.ClientIp, e.Timestamp, e.Method, e.Url, e.StatusCode,
+                e.UserAgent, e.Referrer, e.ResponseSize))
             .AsAsyncEnumerable();
 
-        long scanned = 0;
         await foreach (var e in events.WithCancellation(ct))
         {
-            scanned++;
-            var url = UrlDecoder.Decode(e.Url);
-
-            foreach (var r in compiled)
-            {
-                var key = (r.Rule.Id, e.ClientIp);
-
-                if (r.Rule.Kind == RuleKind.Signature)
-                {
-                    var value = r.Rule.Field switch
-                    {
-                        RuleField.UserAgent => e.UserAgent ?? string.Empty,
-                        RuleField.Referrer => UrlDecoder.Decode(e.Referrer),
-                        _ => url
-                    };
-                    if (r.Pattern is not null && SafeMatch(r.Pattern, value))
-                        GetHit(hits, key).Add(e.Id, e.Timestamp);
-                }
-                else if (MatchesThresholdFilters(r, e, url))
-                {
-                    if (!windows.TryGetValue(key, out var window))
-                        windows[key] = window = new Queue<(DateTimeOffset, long)>();
-
-                    window.Enqueue((e.Timestamp, e.Id));
-                    while (e.Timestamp - window.Peek().Ts > r.Window)
-                        window.Dequeue();
-
-                    // Threshold reached: every event currently in the window is evidence.
-                    if (window.Count >= r.Rule.Threshold)
-                    {
-                        var hit = GetHit(hits, key);
-                        foreach (var (ts, id) in window)
-                            hit.Add(id, ts);
-                    }
-                }
-            }
+            core.Process(e);
+            features?.Add(e);
         }
 
-        var alertCount = await SaveAlertsAsync(logFileId, rules, hits, ct);
+        var findings = core.Hits.Select(h => new DetectionFinding(h, double.NaN, "")).ToList();
+        foreach (var rule in anomalyRules)
+        {
+            var anomalies = anomalyDetector.Detect(rule, features!);
+            findings.AddRange(anomalies);
+            logger.LogInformation("Anomaly rule {Rule}: {Ips} IPs profiled, {Found} anomalous",
+                rule.Name, features!.Profiles.Count, anomalies.Count);
+        }
+
+        var alertCount = await SaveAlertsAsync(logFileId, rules, findings, ct);
 
         sw.Stop();
         logger.LogInformation(
             "Detection on log file {Id}: {Events:N0} events, {Rules} rules, {Alerts} alerts in {Ms} ms",
-            logFileId, scanned, compiled.Count, alertCount, sw.ElapsedMilliseconds);
+            logFileId, core.EventsProcessed, compiled.Count + anomalyRules.Count, alertCount, sw.ElapsedMilliseconds);
         return alertCount;
     }
 
     private async Task<int> SaveAlertsAsync(int logFileId, List<DetectionRule> rules,
-        Dictionary<(int RuleId, string Ip), Hit> hits, CancellationToken ct)
+        List<DetectionFinding> hits, CancellationToken ct)
     {
         if (hits.Count == 0)
             return 0;
 
         var ruleById = rules.ToDictionary(r => r.Id);
-        var created = new List<(Alert Alert, Hit Hit)>();
+        var created = new List<(Alert Alert, RuleHit Hit)>();
 
-        foreach (var ((ruleId, ip), hit) in hits)
+        foreach (var (hit, score, details) in hits)
         {
-            var rule = ruleById[ruleId];
+            var rule = ruleById[hit.RuleId];
+            var isAnomaly = !double.IsNaN(score);
             var alert = new Alert
             {
-                Title = $"{rule.Name} from {ip}",
+                Title = isAnomaly ? $"Anomalous behaviour from {hit.Ip} (score {score:0.00})" : $"{rule.Name} from {hit.Ip}",
+                Score = isAnomaly ? Math.Round(score, 4) : null,
+                Details = isAnomaly ? details : null,
                 RuleId = rule.Id,
                 LogFileId = logFileId,
-                SourceIp = ip,
+                SourceIp = hit.Ip,
                 AttackType = rule.AttackType,
                 Severity = rule.Severity,
                 Status = AlertStatus.New,
@@ -188,59 +142,5 @@ public sealed class DetectionEngine(AppDbContext db, ILogger<DetectionEngine> lo
 
         db.ChangeTracker.Clear();
         return created.Count;
-    }
-
-    private CompiledRule? Compile(DetectionRule rule)
-    {
-        try
-        {
-            const RegexOptions options = RegexOptions.Compiled | RegexOptions.CultureInvariant;
-            var compiled = new CompiledRule
-            {
-                Rule = rule,
-                Pattern = string.IsNullOrWhiteSpace(rule.Pattern) ? null : new Regex(rule.Pattern, options, RegexTimeout),
-                PathPattern = string.IsNullOrWhiteSpace(rule.PathPattern) ? null : new Regex(rule.PathPattern, options, RegexTimeout),
-                Window = TimeSpan.FromSeconds(rule.WindowSeconds ?? 60)
-            };
-
-            var usable = rule.Kind == RuleKind.Signature
-                ? compiled.Pattern is not null
-                : rule.Threshold is > 0;
-            if (!usable)
-            {
-                logger.LogWarning("Rule {Rule} is incomplete and was skipped", rule.Name);
-                return null;
-            }
-            return compiled;
-        }
-        catch (ArgumentException ex)
-        {
-            logger.LogWarning(ex, "Rule {Rule} has an invalid regex and was skipped", rule.Name);
-            return null;
-        }
-    }
-
-    private static bool MatchesThresholdFilters(CompiledRule r, EventRow e, string decodedUrl) =>
-        (r.Rule.MethodFilter is null || string.Equals(r.Rule.MethodFilter, e.Method, StringComparison.OrdinalIgnoreCase))
-        && (r.Rule.StatusFilter is null || r.Rule.StatusFilter == e.StatusCode)
-        && (r.PathPattern is null || SafeMatch(r.PathPattern, decodedUrl));
-
-    private static bool SafeMatch(Regex regex, string input)
-    {
-        try
-        {
-            return regex.IsMatch(input);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            return false;
-        }
-    }
-
-    private static Hit GetHit(Dictionary<(int, string), Hit> hits, (int, string Ip) key)
-    {
-        if (!hits.TryGetValue(key, out var hit))
-            hits[key] = hit = new Hit(key.Ip);
-        return hit;
     }
 }

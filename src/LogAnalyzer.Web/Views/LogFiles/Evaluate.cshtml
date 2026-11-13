@@ -102,4 +102,37 @@
             </div>
         </div>
     </div>
+
+    <h3 class="h6 mt-4">Rules vs. anomaly detection (RQ2)</h3>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th>Detector</th>
+                    <th class="text-end">TP</th><th class="text-end">FP</th><th class="text-end">FN</th><th class="text-end">TN</th>
+                    <th class="text-end">Precision</th><th class="text-end">Recall</th><th class="text-end">F1</th><th class="text-end">FPR</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var m in r.Comparison)
+                {
+                    <tr>
+                        <td>@m.Name</td>
+                        <td class="text-end">@m.TP</td>
+                        <td class="text-end">@m.FP</td>
+                        <td class="text-end">@m.FN</td>
+                        <td class="text-end">@m.TN</td>
+                        <td class="text-end">@Format.Percent(m.Precision)</td>
+                        <td class="text-end">@Format.Percent(m.Recall)</td>
+                        <td class="text-end">@Format.Percent(m.F1)</td>
+                        <td class="text-end">@Format.Percent(m.FalsePositiveRate)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="small text-body-secondary">
+        Anomaly alerts are per IP, so all requests of a flagged IP count as flagged. If the anomaly rule is disabled,
+        its row is empty. Re-run detection after changing rules, then evaluate again.
+    </div>
 }

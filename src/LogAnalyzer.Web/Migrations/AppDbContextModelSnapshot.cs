@@ -41,6 +41,10 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Details")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<int>("EventCount")
                         .HasColumnType("int");
 
@@ -63,6 +67,9 @@ namespace LogAnalyzer.Web.Migrations
 
                     b.Property<int>("RuleId")
                         .HasColumnType("int");
+
+                    b.Property<double?>("Score")
+                        .HasColumnType("float");
 
                     b.Property<string>("Severity")
                         .IsRequired()
@@ -144,6 +151,9 @@ namespace LogAnalyzer.Web.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("Email")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
@@ -155,6 +165,12 @@ namespace LogAnalyzer.Web.Migrations
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
+
+                    b.Property<bool>("IsDisabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("bit");
@@ -295,6 +311,9 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<string>("Pattern")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
+
+                    b.Property<double?>("ScoreThreshold")
+                        .HasColumnType("float");
 
                     b.Property<string>("Severity")
                         .IsRequired()

@@ -71,6 +71,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Notes).HasMaxLength(4000);
             e.Property(x => x.OriginalSeverity).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.SeverityNote).HasMaxLength(300);
+            e.Property(x => x.Details).HasMaxLength(1000);
             e.HasOne(x => x.Rule).WithMany(r => r.Alerts)
                 .HasForeignKey(x => x.RuleId)
                 .OnDelete(DeleteBehavior.Restrict);

@@ -17,6 +17,9 @@ public sealed class EvaluationResult
 {
     public required Metrics Overall { get; init; }
     public required List<Metrics> PerAttackType { get; init; }
+
+    /// <summary>RQ2: rules only vs. anomaly detection only vs. both together.</summary>
+    public required List<Metrics> Comparison { get; init; }
     public int LabelledLines { get; init; }
     public int IgnoredLines { get; init; }
 }
@@ -55,13 +58,17 @@ public sealed class EvaluationService(AppDbContext db)
 
     public async Task<EvaluationResult> EvaluateAsync(int logFileId, Dictionary<int, string> labels, CancellationToken ct)
     {
-        // Line number -> attack types of the alerts that flagged it
-        var flagged = (await db.AlertEvidence.AsNoTracking()
-                .Where(e => e.Alert!.LogFileId == logFileId)
-                .Select(e => new { e.LogEvent!.LineNumber, e.Alert!.AttackType })
-                .ToListAsync(ct))
+        // Line number -> attack types of the alerts that flagged it, split by detector family
+        var evidence = await db.AlertEvidence.AsNoTracking()
+            .Where(e => e.Alert!.LogFileId == logFileId)
+            .Select(e => new { e.LogEvent!.LineNumber, e.Alert!.AttackType, IsAnomaly = e.Alert.Rule!.Kind == RuleKind.Anomaly })
+            .ToListAsync(ct);
+        var flagged = evidence
             .GroupBy(x => x.LineNumber)
             .ToDictionary(g => g.Key, g => g.Select(x => x.AttackType).ToHashSet());
+        var byRules = evidence.Where(x => !x.IsAnomaly).Select(x => x.LineNumber).ToHashSet();
+        var byAnomaly = evidence.Where(x => x.IsAnomaly).Select(x => x.LineNumber).ToHashSet();
+        var comparison = new[] { new int[4], new int[4], new int[4] }; // rules, anomaly, both
 
         var eventLines = (await db.LogEvents.AsNoTracking()
                 .Where(e => e.LogFileId == logFileId)
@@ -89,6 +96,10 @@ public sealed class EvaluationService(AppDbContext db)
             else if (isMalicious) fn++;
             else tn++;
 
+            Count(comparison[0], isMalicious, byRules.Contains(lineNo));
+            Count(comparison[1], isMalicious, byAnomaly.Contains(lineNo));
+            Count(comparison[2], isMalicious, byRules.Contains(lineNo) || byAnomaly.Contains(lineNo));
+
             LabelMap.TryGetValue(label, out var trueType);
             foreach (var (type, c) in perType)
             {
@@ -107,8 +118,23 @@ public sealed class EvaluationService(AppDbContext db)
             PerAttackType = perType
                 .Select(p => new Metrics(p.Key.ToString(), p.Value[0], p.Value[1], p.Value[2], p.Value[3]))
                 .ToList(),
+            Comparison =
+            [
+                new Metrics("Rules only (signature + threshold)", comparison[0][0], comparison[0][1], comparison[0][2], comparison[0][3]),
+                new Metrics("Anomaly detection only (Isolation Forest)", comparison[1][0], comparison[1][1], comparison[1][2], comparison[1][3]),
+                new Metrics("Rules + anomaly detection", comparison[2][0], comparison[2][1], comparison[2][2], comparison[2][3])
+            ],
             LabelledLines = labels.Count - ignored,
             IgnoredLines = ignored
         };
+    }
+
+    // c = TP, FP, FN, TN
+    private static void Count(int[] c, bool actual, bool predicted)
+    {
+        if (actual && predicted) c[0]++;
+        else if (!actual && predicted) c[1]++;
+        else if (actual) c[2]++;
+        else c[3]++;
     }
 }

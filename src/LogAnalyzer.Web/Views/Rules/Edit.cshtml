@@ -1,0 +1,192 @@
+@model RuleFormModel
+@{
+    var isNew = Model.Id is null;
+    ViewData["Title"] = isNew ? "New rule" : $"Edit {Model.Name}";
+    var t = Model.TestResult;
+}
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a asp-action="Index">Rules</a></li>
+        <li class="breadcrumb-item active">@(isNew ? "New rule" : Model.Name)</li>
+    </ol>
+</nav>
+
+<h1 class="h3 mb-3">@(isNew ? "New detection rule" : "Edit rule")</h1>
+
+<form asp-action="Save" method="post">
+    <input type="hidden" asp-for="Id" />
+    <div asp-validation-summary="All" class="text-danger small mb-3"></div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card"><div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label asp-for="Name" class="form-label small"></label>
+                        <input asp-for="Name" class="form-control" maxlength="150" />
+                    </div>
+                    <div class="col-md-4">
+                        <label asp-for="Kind" class="form-label small">Kind</label>
+                        <select asp-for="Kind" asp-items="Html.GetEnumSelectList<RuleKind>()" class="form-select"></select>
+                    </div>
+                    <div class="col-12">
+                        <label asp-for="Description" class="form-label small"></label>
+                        <input asp-for="Description" class="form-control" maxlength="1000" />
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="AttackType" class="form-label small"></label>
+                        <select asp-for="AttackType" asp-items="Html.GetEnumSelectList<AttackType>()" class="form-select"></select>
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Severity" class="form-label small"></label>
+                        <select asp-for="Severity" asp-items="Html.GetEnumSelectList<Severity>()" class="form-select"></select>
+                    </div>
+
+                    @* ---- Signature ---- *@
+                    <div class="col-md-4" data-kind="0">
+                        <label asp-for="Field" class="form-label small">Field</label>
+                        <select asp-for="Field" asp-items="Html.GetEnumSelectList<RuleField>()" class="form-select"></select>
+                    </div>
+                    <div class="col-12" data-kind="0">
+                        <label asp-for="Pattern" class="form-label small">Pattern (.NET regular expression)</label>
+                        <textarea asp-for="Pattern" rows="3" class="form-control font-monospace" maxlength="2000"></textarea>
+                        <div class="form-text">
+                            Matched against the URL after URL-decoding (twice), or the raw user agent / referrer.
+                            Use <code>(?i)</code> for case-insensitive. Patterns that backtrack badly on long input are rejected.
+                        </div>
+                    </div>
+
+                    @* ---- Threshold ---- *@
+                    <div class="col-md-4" data-kind="1">
+                        <label asp-for="Threshold" class="form-label small">Threshold (requests)</label>
+                        <input asp-for="Threshold" class="form-control" />
+                    </div>
+                    <div class="col-md-4" data-kind="1">
+                        <label asp-for="WindowSeconds" class="form-label small"></label>
+                        <input asp-for="WindowSeconds" class="form-control" />
+                    </div>
+                    <div class="col-md-4" data-kind="1">
+                        <label asp-for="MethodFilter" class="form-label small"></label>
+                        <input asp-for="MethodFilter" class="form-control" placeholder="any" maxlength="16" />
+                    </div>
+                    <div class="col-md-4" data-kind="1">
+                        <label asp-for="StatusFilter" class="form-label small"></label>
+                        <input asp-for="StatusFilter" class="form-control" placeholder="any" />
+                    </div>
+                    <div class="col-md-8" data-kind="1">
+                        <label asp-for="PathPattern" class="form-label small"></label>
+                        <input asp-for="PathPattern" class="form-control font-monospace" placeholder="any path" maxlength="500" />
+                    </div>
+                    <div class="col-12 form-text mt-0" data-kind="1">
+                        Alert when one IP sends at least <em>Threshold</em> matching requests inside a sliding window.
+                    </div>
+
+                    @* ---- Anomaly ---- *@
+                    <div class="col-md-6" data-kind="2">
+                        <label asp-for="Threshold" class="form-label small">Minimum requests per IP</label>
+                        <input asp-for="Threshold" class="form-control" id="AnomalyMinRequests" />
+                    </div>
+                    <div class="col-md-6" data-kind="2">
+                        <label asp-for="ScoreThreshold" class="form-label small"></label>
+                        <input asp-for="ScoreThreshold" class="form-control" step="0.01" min="0.5" max="1" />
+                    </div>
+                    <div class="col-12 form-text mt-0" data-kind="2">
+                        An Isolation Forest is trained on the behaviour of all IPs in the log file (request rate, error ratio,
+                        unique paths, URL length, special characters, …). IPs scoring at or above the threshold are flagged.
+                        0.5 ≈ normal, values near 1 = very unusual.
+                    </div>
+
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input asp-for="IsEnabled" class="form-check-input" />
+                            <label asp-for="IsEnabled" class="form-check-label"></label>
+                        </div>
+                    </div>
+                </div>
+            </div></div>
+
+            <div class="mt-3 d-flex gap-2">
+                <button type="submit" name="intent" value="save" class="btn btn-primary"><i class="bi bi-check2"></i> Save rule</button>
+                <a asp-action="Index" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card"><div class="card-body">
+                <h2 class="h6">Test before saving</h2>
+                <p class="small text-body-secondary">Runs this rule (as currently typed) over a log file. No alerts are created.</p>
+                @if (Model.LogFiles.Count == 0)
+                {
+                    <p class="small mb-0">Upload and process a log file first.</p>
+                }
+                else
+                {
+                    <div class="d-flex gap-2">
+                        <select asp-for="TestLogFileId" class="form-select form-select-sm">
+                            @foreach (var f in Model.LogFiles)
+                            {
+                                <option value="@f.Id" selected="@(f.Id == Model.TestLogFileId)">#@f.Id · @f.FileName (@f.Lines.ToString("N0") lines)</option>
+                            }
+                        </select>
+                        <button type="submit" name="intent" value="test" class="btn btn-sm btn-outline-primary text-nowrap">
+                            <i class="bi bi-play"></i> Test
+                        </button>
+                    </div>
+                }
+
+                @if (t is not null && t.Errors.Count == 0)
+                {
+                    <hr />
+                    <dl class="row small mb-2">
+                        <dt class="col-7 fw-normal text-body-secondary">Events scanned</dt>
+                        <dd class="col-5">@t.EventsScanned.ToString("N0")@(t.Truncated ? " (limit)" : "")</dd>
+                        <dt class="col-7 fw-normal text-body-secondary">Matching events</dt>
+                        <dd class="col-5 fw-semibold">@t.MatchedEvents.ToString("N0")</dd>
+                        <dt class="col-7 fw-normal text-body-secondary">Alerts it would create</dt>
+                        <dd class="col-5 fw-semibold">@t.AlertsWouldBeCreated</dd>
+                        <dt class="col-7 fw-normal text-body-secondary">Duration</dt>
+                        <dd class="col-5">@t.DurationMs ms</dd>
+                    </dl>
+                    @if (t.TopIps.Count > 0)
+                    {
+                        <div class="small text-body-secondary">Top source IPs</div>
+                        <ul class="small mb-0">
+                            @foreach (var (ip, events) in t.TopIps)
+                            {
+                                <li><span class="font-monospace">@ip</span> – @events.ToString("N0") event(s)</li>
+                            }
+                        </ul>
+                    }
+                }
+            </div></div>
+        </div>
+    </div>
+</form>
+
+@if (t is not null && t.Samples.Count > 0)
+{
+    <h2 class="h5 mt-4">Sample matches <span class="small text-body-secondary">(first @t.Samples.Count)</span></h2>
+    <div class="table-responsive">
+        <table class="table table-sm small align-middle">
+            <thead><tr><th>Line</th><th>IP</th><th>Method</th><th>URL (decoded)</th><th>Status</th><th>User agent</th></tr></thead>
+            <tbody>
+                @foreach (var e in t.Samples)
+                {
+                    <tr>
+                        <td class="text-body-secondary">@e.LineNumber</td>
+                        <td class="font-monospace">@e.ClientIp</td>
+                        <td>@e.Method</td>
+                        <td class="font-monospace text-break url-cell">@UrlDecoder.Decode(e.Url)</td>
+                        <td class="@Format.HttpStatusClass(e.StatusCode)">@e.StatusCode</td>
+                        <td class="text-body-secondary ua-cell" title="@e.UserAgent">@e.UserAgent</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@section Scripts {
+    <script src="~/js/rule-form.js" asp-append-version="true"></script>
+}

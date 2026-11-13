@@ -7,6 +7,11 @@ public class AppUser : IdentityUser
 {
     public string FullName { get; set; } = string.Empty;
 
+    /// <summary>Disabled by an administrator: cannot sign in (the account and its history are kept).</summary>
+    public bool IsDisabled { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastLoginAt { get; set; }
+
     // When the user last opened these pages; drives the "new since last visit" nav badges.
     public DateTime? AlertsSeenAt { get; set; }
     public DateTime? RulesSeenAt { get; set; }
@@ -74,6 +79,9 @@ public class DetectionRule
     public string? PathPattern { get; set; }    // regex on URL, e.g. "login"
     public int? StatusFilter { get; set; }      // e.g. 404
 
+    // Anomaly rules: Threshold = minimum requests per IP, ScoreThreshold = Isolation Forest score (0.5-1)
+    public double? ScoreThreshold { get; set; }
+
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -99,6 +107,10 @@ public class Alert
     public DateTimeOffset FirstSeen { get; set; }
     public DateTimeOffset LastSeen { get; set; }
     public int EventCount { get; set; }
+
+    // Anomaly alerts: Isolation Forest score and the features that made the IP stand out.
+    public double? Score { get; set; }
+    public string? Details { get; set; }
 
     // Set when threat intelligence changed the severity (e.g. GreyNoise says the IP is a benign scanner).
     public Severity? OriginalSeverity { get; set; }

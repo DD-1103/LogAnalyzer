@@ -28,11 +28,15 @@ public enum Severity
     Critical = 3
 }
 
-/// <summary>Signature = regex match on a single event. Threshold = N matching events from one IP within a time window.</summary>
+/// <summary>
+/// Signature = regex match on a single event. Threshold = N matching events from one IP within a time window.
+/// Anomaly = Isolation Forest over per-IP behaviour features (no fixed pattern).
+/// </summary>
 public enum RuleKind
 {
     Signature = 0,
-    Threshold = 1
+    Threshold = 1,
+    Anomaly = 2
 }
 
 /// <summary>Which field of a log event a signature rule inspects.</summary>

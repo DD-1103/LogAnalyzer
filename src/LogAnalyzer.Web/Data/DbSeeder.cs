@@ -31,28 +31,37 @@ public static class DbSeeder
                 await roleManager.CreateAsync(new IdentityRole(role));
         }
 
-        // First admin account (credentials from configuration / user secrets)
+        // First admin account (credentials from configuration / user secrets) and, in development,
+        // a demo analyst account. Created only if missing; never overwritten.
         var userManager = sp.GetRequiredService<UserManager<AppUser>>();
-        var email = config["SeedAdmin:Email"];
-        var password = config["SeedAdmin:Password"];
-        if (!string.IsNullOrWhiteSpace(email) && !string.IsNullOrWhiteSpace(password)
-            && await userManager.FindByEmailAsync(email) is null)
-        {
-            var admin = new AppUser { UserName = email, Email = email, EmailConfirmed = true, FullName = "Administrator" };
-            var result = await userManager.CreateAsync(admin, password);
-            if (result.Succeeded)
-                await userManager.AddToRoleAsync(admin, Roles.Admin);
-            else
-                logger.LogError("Could not create seed admin: {Errors}",
-                    string.Join("; ", result.Errors.Select(e => e.Description)));
-        }
+        await SeedUserAsync(userManager, config, "SeedAdmin", "Administrator", Roles.Admin, logger);
+        await SeedUserAsync(userManager, config, "SeedAnalyst", "Demo Analyst", Roles.Analyst, logger);
 
         // Default detection rules
-        if (!await db.DetectionRules.AnyAsync())
+        // (The Isolation Forest anomaly rule is inserted by the AnomalyDetection migration.)
+        if (!await db.DetectionRules.AnyAsync(r => r.Kind != RuleKind.Anomaly))
         {
             db.DetectionRules.AddRange(DefaultRules());
             await db.SaveChangesAsync();
         }
+    }
+
+    private static async Task SeedUserAsync(UserManager<AppUser> userManager, IConfiguration config,
+        string section, string fullName, string role, ILogger logger)
+    {
+        var email = config[$"{section}:Email"];
+        var password = config[$"{section}:Password"];
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password)
+            || await userManager.FindByEmailAsync(email) is not null)
+            return;
+
+        var user = new AppUser { UserName = email, Email = email, EmailConfirmed = true, FullName = fullName };
+        var result = await userManager.CreateAsync(user, password);
+        if (result.Succeeded)
+            await userManager.AddToRoleAsync(user, role);
+        else
+            logger.LogError("Could not create seed user {Section}: {Errors}", section,
+                string.Join("; ", result.Errors.Select(e => e.Description)));
     }
 
     private static IEnumerable<DetectionRule> DefaultRules() =>

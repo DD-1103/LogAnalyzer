@@ -12,7 +12,7 @@
     <h1 class="h3 mb-0">Dashboard</h1>
     <form method="get" asp-action="Index" class="d-flex align-items-center gap-2">
         <label for="logFileId" class="small text-body-secondary text-nowrap">Scope</label>
-        <select id="logFileId" name="logFileId" class="form-select form-select-sm" onchange="this.form.submit()">
+        <select id="logFileId" name="logFileId" class="form-select form-select-sm js-autosubmit">
             <option value="">All log files</option>
             @foreach (var f in Model.Files)
             {

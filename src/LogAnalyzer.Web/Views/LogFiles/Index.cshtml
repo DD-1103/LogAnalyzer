@@ -68,8 +68,8 @@ else
                             <a asp-action="Details" asp-route-id="@f.Id" class="btn btn-sm btn-outline-secondary">View</a>
                             @if (isAdmin)
                             {
-                                <form asp-action="Delete" asp-route-id="@f.Id" method="post" class="d-inline"
-                                      onsubmit="return confirm('Delete this log file and all its events?');">
+                                <form asp-action="Delete" asp-route-id="@f.Id" method="post" class="d-inline js-confirm"
+                                      data-confirm="Delete this log file and all its events?">
                                     <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
                                 </form>
                             }

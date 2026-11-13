@@ -5,23 +5,45 @@
     var isAdmin = User.IsInRole(Roles.Admin);
 }
 
-<h1 class="h3 mb-4">Detection rules</h1>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+    <h1 class="h3 mb-0">Detection rules</h1>
+    @if (isAdmin)
+    {
+        <div class="dropdown">
+            <button class="btn btn-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                <i class="bi bi-plus-lg"></i> New rule
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" asp-action="Create" asp-route-kind="Signature">Signature (regex on one request)</a></li>
+                <li><a class="dropdown-item" asp-action="Create" asp-route-kind="Threshold">Threshold (N requests in a window)</a></li>
+                <li><a class="dropdown-item" asp-action="Create" asp-route-kind="Anomaly">Anomaly (Isolation Forest)</a></li>
+            </ul>
+        </div>
+    }
+</div>
+
+@if (!isAdmin)
+{
+    <p class="small text-body-secondary">Only administrators can change rules.</p>
+}
 
 <div class="table-responsive">
     <table class="table align-middle">
         <thead>
             <tr>
                 <th>Rule</th>
-                <th>Type</th>
+                <th>Kind</th>
                 <th>Severity</th>
                 <th>Logic</th>
                 <th class="text-end">Alerts</th>
                 <th>Enabled</th>
+                @if (isAdmin) { <th></th> }
             </tr>
         </thead>
         <tbody>
             @foreach (var r in Model)
             {
+                var alertCount = counts.TryGetValue(r.Id, out var c) ? c : 0;
                 <tr class="@(r.IsEnabled ? "" : "opacity-50")">
                     <td>
                         <div class="fw-semibold">@r.Name</div>
@@ -31,24 +53,33 @@
                     <td><span class="badge text-bg-secondary">@r.Kind</span></td>
                     <td><span class="badge @Format.SeverityBadge(r.Severity)">@r.Severity</span></td>
                     <td class="small">
-                        @if (r.Kind == RuleKind.Signature)
+                        @switch (r.Kind)
                         {
-                            <div>Regex on <strong>@r.Field</strong>:</div>
-                            <code class="text-break rule-pattern">@r.Pattern</code>
-                        }
-                        else
-                        {
-                            <div>
-                                ≥ <strong>@r.Threshold</strong> requests from one IP in <strong>@r.WindowSeconds s</strong>
-                            </div>
-                            <div class="text-body-secondary">
-                                @if (r.MethodFilter is not null) { <span>method = @r.MethodFilter; </span> }
-                                @if (r.StatusFilter is not null) { <span>status = @r.StatusFilter; </span> }
-                                @if (r.PathPattern is not null) { <span>path ~ <code>@r.PathPattern</code></span> }
-                            </div>
+                            case RuleKind.Signature:
+                                <div>Regex on <strong>@r.Field</strong>:</div>
+                                <code class="text-break rule-pattern">@r.Pattern</code>
+                                break;
+                            case RuleKind.Threshold:
+                                <div>≥ <strong>@r.Threshold</strong> requests from one IP in <strong>@r.WindowSeconds s</strong></div>
+                                <div class="text-body-secondary">
+                                    @if (r.MethodFilter is not null) { <span>method = @r.MethodFilter; </span> }
+                                    @if (r.StatusFilter is not null) { <span>status = @r.StatusFilter; </span> }
+                                    @if (r.PathPattern is not null) { <span>path ~ <code>@r.PathPattern</code></span> }
+                                </div>
+                                break;
+                            default:
+                                <div>Isolation Forest score ≥ <strong>@r.ScoreThreshold?.ToString("0.00")</strong></div>
+                                <div class="text-body-secondary">IPs with at least @r.Threshold requests; 11 behaviour features</div>
+                                break;
                         }
                     </td>
-                    <td class="text-end">@(counts.TryGetValue(r.Id, out var c) ? c : 0)</td>
+                    <td class="text-end">
+                        @if (alertCount > 0)
+                        {
+                            <a asp-controller="Alerts" asp-action="Index" asp-route-attackType="@r.AttackType">@alertCount</a>
+                        }
+                        else { @alertCount }
+                    </td>
                     <td>
                         @if (isAdmin)
                         {
@@ -63,6 +94,19 @@
                             @(r.IsEnabled ? "On" : "Off")
                         }
                     </td>
+                    @if (isAdmin)
+                    {
+                        <td class="text-nowrap">
+                            <a asp-action="Edit" asp-route-id="@r.Id" class="btn btn-sm btn-outline-secondary" title="Edit / test"><i class="bi bi-pencil"></i></a>
+                            @if (alertCount == 0)
+                            {
+                                <form asp-action="Delete" asp-route-id="@r.Id" method="post" class="d-inline js-confirm"
+                                      data-confirm="Delete rule '@r.Name'? This cannot be undone.">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
+                                </form>
+                            }
+                        </td>
+                    }
                 </tr>
             }
         </tbody>
