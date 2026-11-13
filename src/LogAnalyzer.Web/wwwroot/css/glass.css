@@ -1053,6 +1053,243 @@ hr { border-color: var(--lg-hairline); opacity: 1; }
 ::view-transition-old(root),
 ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 
+/* ---------------------------------------------------------------- 9b. Liquid Glass (clear material)
+   iOS 26/27 look: the glass is clear instead of frosted. Almost no blur and only a faint tint, so the
+   backdrop stays visible; bright specular edges give it thickness; on Chromium the backdrop is also
+   bent by an SVG lens filter (html.lg-refract, filters in Shared/_LiquidGlassFilters.cshtml).
+   Two materials, as on iOS:
+     clear   - chrome that sits on the backdrop: nav, stat tiles, toolbars, buttons, breadcrumbs
+     regular - content: cards and tables with text get a little more tint and blur to stay readable */
+:root,
+:root[data-bs-theme="light"] {
+    --lg-clear: rgba(255, 255, 255, .16);
+    --lg-regular: rgba(255, 255, 255, .36);
+    --lg-clear-blur: 1.5px;
+    --lg-regular-blur: 5px;
+    --lg-glass-sat: 190%;
+    --lg-spec-top: rgba(255, 255, 255, .95);
+    --lg-spec-side: rgba(255, 255, 255, .5);
+    --lg-spec-bottom: rgba(255, 255, 255, .6);
+    --lg-inner-glow: rgba(255, 255, 255, .32);
+    --lg-glass-shadow: 0 12px 30px -16px rgba(var(--lg-shadow-rgb), .38), 0 2px 6px -3px rgba(var(--lg-shadow-rgb), .2);
+    --lg-surface: var(--lg-regular);
+    --lg-surface-hover: rgba(255, 255, 255, .5);
+    --lg-surface-strong: rgba(255, 255, 255, .78);
+    --lg-orb-opacity: .5;
+}
+:root[data-bs-theme="dark"] {
+    --lg-clear: rgba(46, 54, 80, .2);
+    --lg-regular: rgba(32, 38, 58, .5);
+    --lg-spec-top: rgba(255, 255, 255, .5);
+    --lg-spec-side: rgba(255, 255, 255, .16);
+    --lg-spec-bottom: rgba(255, 255, 255, .22);
+    --lg-inner-glow: rgba(170, 200, 255, .12);
+    --lg-glass-shadow: 0 14px 34px -16px rgba(0, 0, 0, .6), 0 2px 6px -3px rgba(0, 0, 0, .4);
+    --lg-surface: var(--lg-regular);
+    --lg-surface-hover: rgba(70, 80, 112, .5);
+    --lg-surface-strong: rgba(36, 42, 62, .88);
+    --lg-orb-opacity: .4;
+}
+:root {
+    /* Specular edges: bright top rim, softer sides and bottom, glow inside the glass */
+    --lg-specular:
+        inset 0 1px 0 var(--lg-spec-top),
+        inset 1px 0 0 var(--lg-spec-side),
+        inset -1px 0 0 var(--lg-spec-side),
+        inset 0 -1px 0 var(--lg-spec-bottom),
+        inset 0 0 22px var(--lg-inner-glow);
+}
+
+/* Sharper backdrop: less blur on the aurora, plus crisp marbles for the glass to bend */
+.lg-blob { filter: blur(42px); }
+.lg-orb {
+    position: absolute;
+    border-radius: 50%;
+    opacity: var(--lg-orb-opacity);
+    will-change: transform;
+    animation: lg-float 34s var(--lg-ease) infinite alternate;
+    transition: opacity 1.2s var(--lg-ease);
+    background:
+        radial-gradient(circle at 32% 28%, rgba(255, 255, 255, .9), rgba(255, 255, 255, 0) 24%),
+        radial-gradient(circle at 50% 50%, rgb(var(--o)) 0, rgba(var(--o), .82) 55%, rgba(var(--o), .55) 69.5%, transparent 70.5%);
+}
+.lg-orb:nth-child(5) { --o: var(--lg-teal-rgb);   width: 15vmax; height: 15vmax; top: 20vmax; left: 16vmax; }
+.lg-orb:nth-child(6) { --o: var(--lg-indigo-rgb); width: 22vmax; height: 22vmax; top: 12vmax; right: 18vmax; animation-duration: 41s; animation-delay: -9s; }
+.lg-orb:nth-child(7) { --o: var(--lg-orange-rgb); width: 11vmax; height: 11vmax; top: 48vmax; left: 46vmax; animation-duration: 29s; animation-delay: -15s; }
+.lg-orb:nth-child(8) { --o: var(--lg-green-rgb);  width: 17vmax; height: 17vmax; top: 60vmax; right: 22vmax; animation-duration: 37s; animation-delay: -4s; }
+.lg-orb:nth-child(9) { --o: var(--lg-red-rgb);    width: 9vmax;  height: 9vmax;  top: 34vmax; left: 62vmax; animation-duration: 45s; animation-delay: -22s; }
+@keyframes lg-float {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(6vmax, -4vmax, 0) scale(1.08); }
+    100% { transform: translate3d(-5vmax, 5vmax, 0) scale(.94); }
+}
+
+/* -- Material: regular (content panels) */
+.card,
+.lg-panel,
+.lg-glass,
+.table-responsive,
+.list-group:not(.list-group-flush),
+.alert {
+    background-color: var(--lg-regular);
+    -webkit-backdrop-filter: blur(var(--lg-regular-blur)) saturate(var(--lg-glass-sat)) brightness(1.05);
+    backdrop-filter: blur(var(--lg-regular-blur)) saturate(var(--lg-glass-sat)) brightness(1.05);
+    border-color: transparent;
+    box-shadow: var(--lg-specular), var(--lg-glass-shadow);
+}
+.alert { background-image: linear-gradient(135deg, rgba(var(--lg-a-rgb), .2), rgba(var(--lg-a-rgb), .06)); }
+
+/* -- Material: clear (chrome) */
+.lg-nav,
+.lg-stat,
+.card.lg-stat,
+.lg-toolbar,
+.breadcrumb,
+.lg-icon-btn,
+[class*="btn-outline-"],
+.pagination .page-link {
+    background-color: var(--lg-clear);
+    -webkit-backdrop-filter: blur(var(--lg-clear-blur)) saturate(var(--lg-glass-sat)) brightness(1.06);
+    backdrop-filter: blur(var(--lg-clear-blur)) saturate(var(--lg-glass-sat)) brightness(1.06);
+    border-color: transparent;
+    box-shadow: var(--lg-specular), var(--lg-glass-shadow);
+}
+.lg-scrolled .lg-nav { background-color: var(--lg-regular); box-shadow: var(--lg-specular), var(--lg-shadow-lift); }
+
+/* Hover / glow states keep the specular edges */
+a.card:hover, .card.lg-hover:hover, .lg-stat:hover {
+    box-shadow: var(--lg-specular), var(--lg-shadow-lift);
+}
+.lg-glow.card, .lg-glow.lg-panel {
+    box-shadow: var(--lg-specular), 0 0 0 1px rgba(var(--t, var(--lg-accent-rgb)), .45),
+                0 20px 46px -20px rgba(var(--t, var(--lg-accent-rgb)), .75);
+}
+/* Never stack glass on glass (restated: the material rules above come later in the file) */
+.card .table-responsive,
+.lg-panel .table-responsive,
+.card .card,
+.card .list-group {
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+}
+
+/* Rim light that follows the pointer: a bright specular line around the clear glass */
+.card::before, .lg-panel::before, .lg-glass::before, .table-responsive::before {
+    background:
+        radial-gradient(220px circle at var(--mx, 30%) var(--my, -20%), var(--lg-rim-glow), transparent 55%),
+        linear-gradient(150deg, var(--lg-spec-top) 0%, transparent 28%, transparent 70%, var(--lg-spec-bottom) 100%);
+}
+
+/* -- Buttons as glass */
+.btn-outline-secondary, .btn-outline-light, .btn-outline-dark {
+    --bs-btn-bg: var(--lg-clear);
+    --bs-btn-hover-bg: var(--lg-surface-hover);
+    --bs-btn-active-bg: var(--lg-regular);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-border-color: transparent;
+}
+[class*="btn-outline-"]:not(.btn-outline-secondary):not(.btn-outline-light):not(.btn-outline-dark) {
+    --bs-btn-border-color: rgba(var(--lg-btn-rgb), .35);
+}
+[class*="btn-outline-"]:hover { box-shadow: var(--lg-specular), 0 10px 24px -12px rgba(var(--lg-btn-rgb), .7); }
+[class*="btn-outline-"]:active { box-shadow: var(--lg-specular), inset 0 2px 8px rgba(var(--lg-shadow-rgb), .2); }
+
+/* Filled buttons become tinted glass: colour you can almost see through, with a glass rim */
+.btn-primary, .btn-danger, .btn-success, .btn-secondary {
+    --bs-btn-bg: rgba(var(--lg-btn-ink-rgb), .86);
+    --bs-btn-hover-bg: rgba(var(--lg-btn-ink-rgb), .92);
+    --bs-btn-active-bg: rgba(var(--lg-btn-ink-rgb), .96);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-border-color: transparent;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, .3), rgba(255, 255, 255, 0) 52%);
+    -webkit-backdrop-filter: blur(2px) saturate(180%);
+    backdrop-filter: blur(2px) saturate(180%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .7),
+        inset 0 -1px 0 rgba(255, 255, 255, .25),
+        inset 0 0 14px rgba(255, 255, 255, .18),
+        0 8px 20px -10px rgba(var(--lg-btn-rgb), .9);
+}
+:root[data-bs-theme="dark"] .btn-primary,
+:root[data-bs-theme="dark"] .btn-danger,
+:root[data-bs-theme="dark"] .btn-success,
+:root[data-bs-theme="dark"] .btn-secondary {
+    --bs-btn-bg: rgba(var(--lg-btn-rgb), .8);
+    --bs-btn-hover-bg: rgba(var(--lg-btn-rgb), .88);
+    --bs-btn-active-bg: rgba(var(--lg-btn-rgb), .94);
+}
+.btn-primary:hover, .btn-danger:hover, .btn-success:hover, .btn-secondary:hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8), inset 0 0 16px rgba(255, 255, 255, .24),
+                0 14px 28px -12px rgba(var(--lg-btn-rgb), .95);
+}
+
+/* Navigation: the active item is a clear glass droplet */
+.lg-nav .nav-link.active {
+    background: var(--lg-clear);
+    box-shadow: var(--lg-specular), 0 6px 16px -10px rgba(var(--lg-shadow-rgb), .55);
+}
+.lg-nav .nav-link:hover { background: rgba(255, 255, 255, .14); }
+
+/* Menus stay readable: regular material, a bit denser */
+.dropdown-menu {
+    --bs-dropdown-bg: var(--lg-surface-strong);
+    box-shadow: var(--lg-specular), var(--lg-shadow-lift);
+}
+
+/* Inputs: clear wells */
+.form-control, .form-select {
+    background-color: rgba(255, 255, 255, .3);
+    box-shadow: inset 0 1px 3px rgba(var(--lg-shadow-rgb), .1), inset 0 -1px 0 rgba(255, 255, 255, .4);
+}
+:root[data-bs-theme="dark"] .form-control,
+:root[data-bs-theme="dark"] .form-select {
+    background-color: rgba(10, 14, 26, .28);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .3), inset 0 -1px 0 rgba(255, 255, 255, .08);
+}
+
+/* -- Lens refraction (Chromium). Blur stays tiny so the bending reads as clear glass. */
+html.lg-refract .card,
+html.lg-refract .lg-panel,
+html.lg-refract .lg-glass,
+html.lg-refract .table-responsive,
+html.lg-refract .list-group:not(.list-group-flush),
+html.lg-refract .dropdown-menu {
+    -webkit-backdrop-filter: url(#lg-lens-panel) blur(var(--lg-regular-blur)) saturate(var(--lg-glass-sat)) brightness(1.05);
+    backdrop-filter: url(#lg-lens-panel) blur(var(--lg-regular-blur)) saturate(var(--lg-glass-sat)) brightness(1.05);
+}
+html.lg-refract .lg-stat,
+html.lg-refract .lg-icon-btn,
+html.lg-refract [class*="btn-outline-"],
+html.lg-refract .pagination .page-link,
+html.lg-refract .lg-nav .nav-link.active {
+    -webkit-backdrop-filter: url(#lg-lens) blur(var(--lg-clear-blur)) saturate(var(--lg-glass-sat)) brightness(1.06);
+    backdrop-filter: url(#lg-lens) blur(var(--lg-clear-blur)) saturate(var(--lg-glass-sat)) brightness(1.06);
+}
+html.lg-refract .lg-nav,
+html.lg-refract .lg-toolbar,
+html.lg-refract .breadcrumb,
+html.lg-refract .alert {
+    -webkit-backdrop-filter: url(#lg-lens-bar) blur(var(--lg-clear-blur)) saturate(var(--lg-glass-sat)) brightness(1.06);
+    backdrop-filter: url(#lg-lens-bar) blur(var(--lg-clear-blur)) saturate(var(--lg-glass-sat)) brightness(1.06);
+}
+/* Glass inside glass stays clear */
+html.lg-refract .card .table-responsive,
+html.lg-refract .lg-panel .table-responsive,
+html.lg-refract .card .card,
+html.lg-refract .card .list-group {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+}
+
+.lg-filters { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+    .lg-orb { animation: none !important; }
+}
+
 /* ---------------------------------------------------------------- 10. Accessibility fallbacks */
 @media (prefers-reduced-motion: reduce) {
     .lg-blob, .lg-flash, .dropdown-menu.show, .badge.text-bg-danger::before { animation: none !important; }
@@ -1063,7 +1300,8 @@ hr { border-color: var(--lg-hairline); opacity: 1; }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-    .card, .lg-panel, .lg-glass, .table-responsive, .lg-nav, .dropdown-menu, .alert, .lg-toolbar, .breadcrumb {
+    .card, .lg-panel, .lg-glass, .table-responsive, .lg-nav, .dropdown-menu, .alert, .lg-toolbar, .breadcrumb,
+    .lg-stat, .lg-icon-btn, [class*="btn-outline-"], .pagination .page-link {
         background-color: var(--lg-surface-strong) !important;
         -webkit-backdrop-filter: none !important;
         backdrop-filter: none !important;
