@@ -2,6 +2,9 @@
   <Folder Name="/src/">
     <Project Path="src/LogAnalyzer.Web/LogAnalyzer.Web.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LogAnalyzer.Tests/LogAnalyzer.Tests.csproj" />
+  </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/LogAnalyzer.Tools/LogAnalyzer.Tools.csproj" />
   </Folder>

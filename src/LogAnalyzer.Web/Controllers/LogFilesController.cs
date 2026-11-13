@@ -14,6 +14,7 @@ public class LogFilesController(
     LogFileStorage storage,
     LogProcessingQueue queue,
     UserManager<AppUser> userManager,
+    IAuditLog audit,
     ILogger<LogFilesController> logger) : Controller
 {
     private const long MaxUploadBytes = 500L * 1024 * 1024; // 500 MB
@@ -77,6 +78,7 @@ public class LogFilesController(
         }
 
         await queue.EnqueueAsync(logFile.Id, ct);
+        await audit.WriteAsync("LogFile.Upload", $"#{logFile.Id} {logFile.FileName}", $"{file.Length:N0} bytes", ct);
         logger.LogInformation("User {User} uploaded {Name} ({Bytes} bytes) as log file {Id}",
             User.Identity?.Name, originalName, file.Length, logFile.Id);
 
@@ -143,6 +145,7 @@ public class LogFilesController(
         await db.LogFiles.Where(f => f.Id == id)
             .ExecuteUpdateAsync(s => s.SetProperty(f => f.Status, LogFileStatus.Analyzing), ct);
         await queue.EnqueueDetectionAsync(id, ct);
+        await audit.WriteAsync("LogFile.RerunDetection", $"#{id} {file.FileName}", null, ct);
 
         logger.LogInformation("User {User} re-ran detection on log file {Id}", User.Identity?.Name, id);
         TempData["Success"] = "Detection was queued. The alerts will be updated in a few seconds.";
@@ -185,6 +188,9 @@ public class LogFilesController(
 
         model.LabelsFileName = Path.GetFileName(labels.FileName);
         model.Result = await evaluation.EvaluateAsync(id, parsed, ct);
+        var o = model.Result.Overall;
+        await audit.WriteAsync("LogFile.Evaluate", $"#{id} {file.FileName}",
+            $"labels {model.LabelsFileName}: P={o.Precision:P1} R={o.Recall:P1} F1={o.F1:P1}", ct);
         return View(model);
     }
 
@@ -208,6 +214,7 @@ public class LogFilesController(
         db.LogFiles.Remove(file);
         await db.SaveChangesAsync();
         storage.Delete(file);
+        await audit.WriteAsync("LogFile.Delete", $"#{id} {file.FileName}");
 
         logger.LogInformation("User {User} deleted log file {Id} ({Name})", User.Identity?.Name, id, file.FileName);
         TempData["Success"] = $"\"{file.FileName}\" deleted.";
@@ -225,6 +232,7 @@ public class LogFilesController(
             (await db.LogFiles.AsNoTracking().Where(f => f.Id == id).Select(f => f.FileName).FirstAsync(ct)));
         var safeName = string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_'));
         logger.LogInformation("User {User} downloaded the PDF report for log file {Id}", User.Identity?.Name, id);
+        await audit.WriteAsync("Report.Pdf", $"#{id} {name}", null, ct);
         return File(pdf, "application/pdf", $"report-{safeName}-{DateTime.Now:yyyyMMdd}.pdf");
     }
 }

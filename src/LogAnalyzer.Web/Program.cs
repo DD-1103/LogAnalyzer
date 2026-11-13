@@ -4,6 +4,8 @@ using LogAnalyzer.Web.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -44,6 +46,15 @@ builder.Services.ConfigureApplicationCookie(options =>
 // Every page requires login unless marked [AllowAnonymous].
 var requireAuth = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
 builder.Services.AddControllersWithViews(options => options.Filters.Add(new AuthorizeFilter(requireAuth)));
+
+// Login throttling per client IP (on top of the per-account lockout): 10 attempts per minute.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
 
 // Audit trail of user actions
 builder.Services.AddHttpContextAccessor();
@@ -91,10 +102,12 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllerRoute(

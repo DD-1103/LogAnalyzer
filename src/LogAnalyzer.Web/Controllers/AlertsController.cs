@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LogAnalyzer.Web.Controllers;
 
-public class AlertsController(AppDbContext db, UserManager<AppUser> userManager, ILogger<AlertsController> logger) : Controller
+public class AlertsController(AppDbContext db, UserManager<AppUser> userManager, IAuditLog audit, ILogger<AlertsController> logger) : Controller
 {
     private const int PageSize = 25;
     private const int MaxEvidenceShown = 200;
@@ -102,6 +102,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
             alert.AssignedToId = userManager.GetUserId(User);
 
         await db.SaveChangesAsync();
+        await audit.WriteAsync("Alert.Update", $"#{id} {alert.Title}", $"{oldStatus} -> {model.Status}");
         logger.LogInformation("User {User} changed alert {Id} from {Old} to {New}",
             User.Identity?.Name, id, oldStatus, model.Status);
 
@@ -147,6 +148,8 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         }
 
         logger.LogInformation("User {User} exported {Count} alerts to CSV", User.Identity?.Name, alerts.Count);
+        await audit.WriteAsync("Alerts.ExportCsv", $"{alerts.Count} alerts",
+            $"status={status} severity={severity} type={attackType} ip={ip} file={logFileId}", ct);
 
         // UTF-8 with BOM so Excel shows non-ASCII characters correctly
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray();
