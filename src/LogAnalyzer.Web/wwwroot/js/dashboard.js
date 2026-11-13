@@ -43,7 +43,9 @@
         Chart.defaults.borderColor = p.grid;
         Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
         Chart.defaults.maintainAspectRatio = false;
-        Chart.defaults.animation = reduced ? false : { duration: 900, easing: 'easeOutQuart' };
+        // Modify the existing defaults object: replacing it breaks Chart.js' option resolver (nothing draws)
+        Chart.defaults.animation.duration = reduced ? 0 : 900;
+        Chart.defaults.animation.easing = 'easeOutQuart';
         Chart.defaults.plugins.tooltip.backgroundColor = p.surface;
         Chart.defaults.plugins.tooltip.titleColor = p.textStrong;
         Chart.defaults.plugins.tooltip.bodyColor = p.textStrong;

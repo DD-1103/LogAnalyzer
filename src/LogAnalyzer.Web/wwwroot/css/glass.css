@@ -566,6 +566,7 @@ a.card:hover, .card.lg-hover:hover, .lg-stat:hover {
     border-radius: 999px;
     font-weight: 560;
     font-size: .925rem;
+    white-space: nowrap;
     transition: color .2s var(--lg-ease), background-color .25s var(--lg-ease), transform .35s var(--lg-spring);
 }
 .lg-nav .nav-link:hover { background: var(--lg-surface-hover); }
@@ -609,7 +610,7 @@ a.card:hover, .card.lg-hover:hover, .lg-stat:hover {
 :root[data-theme-pref="auto"] .lg-theme-icon-auto,
 :root:not([data-theme-pref]) .lg-theme-icon-auto { display: inline-block; }
 
-.lg-user-btn { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-user-btn { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .lg-main { padding-top: 1.75rem; padding-bottom: 4rem; }
 .lg-footer { text-align: center; color: var(--lg-text-3); font-size: .8rem; padding: 0 1rem 2rem; }
@@ -1078,7 +1079,7 @@ hr { border-color: var(--lg-hairline); opacity: 1; }
     .lg-backdrop { display: none; }
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: 1199.98px) {
     .lg-nav .navbar-collapse { padding: .5rem .25rem .35rem; }
     .lg-nav .navbar-nav { gap: .25rem; margin-bottom: .5rem; }
     .lg-nav .nav-link { width: 100%; }
