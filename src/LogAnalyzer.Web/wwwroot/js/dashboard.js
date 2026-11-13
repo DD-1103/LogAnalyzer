@@ -54,6 +54,10 @@
         Chart.defaults.plugins.tooltip.padding = 10;
         Chart.defaults.plugins.tooltip.cornerRadius = 12;
         Chart.defaults.plugins.tooltip.boxPadding = 4;
+        // Legends in full-strength text and semibold: readable on a projector in both themes
+        Chart.defaults.font.size = 12.5;
+        Chart.defaults.plugins.legend.labels.color = p.textStrong;
+        Chart.defaults.plugins.legend.labels.font = { weight: '600' };
         Chart.defaults.plugins.legend.labels.usePointStyle = true;
         Chart.defaults.plugins.legend.labels.pointStyle = 'circle';
         Chart.defaults.plugins.legend.labels.boxWidth = 8;

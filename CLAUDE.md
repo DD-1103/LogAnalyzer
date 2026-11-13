@@ -39,7 +39,7 @@ Non-functional: 1M lines < 2 min (CPU part measured ≈ 10 s; end-to-end with SQ
 - `sqlcmd` is available (`sqlcmd -S localhost -E -C -d LogAnalyzerDb -Q "..."`).
 
 ## 3. Tech stack
-ASP.NET Core 10 MVC (C#, nullable, primary constructors) · EF Core 10 + SQL Server · ASP.NET Identity (custom login, no Identity UI) · BackgroundService + `Channel<ProcessingJob>` queue (instead of Hangfire) · SqlBulkCopy (TableLock) for bulk inserts · Bootstrap 5.3 dark theme + Bootstrap Icons (CDN) · Chart.js 4.4 · Leaflet 1.9.4 + OpenStreetMap tiles (CSS-darkened) · MaxMind.GeoIP2 5.x (reads DB-IP or GeoLite2 .mmdb) · QuestPDF 2025.x (Community license) · System.Security.Cryptography.Pkcs 10.0.* pinned (NU1902/NU1903 fix) · ASP.NET Core rate limiter · xUnit (tests) · Isolation Forest implemented in C# (no Python/ML.NET dependency).
+ASP.NET Core 10 MVC (C#, nullable, primary constructors) · EF Core 10 + SQL Server · ASP.NET Identity (custom login, no Identity UI) · BackgroundService + `Channel<ProcessingJob>` queue (instead of Hangfire) · SqlBulkCopy (TableLock) for bulk inserts · Bootstrap 5.3 + Bootstrap Icons (CDN) re-skinned by the **Liquid Glass** design system (`wwwroot/css/glass.css`, light + dark) · Chart.js 4.4 · Leaflet 1.9.4 + OpenStreetMap tiles (CSS-darkened) · MaxMind.GeoIP2 5.x (reads DB-IP or GeoLite2 .mmdb) · QuestPDF 2025.x (Community license) · System.Security.Cryptography.Pkcs 10.0.* pinned (NU1902/NU1903 fix) · ASP.NET Core rate limiter · xUnit (tests) · Isolation Forest implemented in C# (no Python/ML.NET dependency).
 
 csproj uses floating versions `10.0.*`, `5.*`, `2025.*`. `UserSecretsId = loganalyzer-web-2026`.
 
@@ -68,7 +68,9 @@ LogAnalyzer/
 │   ├─ ViewModels/  ViewModels.cs
 │   ├─ Views/       Account (Login, ChangePassword), Home, LogFiles, Alerts, Rules (Index, Edit), ThreatIntel (Index,
 │   │               Provider, Lookup), Users (Index, Create), Audit, Shared (_Layout, _ReputationCard)
-│   └─ wwwroot/     css/site.css, js/site.js (confirm, autosubmit, nav badges), js/dashboard.js, js/rule-form.js
+│   └─ wwwroot/     css/glass.css (design system), css/site.css (app helpers), css/views-a|b|c.css (per view group),
+│                   js/theme-init.js (theme before paint), js/site.js (theme, glass light, ripple, reveal, count-up,
+│                   nav badges, js-confirm, js-autosubmit), js/dashboard.js (theme-aware charts), js/rule-form.js
 ├─ tests/LogAnalyzer.Tests/    xUnit, 74 tests
 └─ tools/LogAnalyzer.Tools/    console app "loganalyzer-tools": generate, csic, label-by-ip, bench
 ```
@@ -154,11 +156,23 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
 - README.md.
 
+### Step 10 — Liquid Glass UI redesign (2026-11-13, branch `ui-liquid-glass`)
+- iOS-style glass for the jury demo, every view restyled. Head agent built the design system + layout; three parallel agents (git worktrees) restyled view groups A (dashboard, account, error), B (log files, alerts), C (rules, threat intel, users, audit); merged and verified page by page.
+- **Themes:** `data-bs-theme` light / dark on `<html>`, preference light/dark/auto in localStorage `la-theme`, set before paint by `theme-init.js`; toggle button `.js-theme-toggle` in the nav cycles light → dark → auto with a circular View Transition; `lg:themechange` event is dispatched (dashboard.js rebuilds charts, recolours map markers). Dark = soft graphite-navy `#1a1f2d`, never black.
+- **Tokens** (glass.css §1): `--lg-surface*`, `--lg-edge*`, `--lg-hairline`, `--lg-text/-2/-3`, Apple colours as `--lg-{accent|red|orange|green|teal|indigo|gray}-rgb` + accessible `-ink-rgb`; Bootstrap `--bs-*` variables mapped to them, so all Bootstrap components follow both themes.
+- **Glass recipe**: `.card`, `.lg-panel`, `.lg-glass`, `.table-responsive` get frosted fill + pointer-following specular rim (`--mx/--my` set by site.js) + sheen; no glass inside glass (inner table-responsive/card become clear).
+- **Building blocks**: `lg-page-header` + `lg-title` + `lg-subtitle` + `lg-actions`, `lg-section-title`, `card lg-stat` (+ `lg-stat-top/label/value/meta`), `lg-icon` (+ `-sm/-lg`) with `lg-tint-{blue|red|orange|green|teal|indigo|gray}`, `lg-glow` (uses the element's lg-tint), `lg-toolbar` (filters), `lg-chip`, `lg-kv` (dl), `lg-empty`, `lg-meter`, `lg-auth`/`lg-auth-card`, `lg-brandmark`. Add `data-countup` to a number to animate it. Severity → badge: Critical `text-bg-danger`, High `-warning`, Medium `-info`, Low `-secondary` (badges are tinted capsules).
+- **Motion**: buttons spring on hover, sheen sweep, press scale + ripple; scroll reveal (`data-reveal`, set by site.js on cards/panels/rows) with failsafes so content is never left hidden; aurora backdrop drift; all off with prefers-reduced-motion; solid surfaces with prefers-reduced-transparency.
+- Fixes found during the redesign: Chart.js `defaults.animation` must be modified, not replaced (charts did not draw); nav collapses below xl; count-up always ends on the server value.
+- Verified: all 31 pages 200 in both themes, forms (rule test/save/toggle, triage, evaluate upload, login/logout) work, no horizontal overflow at 375 px, CSP intact (no inline JS / on* / style attributes in views).
+
 ## 8. Known gotchas / lessons
 - The app uses `localhost`, not `.\SQLEXPRESS`. In SSMS connect to `localhost` to see `LogAnalyzerDb`.
 - Package Manager Console EF commands error out; use `dotnet ef` in the project folder.
 - `EF.IsDesignTime` guards seeding; `DesignTimeDbContextFactory` exists for EF tools.
 - MaxMind GeoLite2 sign-up form was broken → DB-IP Lite used.
+- Screenshots of the hidden Claude browser pane freeze CSS transitions mid-way (content looks faded); remove `lg-motion` from `<html>` before screenshots. The app also refuses to load in an iframe (frame-ancestors 'none').
+- `git add -A` while agents run would add `.claude/worktrees/` — it is now in .gitignore.
 - Don't name action parameters / query params `action` (clashes with MVC route value) — use e.g. `intent`, `type`.
 - Stop the running app before `dotnet build` from the CLI (bin files are locked while it runs).
 - Duplicate sample uploads were cleaned on 2026-11-13: only log file **#4** (sample-access.log) remains.
@@ -172,6 +186,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Rules with alerts are disabled, not deleted (traceability); users are disabled, not deleted.
 
 ## 10. Roadmap (what's left)
+0. **Review the `ui-liquid-glass` branch in the browser (both themes), then merge into `main` and push.**
 1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
 2. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).
 3. **RQ1/RQ2 real data:** CSIC 2010 (download, `csic` command, both variants) and DVWA lab (VirtualBox: Ubuntu+Apache+DVWA, Kali, normal-traffic VM; nikto/gobuster/sqlmap/hydra + manual XSS/LFI; `label-by-ip`) → Evaluate page tables.
@@ -183,6 +198,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Answer concisely and command-ready; Daniel works step by step in VS 2026 and sends screenshots.
 - Keep the existing patterns: primary-constructor services, enums as strings, `Format` helpers for badges, Bootstrap dark UI, `[ValidateAntiForgeryToken]` on POSTs, `[Authorize(Roles = Roles.Admin)]` for admin actions, log user actions with ILogger **and** `IAuditLog`.
 - **No inline JavaScript or `on*` attributes** (CSP): put scripts in `wwwroot/js`, use `js-confirm` / `js-autosubmit`.
+- **UI:** build new views from the Liquid Glass classes (Step 10) and test both themes; theme-dependent colours come from CSS tokens (`--lg-*`), never hard-coded hex in views or JS.
 - Detection logic goes into `DetectionCore` / `AnomalyDetector` (pure) with unit tests; `DetectionEngine` stays a thin DB wrapper.
 - Schema change → `dotnet ef migrations add <Name>` in `src\LogAnalyzer.Web`, then restart (auto-migrate).
 - Security first (security thesis): validate input, never trust log data in HTML/JS/CSV, secrets in user-secrets, no real employer data, private IPs never leave the machine.
