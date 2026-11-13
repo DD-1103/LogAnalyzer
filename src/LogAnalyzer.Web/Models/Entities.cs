@@ -34,6 +34,10 @@ public class LogFile
     public string? ErrorMessage { get; set; }
     public DateTime? ProcessedAt { get; set; }
 
+    // Performance measurements for RQ3 (parse + bulk insert, and detection incl. anomaly model).
+    public long? ParseMilliseconds { get; set; }
+    public long? DetectionMilliseconds { get; set; }
+
     public ICollection<LogEvent> Events { get; set; } = new List<LogEvent>();
     public ICollection<Alert> Alerts { get; set; } = new List<Alert>();
 }

@@ -74,6 +74,20 @@
     </div>
 </div>
 
+@if (f.ParseMilliseconds is long parseMs)
+{
+    var linesPerSecond = f.TotalLines / Math.Max(parseMs / 1000.0, 0.001);
+    <p class="small text-body-secondary mb-4">
+        <i class="bi bi-stopwatch"></i>
+        Parse + import: <strong>@((parseMs / 1000.0).ToString("0.00")) s</strong> (@linesPerSecond.ToString("N0") lines/s)
+        @if (f.DetectionMilliseconds is long detectMs)
+        {
+            <span> · Detection: <strong>@((detectMs / 1000.0).ToString("0.00")) s</strong></span>
+            <span> · Total: <strong>@(((parseMs + detectMs) / 1000.0).ToString("0.00")) s</strong></span>
+        }
+    </p>
+}
+
 <form method="get" asp-action="Details" asp-route-id="@f.Id" class="row g-2 align-items-end mb-3">
     <div class="col-sm-4">
         <label class="form-label small" for="ip">Client IP</label>

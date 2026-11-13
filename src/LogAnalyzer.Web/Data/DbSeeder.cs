@@ -64,7 +64,8 @@ public static class DbSeeder
                 string.Join("; ", result.Errors.Select(e => e.Description)));
     }
 
-    private static IEnumerable<DetectionRule> DefaultRules() =>
+    /// <summary>The six built-in rules (also used by the benchmark tool and the unit tests).</summary>
+    public static IEnumerable<DetectionRule> DefaultRules() =>
     [
         new()
         {

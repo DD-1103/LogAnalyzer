@@ -496,6 +496,9 @@ namespace LogAnalyzer.Web.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<long?>("DetectionMilliseconds")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("ErrorMessage")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
@@ -507,6 +510,9 @@ namespace LogAnalyzer.Web.Migrations
                         .IsRequired()
                         .HasMaxLength(260)
                         .HasColumnType("nvarchar(260)");
+
+                    b.Property<long?>("ParseMilliseconds")
+                        .HasColumnType("bigint");
 
                     b.Property<int>("ParsedLines")
                         .HasColumnType("int");

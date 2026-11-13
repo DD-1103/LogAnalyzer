@@ -122,7 +122,8 @@ public sealed class LogProcessingWorker(
             : fileStream;
         using var reader = new StreamReader(input);
 
-        using var bulk = new SqlBulkCopy(db.Database.GetConnectionString())
+        // TableLock: one bulk-update lock instead of row locks -> much faster large imports.
+        using var bulk = new SqlBulkCopy(db.Database.GetConnectionString(), SqlBulkCopyOptions.TableLock)
         {
             DestinationTableName = "LogEvents",
             BatchSize = BatchSize,
@@ -173,13 +174,13 @@ public sealed class LogProcessingWorker(
         if (table.Rows.Count > 0)
             await bulk.WriteToServerAsync(table, ct);
 
+        var parseMs = sw.ElapsedMilliseconds;
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
             .SetProperty(f => f.Status, LogFileStatus.Analyzing)
             .SetProperty(f => f.TotalLines, total)
             .SetProperty(f => f.ParsedLines, parsed)
-            .SetProperty(f => f.FailedLines, failed), ct);
-
-        var parseMs = sw.ElapsedMilliseconds;
+            .SetProperty(f => f.FailedLines, failed)
+            .SetProperty(f => f.ParseMilliseconds, parseMs), ct);
         logger.LogInformation(
             "Log file {Id} ({Name}): {Parsed}/{Total} lines parsed, {Failed} failed, in {Ms} ms ({Rate:N0} lines/s)",
             id, file.FileName, parsed, total, failed, parseMs,
@@ -218,7 +219,8 @@ public sealed class LogProcessingWorker(
 
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
             .SetProperty(f => f.Status, LogFileStatus.Completed)
-            .SetProperty(f => f.ProcessedAt, DateTime.UtcNow), ct);
+            .SetProperty(f => f.ProcessedAt, DateTime.UtcNow)
+            .SetProperty(f => f.DetectionMilliseconds, detectSw.ElapsedMilliseconds), ct);
 
         sw.Stop();
         logger.LogInformation("Log file {Id} completed: {Alerts} alerts, total {Ms} ms (parse {ParseMs} ms, detection {DetectMs} ms)",
