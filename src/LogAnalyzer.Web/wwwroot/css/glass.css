@@ -978,9 +978,9 @@ hr { border-color: var(--lg-hairline); opacity: 1; }
 .stat-card { border-left: 0; }
 
 /* Coloured glow edge for an important panel (e.g. a Critical alert header) */
-.lg-glow { --t: var(--lg-accent-rgb); }
+/* No default --t here: a later declaration would override the lg-tint-* class on the same element */
 .lg-glow.card, .lg-glow.lg-panel {
-    box-shadow: 0 0 0 1px rgba(var(--t), .35), 0 20px 46px -22px rgba(var(--t), .65), inset 0 1px 0 var(--lg-edge);
+    box-shadow: 0 0 0 1px rgba(var(--t, var(--lg-accent-rgb)), .35), 0 20px 46px -22px rgba(var(--t, var(--lg-accent-rgb)), .65), inset 0 1px 0 var(--lg-edge);
 }
 
 /* Toolbar: compact glass strip for filters */
