@@ -1,19 +1,28 @@
 @model AlertListViewModel
 @{
     ViewData["Title"] = "Alerts";
+    var filtered = Model.Status.HasValue || Model.Severity.HasValue || Model.AttackType.HasValue
+                   || !string.IsNullOrWhiteSpace(Model.Ip) || Model.LogFileId.HasValue;
+}
+@section Head {
+    <link rel="stylesheet" href="~/css/views-b.css" asp-append-version="true" />
 }
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">Alerts</h1>
-    <div class="d-flex align-items-center gap-3">
-        <span class="text-body-secondary small">@Model.TotalCount.ToString("N0") alert(s)</span>
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title">Alerts</h1>
+        <p class="lg-subtitle">
+            @Model.TotalCount.ToString("N0") @(Model.TotalCount == 1 ? "alert" : "alerts")@(filtered ? " match these filters" : ""), open and most severe first.
+        </p>
+    </div>
+    <div class="lg-actions">
         <a asp-action="Export" asp-route-status="@Model.Status" asp-route-severity="@Model.Severity"
            asp-route-attackType="@Model.AttackType" asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId"
-           class="btn btn-sm btn-outline-success"><i class="bi bi-filetype-csv"></i> Export CSV</a>
+           class="btn btn-sm btn-outline-success"><i class="bi bi-filetype-csv" aria-hidden="true"></i> Export CSV</a>
     </div>
-</div>
+</header>
 
-<form method="get" asp-action="Index" class="row g-2 align-items-end mb-3">
+<form method="get" asp-action="Index" class="lg-toolbar row g-2 align-items-end mx-0">
     @if (Model.LogFileId.HasValue)
     {
         <input type="hidden" name="logFileId" value="@Model.LogFileId" />
@@ -53,23 +62,23 @@
         <input id="ip" name="ip" value="@Model.Ip" class="form-control form-control-sm" />
     </div>
     <div class="col-md-3 d-flex gap-2">
-        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel"></i> Filter</button>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Filter</button>
         <a asp-action="Index" class="btn btn-sm btn-outline-secondary">Clear</a>
     </div>
 </form>
 
 @if (Model.LogFileId.HasValue)
 {
-    <div class="small text-body-secondary mb-2">
-        Showing alerts for one log file. <a asp-action="Index">Show all</a>
-    </div>
+    <p class="lg-filter-note">
+        <i class="bi bi-file-earmark-text" aria-hidden="true"></i> Showing alerts for one log file. <a asp-action="Index">Show all</a>
+    </p>
 }
 
 @if (Model.Alerts.Count == 0)
 {
-    <div class="text-center text-body-secondary py-5">
-        <i class="bi bi-shield-check fs-1"></i>
-        <p class="mt-2">No alerts match these filters.</p>
+    <div class="lg-panel lg-empty">
+        <i class="bi bi-shield-check" aria-hidden="true"></i>
+        <p class="mb-0">No alerts match these filters.</p>
     </div>
 }
 else
@@ -90,23 +99,24 @@ else
             <tbody>
                 @foreach (var a in Model.Alerts)
                 {
-                    <tr>
-                        <td class="text-nowrap">
+                    var isNew = Model.IsNewSinceLastVisit(a);
+                    <tr class="@(isNew ? "lg-row-new" : null)">
+                        <td class="lg-sev-cell">
                             <span class="badge @Format.SeverityBadge(a.Severity)">@a.Severity</span>
                             @if (a.OriginalSeverity is not null)
                             {
-                                <i class="bi bi-arrow-down-circle text-info" title="@a.SeverityNote"></i>
+                                <i class="bi bi-arrow-down-circle" title="@a.SeverityNote" aria-label="Severity lowered"></i>
                             }
                         </td>
                         <td>
-                            @if (Model.IsNewSinceLastVisit(a))
+                            @if (isNew)
                             {
-                                <span class="badge rounded-pill text-bg-primary me-1" title="New since your last visit">new</span>
+                                <span class="lg-new-dot" title="New since your last visit"></span><span class="visually-hidden">New: </span>
                             }
                             <a asp-action="Details" asp-route-id="@a.Id" class="fw-semibold">@a.Title</a>
                             <div class="small text-body-secondary">@a.LogFile?.FileName</div>
                         </td>
-                        <td>@Format.AttackLabel(a.AttackType)</td>
+                        <td><span class="lg-chip">@Format.AttackLabel(a.AttackType)</span></td>
                         <td class="font-monospace">@a.SourceIp</td>
                         <td class="text-end">@a.EventCount.ToString("N0")</td>
                         <td class="small text-nowrap">@a.LastSeen.ToString("dd/MM/yyyy HH:mm:ss")</td>
@@ -119,7 +129,7 @@ else
 
     @if (Model.TotalPages > 1)
     {
-        <nav>
+        <nav aria-label="Alert pages">
             <ul class="pagination pagination-sm justify-content-center">
                 <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
                     <a class="page-link" asp-action="Index" asp-route-page="@(Model.Page - 1)"
