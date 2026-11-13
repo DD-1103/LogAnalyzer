@@ -220,15 +220,15 @@
             }
             else
             {
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle small mb-0">
+                @* Four columns so the table fits its card at every width (no sideways scrolling):
+                   location and reputation sit under the IP, attack types wrap as chips. *@
+                <div class="table-responsive lg-fit">
+                    <table class="table table-sm align-middle small mb-0 lg-top-ips">
                         <thead>
                             <tr>
-                                <th>IP</th>
-                                <th>Location</th>
-                                <th>Reputation</th>
-                                <th class="text-end">Malicious req.</th>
-                                <th>Attacks</th>
+                                <th>Attacker</th>
+                                <th>Attack types</th>
+                                <th class="text-end">Requests</th>
                                 <th>Max</th>
                             </tr>
                         </thead>
@@ -236,32 +236,39 @@
                             @foreach (var ip in Model.TopIps)
                             {
                                 <tr>
-                                    <td class="font-monospace text-nowrap">
-                                        <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@ip.Ip" class="fw-semibold text-decoration-none">@ip.Ip</a>
-                                    </td>
-                                    <td class="text-nowrap">
-                                        @if (ip.CountryCode is not null)
+                                    <td>
+                                        <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@ip.Ip" class="font-monospace fw-semibold text-decoration-none">@ip.Ip</a>
+                                        <div class="lg-ip-meta">
+                                            @if (ip.CountryCode is not null)
+                                            {
+                                                <span class="badge text-bg-secondary">@ip.CountryCode</span>
+                                                <span class="text-body-secondary">@(ip.City ?? ip.Country)</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-body-secondary">Unknown location</span>
+                                            }
+                                        </div>
+                                        @if (ip.Reputation.Count > 0)
                                         {
-                                            <span class="badge text-bg-secondary">@ip.CountryCode</span>
-                                            <span class="text-body-secondary">@(ip.City ?? ip.Country)</span>
+                                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                                @foreach (var r in ip.Reputation)
+                                                {
+                                                    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@ip.Ip"
+                                                       class="badge @Format.VerdictBadge(r.Verdict) text-decoration-none" title="@r.Summary">@Format.ReputationShort(r)</a>
+                                                }
+                                            </div>
                                         }
-                                        else { <span class="text-body-secondary">—</span> }
                                     </td>
                                     <td>
                                         <div class="d-flex flex-wrap gap-1">
-                                            @if (ip.Reputation.Count == 0)
+                                            @foreach (var type in ip.AttackTypes.Split(", ", StringSplitOptions.RemoveEmptyEntries))
                                             {
-                                                <span class="text-body-secondary">—</span>
-                                            }
-                                            @foreach (var r in ip.Reputation)
-                                            {
-                                                <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@ip.Ip"
-                                                   class="badge @Format.VerdictBadge(r.Verdict) text-decoration-none" title="@r.Summary">@Format.ReputationShort(r)</a>
+                                                <span class="lg-chip">@type</span>
                                             }
                                         </div>
                                     </td>
                                     <td class="text-end fw-semibold">@ip.Events.ToString("N0")</td>
-                                    <td class="text-body-secondary">@ip.AttackTypes</td>
                                     <td><span class="badge @Format.SeverityBadge(ip.MaxSeverity)">@ip.MaxSeverity</span></td>
                                 </tr>
                             }

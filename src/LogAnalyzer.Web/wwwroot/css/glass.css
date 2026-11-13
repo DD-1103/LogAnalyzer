@@ -1055,6 +1055,8 @@ hr { border-color: var(--lg-hairline); opacity: 1; }
     color: var(--lg-text-2);
     background: var(--lg-surface-sunken);
     border: 1px solid var(--lg-hairline);
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 
 /* Key–value lists inside cards */
@@ -1306,6 +1308,60 @@ html.lg-refract .card .list-group {
 }
 
 .lg-filters { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+
+/* ---------------------------------------------------------------- 9c. Stacked tables (no sideways scrolling)
+   site.js adds .lg-stacked to a table that is wider than its container (tablets, phones):
+   every row becomes a small card, every cell a "label: value" line (label from data-label). */
+table.lg-stacked,
+table.lg-stacked > tbody { display: block; width: 100%; }
+table.lg-stacked > thead { display: none; }
+table.lg-stacked > tbody > tr {
+    display: block;
+    padding: .55rem .35rem;
+    border-bottom: 1px solid var(--lg-hairline);
+}
+table.lg-stacked > tbody > tr:last-child { border-bottom: 0; }
+table.lg-stacked > tbody > tr > * {
+    /* label in column 1, the cell's content (one or more items) stacked in column 2 */
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 38%) minmax(0, 1fr);
+    column-gap: 1rem;
+    row-gap: .2rem;
+    align-items: center;
+    justify-items: start;
+    width: 100%;
+    max-width: none !important;
+    padding: .28rem .5rem !important;
+    border: 0 !important;
+    text-align: left !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    overflow: visible !important;
+    text-overflow: clip !important;
+}
+table.lg-stacked > tbody > tr > *::before {
+    content: attr(data-label);
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    text-align: left;
+    color: var(--lg-text-2);
+    font-family: var(--lg-font) !important;
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: 0;
+}
+table.lg-stacked > tbody > tr > * > * { grid-column: 2; min-width: 0; max-width: 100%; }
+table.lg-stacked > tbody > tr > [data-label=""]::before { display: none; }
+table.lg-stacked > tbody > tr > [data-label=""] > * { grid-column: 1 / -1; }
+table.lg-stacked > tbody > tr > [data-label=""] { justify-items: end; }
+table.lg-stacked code, table.lg-stacked .rule-pattern {
+    max-width: 100%;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+table.lg-stacked > tbody > tr:hover > * { --bs-table-bg-state: transparent; }
+table.lg-stacked > tbody > tr:hover { background: var(--lg-row-hover); border-radius: var(--lg-radius-sm); }
 
 /* ---------------------------------------------------------------- 10. Accessibility fallbacks */
 @media (prefers-reduced-motion: reduce) {

@@ -297,9 +297,48 @@
         }
     });
 
+    // ------------------------------------------------------------------ 7. Tables that never scroll sideways
+    // Every cell gets its column header as data-label. When a table is wider than its container
+    // (tablets, phones), it switches to a stacked layout: each row becomes a card of "label: value"
+    // lines (CSS: table.lg-stacked). Wide screens keep the normal table.
+    function setupTables() {
+        const tables = Array.from(document.querySelectorAll('.table-responsive > table'));
+        if (tables.length === 0) return;
+
+        tables.forEach(table => {
+            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
+            table.querySelectorAll('tbody tr').forEach(tr => {
+                let col = 0;
+                Array.from(tr.children).forEach(td => {
+                    const span = parseInt(td.getAttribute('colspan') || '1', 10);
+                    td.setAttribute('data-label', span > 1 ? '' : (headers[col] || ''));
+                    col += span;
+                });
+            });
+        });
+
+        function fit() {
+            tables.forEach(table => {
+                const box = table.parentElement;
+                table.classList.remove('lg-stacked');
+                if (box.scrollWidth > box.clientWidth + 1) table.classList.add('lg-stacked');
+            });
+        }
+
+        fit();
+        let timer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(timer);
+            timer = setTimeout(fit, 120);
+        });
+        // Web fonts and icons can change widths after load
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => { setupReveal(); setupNavBadges(); });
+        document.addEventListener('DOMContentLoaded', () => { setupTables(); setupReveal(); setupNavBadges(); });
     } else {
+        setupTables();
         setupReveal();
         setupNavBadges();
     }

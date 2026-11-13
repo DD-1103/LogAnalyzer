@@ -20,8 +20,14 @@ public static class DbSeeder
         var config = sp.GetRequiredService<IConfiguration>();
         var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("DbSeeder");
 
-        // Applies any pending migrations (run Add-Migration first).
-        await db.Database.MigrateAsync();
+        // Apply new migrations only when there are any. Checking first keeps normal start-ups quiet and fast
+        // (MigrateAsync always takes a database lock and logs "Acquiring an exclusive lock for migration application").
+        var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
+        if (pending.Count > 0)
+        {
+            logger.LogInformation("Updating the database: {Migrations}", string.Join(", ", pending));
+            await db.Database.MigrateAsync();
+        }
 
         // Roles
         var roleManager = sp.GetRequiredService<RoleManager<IdentityRole>>();

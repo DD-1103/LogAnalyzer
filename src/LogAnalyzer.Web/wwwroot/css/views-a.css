@@ -5,6 +5,12 @@
 .lg-chart-tall { height: 280px; }
 .min-w-0 { min-width: 0; }
 
+/* Top attacking IPs: location under the IP, chips wrap */
+.lg-top-ips td { white-space: normal; }
+.lg-top-ips td:first-child { min-width: 9.5rem; }
+.lg-ip-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin-top: .2rem; font-size: .78rem; }
+.lg-top-ips .lg-chip { font-size: .72rem; padding: .12rem .55rem; }
+
 /* Latest alerts: rows read as tappable list cells */
 .lg-alert-list .list-group-item {
     background: transparent;

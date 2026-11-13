@@ -92,6 +92,9 @@ QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 var app = builder.Build();
 
+// Visual Studio (F5): hide the log console so it cannot be closed by accident; logs stay in the Output window.
+ConsoleWindow.HideWhenDebuggedByVisualStudio(app.Lifetime, app.Logger);
+
 // Skip DB setup when EF Core tools (Add-Migration) load the app.
 if (!EF.IsDesignTime)
     await DbSeeder.SeedAsync(app.Services);
