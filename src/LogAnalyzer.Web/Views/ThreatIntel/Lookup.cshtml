@@ -5,47 +5,74 @@
     var anyConfigured = Model.Providers.Any(p => p.IsConfigured);
 }
 
+@section Head {
+    <link rel="stylesheet" href="~/css/views-c.css" asp-append-version="true" />
+}
+
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a asp-action="Index">Threat intelligence</a></li>
-        <li class="breadcrumb-item active">IP lookup</li>
+        <li class="breadcrumb-item active" aria-current="page">IP lookup</li>
     </ol>
 </nav>
 
-<form asp-action="Lookup" method="get" class="d-flex gap-2 mb-4 lookup-form">
-    <input name="ip" value="@Model.Ip" class="form-control font-monospace" placeholder="IP address" maxlength="45" required />
-    <button type="submit" class="btn btn-primary text-nowrap"><i class="bi bi-search"></i> Look up</button>
-</form>
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title">IP lookup</h1>
+        <p class="lg-subtitle">Everything known about one address: location, alerts, and the answer of each reputation provider.</p>
+    </div>
+    <div class="lg-actions">
+        <form asp-action="Lookup" method="get" class="d-flex gap-2 lookup-form" role="search">
+            <label for="lookup-ip" class="visually-hidden">IP address</label>
+            <input id="lookup-ip" name="ip" value="@Model.Ip" class="form-control font-monospace" placeholder="IP address" maxlength="45" required />
+            <button type="submit" class="btn btn-primary text-nowrap"><i class="bi bi-search" aria-hidden="true"></i> Look up</button>
+        </form>
+    </div>
+</header>
 
 @if (Model.Error is not null)
 {
-    <div class="alert alert-warning">@Model.Error</div>
+    <div class="alert alert-warning lg-flash" role="alert">
+        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+        <div>@Model.Error</div>
+    </div>
 }
 else if (Model.Ip is not null)
 {
-    <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-        <h1 class="h3 mb-0 font-monospace">@Model.Ip</h1>
-        @if (Model.IpInfo?.CountryCode is not null)
-        {
-            <span>
-                <span class="badge text-bg-secondary">@Model.IpInfo.CountryCode</span>
-                @(string.Join(", ", new[] { Model.IpInfo.City, Model.IpInfo.CountryName }.Where(x => !string.IsNullOrEmpty(x))))
+    <div class="lg-panel mb-4">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <span class="lg-icon lg-icon-lg @(Model.AlertCount > 0 ? "lg-tint-red" : "lg-tint-blue")">
+                <i class="bi bi-hdd-network" aria-hidden="true"></i>
             </span>
-        }
-        @if (!Model.IsPublic)
-        {
-            <span class="badge text-bg-dark border">private / reserved</span>
-        }
-        <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@Model.Ip" class="small">@Model.AlertCount alert(s)</a>
-        <span class="small text-body-secondary">@Model.EventCount.ToString("N0") request(s) in uploaded logs</span>
-        @if (anyConfigured && Model.IsPublic)
-        {
-            <form asp-action="Refresh" method="post" class="ms-auto">
-                <input type="hidden" name="ip" value="@Model.Ip" />
-                <input type="hidden" name="returnUrl" value="@returnUrl" />
-                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> Look up at all providers</button>
-            </form>
-        }
+            <div class="min-w-0 flex-grow-1">
+                <div class="lg-ip">@Model.Ip</div>
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                    @if (Model.IpInfo?.CountryCode is not null)
+                    {
+                        <span class="lg-chip">
+                            <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                            @Model.IpInfo.CountryCode
+                            @(string.Join(", ", new[] { Model.IpInfo.City, Model.IpInfo.CountryName }.Where(x => !string.IsNullOrEmpty(x))))
+                        </span>
+                    }
+                    @if (!Model.IsPublic)
+                    {
+                        <span class="lg-chip"><i class="bi bi-house-lock" aria-hidden="true"></i> Private or reserved</span>
+                    }
+                    <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@Model.Ip"
+                       class="badge @(Model.AlertCount > 0 ? "text-bg-danger" : "text-bg-secondary")">@Model.AlertCount alert(s)</a>
+                    <span class="small text-body-secondary">@Model.EventCount.ToString("N0") request(s) in uploaded logs</span>
+                </div>
+            </div>
+            @if (anyConfigured && Model.IsPublic)
+            {
+                <form asp-action="Refresh" method="post">
+                    <input type="hidden" name="ip" value="@Model.Ip" />
+                    <input type="hidden" name="returnUrl" value="@returnUrl" />
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Look up at all providers</button>
+                </form>
+            }
+        </div>
     </div>
 
     <div class="row g-3">
@@ -55,5 +82,14 @@ else if (Model.Ip is not null)
                 <partial name="_ReputationCard" model="new ReputationCardModel(p, Model.Results.GetValueOrDefault(p.Name), Model.Ip, Model.IsPublic, returnUrl)" />
             </div>
         }
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="lg-empty">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <p class="mb-0">Enter an IPv4 or IPv6 address to see its location, alerts and reputation.</p>
+        </div>
     </div>
 }
