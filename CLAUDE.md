@@ -35,7 +35,7 @@ Non-functional: 1M lines < 2 min (CPU part measured ≈ 10 s; end-to-end with SQ
   ```
   The app applies pending migrations on startup (`DbSeeder` → `MigrateAsync`).
 - **Dev seed logins** (`appsettings.Development.json` → `SeedAdmin`, `SeedAnalyst`): `admin@loganalyzer.local` / `Admin#2026!`; `analyst@loganalyzer.local` (password in the same file). Created only if missing.
-- **Git:** repo initialised 2026-11-13, remote `origin` = private GitHub repo `DD-1103/LogAnalyzer`. Steps 5–9 were done on branch **`steps-5-9`** (not yet merged into `main` / pushed at time of writing). `.gitattributes` normalises line endings (CRLF warnings on commit are harmless).
+- **Git:** repo initialised 2026-11-13, remote `origin` = private GitHub repo `DD-1103/LogAnalyzer`. Steps 5–9 were done on branch `steps-5-9` and fast-forward merged into `main` and pushed on 2026-11-13 (the branch also exists on GitHub and can be deleted). `.gitattributes` normalises line endings (CRLF warnings on commit are harmless).
 - `sqlcmd` is available (`sqlcmd -S localhost -E -C -d LogAnalyzerDb -Q "..."`).
 
 ## 3. Tech stack
@@ -172,12 +172,11 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Rules with alerts are disabled, not deleted (traceability); users are disabled, not deleted.
 
 ## 10. Roadmap (what's left)
-1. **Merge `steps-5-9` into `main` and push** (Daniel reviews first).
-2. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
-3. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).
-4. **RQ1/RQ2 real data:** CSIC 2010 (download, `csic` command, both variants) and DVWA lab (VirtualBox: Ubuntu+Apache+DVWA, Kali, normal-traffic VM; nikto/gobuster/sqlmap/hydra + manual XSS/LFI; `label-by-ip`) → Evaluate page tables.
-5. Screenshots for the thesis (dashboard, alerts, alert details with threat intel, rule tester, evaluation, users, audit).
-6. Write thesis chapters (1 Intro · 2 Literature review: OWASP, ELK, GoAccess, Wazuh/OSSEC, ModSecurity, Isolation Forest paper · 3 Requirements/UML · 4 Design/ER/architecture · 5 Implementation · 6 Testing & evaluation (use docs/evaluation-guide.md) · 7 Conclusions/future work).
+1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
+2. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).
+3. **RQ1/RQ2 real data:** CSIC 2010 (download, `csic` command, both variants) and DVWA lab (VirtualBox: Ubuntu+Apache+DVWA, Kali, normal-traffic VM; nikto/gobuster/sqlmap/hydra + manual XSS/LFI; `label-by-ip`) → Evaluate page tables.
+4. Screenshots for the thesis (dashboard, alerts, alert details with threat intel, rule tester, evaluation, users, audit).
+5. Write thesis chapters (1 Intro · 2 Literature review: OWASP, ELK, GoAccess, Wazuh/OSSEC, ModSecurity, Isolation Forest paper · 3 Requirements/UML · 4 Design/ER/architecture · 5 Implementation · 6 Testing & evaluation (use docs/evaluation-guide.md) · 7 Conclusions/future work).
 - Optional: tune IF threshold per dataset, batch delete for huge files, Windows event log module (Chainsaw/Sigma), live log ingestion, more log formats, automatic blocking.
 
 ## 11. Working conventions for Claude
