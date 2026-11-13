@@ -158,6 +158,8 @@
         if (!Number.isFinite(target) || target === 0 || match[2].replace(/[\s  ,]/g, '').includes('.')) return;
         const start = performance.now();
         const duration = Math.min(1600, 600 + Math.log10(Math.abs(target) + 1) * 250);
+        // Animation frames pause in background tabs: always end on the exact server value
+        setTimeout(() => { el.textContent = text; }, duration + 400);
         const step = now => {
             const t = Math.min(1, (now - start) / duration);
             const eased = 1 - Math.pow(1 - t, 4);
@@ -195,7 +197,42 @@
             batchTimer = setTimeout(() => { batch = 0; }, 120);
         }, { rootMargin: '0px 0px -6% 0px', threshold: 0.06 });
 
+        function show(el, index) {
+            if (el.classList.contains('is-in')) return;
+            const step = el.tagName === 'TR' ? 22 : 70;
+            el.style.setProperty('--lg-delay', `${Math.min(index * step, 420)}ms`);
+            el.classList.add('is-in');
+            io.unobserve(el);
+            el.querySelectorAll('[data-countup]').forEach(countUp);
+            setTimeout(() => el.style.removeProperty('--lg-delay'), 1400);
+        }
+
+        // Reveal whatever is on screen now without waiting for the observer (it can be throttled,
+        // e.g. in background tabs), so content is never left invisible.
+        function revealInView(margin) {
+            let i = 0;
+            const limit = innerHeight * (margin || 1);
+            items.forEach(el => {
+                if (el.classList.contains('is-in')) return;
+                const r = el.getBoundingClientRect();
+                if (r.top < limit && r.bottom > 0) show(el, i++);
+            });
+        }
+
         items.forEach(el => io.observe(el));
+        revealInView(1);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') revealInView(1);
+        });
+        // Failsafes: re-check after scrolling stops and a few seconds after load
+        let scrollCheck = null;
+        window.addEventListener('scroll', () => {
+            clearTimeout(scrollCheck);
+            scrollCheck = setTimeout(() => revealInView(1), 180);
+        }, { passive: true });
+        setTimeout(() => revealInView(1.25), 2500);
+        window.addEventListener('beforeprint', () => items.forEach(el => el.classList.add('is-in')));
 
         // Count-up numbers that are not inside a revealed element
         document.querySelectorAll('[data-countup]').forEach(el => {
