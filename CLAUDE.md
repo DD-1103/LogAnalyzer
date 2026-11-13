@@ -16,136 +16,175 @@
 - In: Apache/Nginx access logs (Common/Combined Log Format); brute force, SQLi, XSS, path traversal/LFI, scanners, directory enumeration; GeoIP + reputation enrichment; dashboard, alerts with severity, roles (Admin/Analyst), reports.
 - Out: real-time blocking/WAF, non-HTTP logs (firewall, Windows events), **any real logs from AKSK or any employer** — only public datasets and self-generated lab data.
 
-### Functional requirements (from proposal)
+### Functional requirements (from proposal) — all implemented
 FR1 login + roles Admin/Analyst · FR2 upload .log/.txt/.gz · FR3 parse to structured events · FR4 rules in DB, admins add/edit/disable · FR5 alerts with type, severity, IP, evidence · FR6 GeoIP + reputation · FR7 dashboard (top IPs, over time, types, map) · FR8 search/filter · FR9 alert status workflow · FR10 PDF/CSV export.
-Non-functional: 1M lines < 2 min, hashed passwords/secure auth, responsive UI, modular detectors.
+Non-functional: 1M lines < 2 min (CPU part measured ≈ 10 s; end-to-end with SQL Server still to be measured in the app), hashed passwords/secure auth, responsive UI, modular detectors.
 
 ## 2. Environment (Daniel's Windows laptop "DANIEL")
 - **Visual Studio Community 2026** (18.11.x, use the normal one, not Insiders); VS 2022 also installed; SSMS 22.
-- **.NET 10 SDK**; `dotnet-ef` global tool 10.0.x installed.
+- **.NET 10 SDK**; `dotnet-ef` global tool 10.0.x installed (10.0.14, runtime 10.0.15 → harmless warning).
 - **SQL Server:** two instances:
   - `localhost` (default instance, SQL Server 17 / 2025, appears to be **Developer edition** — no 10 GB limit) ← **the app uses this**.
   - `DANIEL\SQLEXPRESS` (Express) — also has the old `HotelManagement` DB; not used by LogAnalyzer.
 - Repo path: `C:\Users\User\source\repos\LogAnalyzer`
-- Run/test: open `LogAnalyzer.slnx` in VS 2026 → **▶ https** (https://localhost:7180, http://localhost:5180).
-- EF commands are run from VS **Developer PowerShell** in `src\LogAnalyzer.Web` (the Package Manager Console `Add-Migration` failed with a generic error, so use the CLI):
+- Run/test: open `LogAnalyzer.slnx` in VS 2026 → **▶ https** (https://localhost:7180, http://localhost:5180). Claude Code uses `.claude/launch.json` (config "loganalyzer") for the browser preview.
+- EF commands from a terminal in `src\LogAnalyzer.Web` (Package Manager Console fails):
   ```
   cd src\LogAnalyzer.Web
   dotnet ef migrations add <Name>
   ```
-  The app applies pending migrations automatically on startup (`DbSeeder` → `MigrateAsync`), so `database update` is not needed.
-- **Seed admin login (dev only):** `admin@loganalyzer.local` / `Admin#2026!` (in `appsettings.Development.json` → `SeedAdmin`).
-- Git: Daniel was told to use VS "Add to Source Control → Git" and commit after each step (check whether it's done).
+  The app applies pending migrations on startup (`DbSeeder` → `MigrateAsync`).
+- **Dev seed logins** (`appsettings.Development.json` → `SeedAdmin`, `SeedAnalyst`): `admin@loganalyzer.local` / `Admin#2026!`; `analyst@loganalyzer.local` (password in the same file). Created only if missing.
+- **Git:** repo initialised 2026-11-13, remote `origin` = private GitHub repo `DD-1103/LogAnalyzer`. Steps 5–9 were done on branch **`steps-5-9`** (not yet merged into `main` / pushed at time of writing). `.gitattributes` normalises line endings (CRLF warnings on commit are harmless).
+- `sqlcmd` is available (`sqlcmd -S localhost -E -C -d LogAnalyzerDb -Q "..."`).
 
 ## 3. Tech stack
-ASP.NET Core 10 MVC (C#, nullable, primary constructors) · EF Core 10 + SQL Server · ASP.NET Identity (custom login, no Identity UI) · BackgroundService + `Channel<int>` queue (instead of Hangfire) · SqlBulkCopy for bulk inserts · Bootstrap 5.3 dark theme + Bootstrap Icons (CDN) · Chart.js 4.4 · Leaflet 1.9.4 + OpenStreetMap tiles (CSS-darkened; CARTO tiles were dropped because they now need an API key) · MaxMind.GeoIP2 5.x (reads DB-IP or GeoLite2 .mmdb) · QuestPDF 2025.x (Community license) · System.Security.Cryptography.Pkcs 10.0.* pinned to override vulnerable 9.0.11 transitive dependency (NU1902/NU1903 fixed).
+ASP.NET Core 10 MVC (C#, nullable, primary constructors) · EF Core 10 + SQL Server · ASP.NET Identity (custom login, no Identity UI) · BackgroundService + `Channel<ProcessingJob>` queue (instead of Hangfire) · SqlBulkCopy (TableLock) for bulk inserts · Bootstrap 5.3 dark theme + Bootstrap Icons (CDN) · Chart.js 4.4 · Leaflet 1.9.4 + OpenStreetMap tiles (CSS-darkened) · MaxMind.GeoIP2 5.x (reads DB-IP or GeoLite2 .mmdb) · QuestPDF 2025.x (Community license) · System.Security.Cryptography.Pkcs 10.0.* pinned (NU1902/NU1903 fix) · ASP.NET Core rate limiter · xUnit (tests) · Isolation Forest implemented in C# (no Python/ML.NET dependency).
 
 csproj uses floating versions `10.0.*`, `5.*`, `2025.*`. `UserSecretsId = loganalyzer-web-2026`.
 
 ## 4. Solution structure
 ```
 LogAnalyzer/
-├─ LogAnalyzer.slnx
-├─ .gitignore              (bin, obj, .vs, App_Data/, *.log except samples/*.log)
-├─ CLAUDE.md               (this file)
-├─ samples/
-│   ├─ sample-access.log         2,933 lines: 2,600 normal + 330 attacks + 3 malformed
-│   └─ sample-access.labels.csv  ground truth "line,label"
-└─ src/LogAnalyzer.Web/
-    ├─ Program.cs
-    ├─ appsettings.json / appsettings.Development.json
-    ├─ Properties/launchSettings.json
-    ├─ App_Data/            (gitignored) uploads/{id}.log|.log.gz, dbip-city-lite-2026-11.mmdb
-    ├─ Controllers/  Account, Home, LogFiles, Alerts, Rules
-    ├─ Data/         AppDbContext, DbSeeder (+Roles consts), DesignTimeDbContextFactory
-    ├─ Helpers/      Format.cs (badges, labels, Bytes, Percent, Csv escaping)
-    ├─ Migrations/   InitialCreate, NavNotifications, GeoEnrichment
-    ├─ Models/       Entities.cs, Enums.cs
-    ├─ Services/     LogParser, LogFileStorage, LogProcessing (queue+worker), DetectionEngine (+UrlDecoder),
-    │                EvaluationService, IpEnrichment (GeoIpLookup, AbuseIpDbClient, IpEnrichmentService),
-    │                DashboardService, ReportService
-    ├─ ViewModels/   ViewModels.cs
-    ├─ Views/        Account, Home, LogFiles (Index/Upload/Details/Evaluate), Alerts (Index/Details), Rules, Shared/_Layout
-    └─ wwwroot/css/site.css
+├─ LogAnalyzer.slnx            (src / tests / tools folders)
+├─ .gitignore, .gitattributes, README.md, CLAUDE.md
+├─ .claude/launch.json         (browser preview config for Claude Code)
+├─ docs/evaluation-guide.md    (CSIC 2010, DVWA lab, RQ3 protocol, thesis tables)
+├─ samples/  sample-access.log (2,933 lines) + sample-access.labels.csv
+├─ src/LogAnalyzer.Web/
+│   ├─ Program.cs  appsettings*.json  Properties/launchSettings.json
+│   ├─ App_Data/   (gitignored) uploads/{id}.log|.log.gz, dbip-city-lite-2026-11.mmdb
+│   ├─ Controllers/ Account, Home, LogFiles, Alerts, Rules, ThreatIntel, Users, Audit
+│   ├─ Data/        AppDbContext, DbSeeder (+Roles, DefaultRules() public), DesignTimeDbContextFactory
+│   ├─ Helpers/     Format.cs (badges, labels, Bytes, Percent, Csv, VerdictBadge, ReputationShort, TimeAgo)
+│   ├─ Migrations/  InitialCreate, NavNotifications, GeoEnrichment, ThreatIntelAndAudit, RulesUsersAnomaly, ProcessingTimings
+│   ├─ Models/      Entities.cs, Enums.cs
+│   ├─ Services/    LogParser, LogFileStorage, LogProcessing (ProcessingJob, queue, worker),
+│   │               DetectionCore (pure matching), DetectionEngine (DB wrapper), AnomalyDetection (IsolationForest,
+│   │               IpProfile, IpFeatureAccumulator, AnomalyDetector), RuleManagement (RuleValidator, RuleTester),
+│   │               ThreatIntel (EnrichmentOptions, IThreatIntelProvider, 3 providers, ProviderThrottle, ThreatIntelService),
+│   │               IpEnrichment (GeoIpLookup, IpEnrichmentService = GeoIP only + IsPublic), EvaluationService,
+│   │               DashboardService, ReportService, AuditLog, UserConfirmation, SecurityHeaders
+│   ├─ ViewModels/  ViewModels.cs
+│   ├─ Views/       Account (Login, ChangePassword), Home, LogFiles, Alerts, Rules (Index, Edit), ThreatIntel (Index,
+│   │               Provider, Lookup), Users (Index, Create), Audit, Shared (_Layout, _ReputationCard)
+│   └─ wwwroot/     css/site.css, js/site.js (confirm, autosubmit, nav badges), js/dashboard.js, js/rule-form.js
+├─ tests/LogAnalyzer.Tests/    xUnit, 74 tests
+└─ tools/LogAnalyzer.Tools/    console app "loganalyzer-tools": generate, csic, label-by-ip, bench
 ```
 
 ## 5. Configuration
 `appsettings.json`
 ```json
 "ConnectionStrings": { "DefaultConnection": "Server=localhost;Database=LogAnalyzerDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True" },
-"Enrichment": { "GeoLiteCityDb": "App_Data/GeoLite2-City.mmdb", "AbuseIpDbApiKey": "" }
+"Enrichment": {
+  "GeoLiteCityDb": "App_Data/GeoLite2-City.mmdb",
+  "AbuseIpDbApiKey": "", "GreyNoiseApiKey": "", "VirusTotalApiKey": "",
+  "CacheDays": 7, "AbuseIpDbMaxPerRun": 200, "GreyNoiseMaxPerRun": 25, "VirusTotalMaxPerRun": 4,
+  "VirusTotalMinIntervalSeconds": 15, "GreyNoiseDowngradeBenign": true
+}
 ```
-- GeoIP: if the configured file is missing, `GeoIpLookup` auto-picks any `*city*.mmdb` in `App_Data` (currently **DB-IP City Lite**, CC BY 4.0 → attribution "IP Geolocation by DB-IP" is shown under the map and must stay).
-- API keys go in **user-secrets**, never in appsettings:
+- Bound to `EnrichmentOptions` (IOptions). GeoIP: if the configured file is missing, any `*city*.mmdb` in `App_Data` is used (currently **DB-IP City Lite**, CC BY 4.0 → attribution "IP Geolocation by DB-IP" must stay under the map).
+- API keys go in **user-secrets** (run in `src\LogAnalyzer.Web`), then restart and press *Test* on the provider page:
   ```
   dotnet user-secrets set "Enrichment:AbuseIpDbApiKey" "KEY"
-  dotnet user-secrets set "Enrichment:GreyNoiseApiKey" "KEY"     (planned)
-  dotnet user-secrets set "Enrichment:VirusTotalApiKey" "KEY"    (planned)
+  dotnet user-secrets set "Enrichment:GreyNoiseApiKey" "KEY"
+  dotnet user-secrets set "Enrichment:VirusTotalApiKey" "KEY"
   ```
 
 ## 6. Database model (LogAnalyzerDb)
-- **AppUser** : IdentityUser + FullName, AlertsSeenAt?, RulesSeenAt? (per-user nav-badge tracking)
-- **LogFile**: Id, FileName, SizeBytes, UploadedAt, UploadedById, Status (Pending/Processing/Analyzing/Completed/Failed, stored as string), TotalLines, ParsedLines, FailedLines, ErrorMessage, ProcessedAt
+- **AppUser** : IdentityUser + FullName, IsDisabled, CreatedAt, LastLoginAt, AlertsSeenAt?, RulesSeenAt?
+- **LogFile**: Id, FileName, SizeBytes, UploadedAt, UploadedById, Status (Pending/Processing/Analyzing/Completed/Failed, string), TotalLines, ParsedLines, FailedLines, ErrorMessage, ProcessedAt, **ParseMilliseconds, DetectionMilliseconds**
 - **LogEvent**: Id(long), LogFileId, LineNumber, ClientIp, Timestamp(DateTimeOffset), Method, Url, Protocol, StatusCode, ResponseSize, Referrer, UserAgent, RawLine. Indexes on LogFileId, ClientIp, Timestamp.
-- **DetectionRule**: Name (unique), Description, AttackType, Severity, Kind (Signature/Threshold), Field (Url/UserAgent/Referrer), Pattern, Threshold, WindowSeconds, MethodFilter, PathPattern, StatusFilter, IsEnabled
-- **Alert**: Title, RuleId, LogFileId, SourceIp, AttackType, Severity, Status (New/Investigating/FalsePositive/Closed), FirstSeen, LastSeen, EventCount, Notes, AssignedToId, CreatedAt
-- **AlertEvidence**: AlertId → LogEventId (unique pair). LogEvent FK is NoAction (SQL Server multiple-cascade-path rule) → evidence must be deleted before events.
-- **IpInfo** (key Ip): CountryCode, CountryName, City, Latitude, Longitude, AbuseScore, LastChecked (7-day cache)
+- **DetectionRule**: Name (unique), Description, AttackType, Severity, Kind (**Signature/Threshold/Anomaly**), Field, Pattern, Threshold (anomaly: min requests per IP), WindowSeconds, MethodFilter, PathPattern, StatusFilter, **ScoreThreshold** (anomaly), IsEnabled
+- **Alert**: Title, RuleId, LogFileId, SourceIp, AttackType, Severity, Status, FirstSeen, LastSeen, EventCount, **Score, Details** (anomaly), **OriginalSeverity, SeverityNote** (GreyNoise downgrade), Notes, AssignedToId, CreatedAt
+- **AlertEvidence**: AlertId → LogEventId (unique pair). LogEvent FK is NoAction → evidence must be deleted before events.
+- **IpInfo** (key Ip): CountryCode, CountryName, City, Latitude, Longitude, AbuseScore (synced from AbuseIPDB), LastChecked
+- **IpReputation**: Ip + Provider (unique), Verdict (Unknown/Benign/Suspicious/Malicious/NotFound/Error/Skipped), Score 0–100, Summary, AttributesJson, Error, CheckedAt
+- **AuditEntry**: Timestamp, UserName, Action (e.g. Login.Failed, Rule.Edit, User.Disable, LogFile.Upload, Alert.Update, ThreatIntel.Lookup), Target, Details, IpAddress — append-only
 - Enums stored as strings → sorting by severity/status uses explicit CASE ranks in LINQ.
+- The default Isolation Forest rule is inserted by the `RulesUsersAnomaly` migration (SQL with IF NOT EXISTS); DbSeeder seeds the 6 classic rules only when no non-anomaly rule exists.
 
-## 7. What is built (steps 1–4 DONE and tested)
+## 7. What is built (steps 1–9 DONE)
 ### Step 1 — Scaffold
-Identity with roles Admin/Analyst, global `AuthorizeFilter` (every page needs login), lockout 5 tries/15 min, password ≥10 + symbol, HttpOnly/Secure/SameSite=Strict cookie, antiforgery on POSTs, seeding of roles/admin/6 default rules, dark Bootstrap layout.
+Identity with roles, global `AuthorizeFilter`, lockout 5 tries/15 min, password ≥10 + symbol, HttpOnly/Secure/SameSite=Strict cookie, antiforgery on POSTs, seeding, dark Bootstrap layout.
 
 ### Step 2 — Upload & parsing
-- Upload page (.log/.txt/.gz, 500 MB limit), file saved as `App_Data/uploads/{id}.log` (never the user's file name → no path traversal).
-- `CombinedLogParser` (source-generated regex, handles escaped quotes, malformed request lines, `-0700` offsets).
-- `LogProcessingWorker` (BackgroundService): streams file (gzip supported), SqlBulkCopy batches of 5,000, progress updates, resumes unfinished files on startup, logs lines/sec (for RQ3).
-- Log files list (auto-refresh while busy), details page with paginated events + filter by IP/status; Admin-only delete.
+Upload (.log/.txt/.gz, 500 MB), file saved as `App_Data/uploads/{id}.log`; `CombinedLogParser` (source-generated regex); `LogProcessingWorker` streams + SqlBulkCopy batches of 5,000, progress, resume on startup (Pending/Processing → full re-parse, Analyzing → detection only).
 
 ### Step 3 — Detection, alerts, evaluation
-- `DetectionEngine`: signature rules (regex on URL decoded twice / User-Agent / Referrer) and threshold rules (sliding window per IP). Regex timeout 250 ms (ReDoS protection). One alert per (rule, IP), all evidence bulk-inserted. Runs automatically after parsing (status Processing → Analyzing → Completed); Admin "Re-run detection" button.
-- 6 seeded rules: SQL injection signatures (High), XSS signatures (Medium), Path traversal/LFI (High), Known scanner user agents (Medium), Login brute force ≥20 POST to login paths in 60 s (High), Directory enumeration ≥50×404 in 60 s (Medium).
-- Alerts page (filters, pagination, "new since last visit" marker), alert details (rule, evidence with decoded URLs, location/abuse, triage form: status + notes; Investigating auto-assigns the analyst), Rules page (logic, alert counts, Admin on/off toggle).
-- **Evaluation page**: upload labels CSV → precision, recall, F1, FPR, accuracy, confusion matrix, per-attack-type table. Labels: normal, sqli, xss, traversal, bruteforce, direnum, scanner (malformed ignored).
-- **Result on sample log:** TP 330, FP 0, FN 0, TN 2,600 → 100% precision/recall/F1. Per type: DirectoryEnumeration recall 94% (9 non-404 gobuster lines caught only by the scanner rule), Scanner precision 8.7% (sqlmap/gobuster lines also match the UA rule — rule overlap, not real FPs). **Important for the thesis:** the sample was written by us to match the rules, so 100% only proves the engine works; real numbers must come from CSIC 2010 + DVWA lab.
-- Nav badges (polled every 10 s via `/Home/NavCounts`): Log files = processing spinner; Alerts = +N alerts created since the user last opened Alerts; Rules = +N rules that fired since last opening Rules. Cleared on visiting the page.
+Signature + threshold rules (URL decoded twice, regex timeout 250 ms), one alert per (rule, IP); alerts list/details/triage; rules page; evaluation page (labels CSV → metrics). Sample log result: 100% (sample written to match rules → only proves the engine works). Nav badges.
 
 ### Step 4 — Dashboard, enrichment, reports
-- Dashboard (scope filter per log file): stat cards, requests-over-time (all vs malicious, hourly), alerts by severity (doughnut), malicious requests by attack type (bar), attack-origin map, top attacking IPs (location, abuse score, malicious requests, attack types, max severity), latest alerts. JSON for charts is serialized with System.Text.Json (escapes `<>&` → no XSS); map popups built with `textContent`.
-- IP enrichment runs after detection for alert source IPs only; private/loopback IPs are never sent to external services; AbuseIPDB client ready (no key yet → "—").
-- GeoIP verified on the sample: 185.220.101.45 DE Berlin · 103.75.190.12 MY Kuala Lumpur · 91.240.118.172 HK · 194.26.29.113 RU St Petersburg · 45.146.164.110 RU St Petersburg · 162.142.125.9 US Ann Arbor (Censys range).
-- **CSV export** of filtered alerts (UTF-8 BOM, CSV-injection protection: cells starting with = + - @ are prefixed with ').
-- **PDF incident report** per log file (summary, alerts table, per-alert details with 3 evidence samples).
-- Note: two copies of the sample log were uploaded (ids 1 and 2) → dashboard counts are doubled; delete one.
+Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP, CSV export (formula-injection safe), PDF report.
+
+### Step 5 — Threat intel (2026-11-13)
+- `IThreatIntelProvider` + `ThreatIntelProviderBase` (HTTP status → readable errors: 401/403 key rejected, 429 quota, 5xx unavailable; JSON errors never throw). Providers: **AbuseIPDB** v2 `/check` (header `Key`), **GreyNoise** Community v3 `/v3/community/{ip}` (header `key`, 404 = not noise), **VirusTotal** v3 `/ip_addresses/{ip}` (header `x-apikey`). Static `ParseResponse` per provider (unit-tested).
+- Not configured → verdict *Skipped* with the user-secrets command; private IPs → *Skipped*, never sent.
+- `ThreatIntelService`: cache per (IP, provider), `EnrichAsync` with per-run limits, `ProviderThrottle` (VT 15 s; UI requests don't wait, they get "try again in N s"), `ApplyGreyNoiseRuleAsync` (benign/RIOT → severity −1, OriginalSeverity kept).
+- Worker order: parse → detection → GeoIP → **Completed** → threat intel + GreyNoise rule (best effort, so slow APIs don't delay the file).
+- Routes: `/ThreatIntel`, `/ThreatIntel/Provider/{abuseipdb|greynoise|virustotal}`, `/ThreatIntel/Lookup?ip=`, POST `/ThreatIntel/Refresh`, POST `/ThreatIntel/Test/{slug}` (Admin, uses 8.8.8.8), GET `/ThreatIntel/Api/{slug}/{ip}` (cached JSON). Reputation cards on alert details, badges in dashboard top IPs, line in PDF, ↓ icon in alert list for lowered alerts.
+- "Re-run detection" now queues a background job (was synchronous in the request).
+- Verified in browser: all routes 200/404/400 as expected without keys. **Not yet verified with real API keys** (no keys yet) — provider parsing is covered by unit tests with realistic JSON.
+
+### Step 6 — Rule & user management (FR1, FR4)
+- Rules: Admin create/edit (one form for 3 kinds, `rule-form.js` shows/disables fields per kind), delete only if the rule has no alerts (else disable), unique names, `RuleValidator` (compile + **ReDoS probe** with 100 ms timeout on adversarial inputs), **Test before saving** (`RuleTester`: runs the unsaved rule on a stored log, up to 500k events, shows matches/alerts/top IPs/samples).
+- Users (`/Users`, Admin): create, change role, disable/enable (security stamp updated → session ends within 1 min), unlock, reset password; cannot change/disable self or the last active admin. Disabled users can't sign in (`EnabledUserConfirmation` + `RequireConfirmedAccount`; same generic error message). Change own password (`/Account/ChangePassword`). Analyst gets AccessDenied on Users/Audit/rule editing (verified).
+- Audit log page `/Audit` (Admin) with user/action filters.
+
+### Step 7 — Isolation Forest (RQ2)
+- `DetectionCore` extracted (pure, unit-testable); `DetectionEngine` streams events into it.
+- `IsolationForest` in C#: 100 trees, ψ = min(256, n), height limit ⌈log2 ψ⌉, score 2^(−E[h]/c(ψ)), seed 42.
+- 11 per-IP features: requests (log), requests/min (log), 4xx ratio, 5xx ratio, unique path ratio, avg URL length (log), POST ratio, suspicious-char ratio, missing UA ratio, distinct UAs (log), query-string ratio. Needs ≥ 8 IPs with ≥ Threshold requests.
+- Alert = all events of the IP, title "Anomalous behaviour from IP (score 0.xx)", explanation = top 3 features by robust z-score (median/MAD), e.g. "requests per minute 20 (typical 0.07)".
+- Default rule "Anomalous client behaviour (Isolation Forest)": Low, min 20 requests, score ≥ 0.62.
+- Evaluation page adds **Rules only / Anomaly only / Rules + anomaly** table.
+- Sample log: 51 IPs, 6 anomalous (exactly the attacker IPs) → 100% for all three (synthetic sample, attackers send only attacks).
+
+### Step 8 — Evaluation tooling (RQ1–RQ3)
+- Parse and detection time stored per LogFile and shown on the file page; SqlBulkCopy uses TableLock.
+- `tools/LogAnalyzer.Tools` (`loganalyzer-tools.exe`): `generate` (actor-based synthetic log: sessions, crawlers, uptime monitor, campaigns incl. evasive payloads, spoofed UAs, slow brute force, benign odd searches), `csic` (CSIC 2010 → CLF + labels, `--body-as-query` upper bound), `label-by-ip` (DVWA lab), `bench` (CPU-only parse+rules+IF, with `--labels` prints accuracy).
+- **Reference results (1M synthetic lines, seed 42, Debug, 24 CPUs):** parse ≈ 8 s (~125k lines/s), rules ≈ 1.5–2 s, IF ≈ 0.3 s, total ≈ 10 s. Rules only P 99.7% / R 96.1% / F1 97.9% / FPR 0.01%; IF only P 87.9% / R 99.9%; rules+IF P 87.7% / R 100% / F1 93.4% / FPR 0.29%. Per-label recall (rules): bruteforce 100, scanner 100, direnum 96.9, xss 89.4, sqli 85.8, traversal 69.8.
+- `docs/evaluation-guide.md` = full protocol (datasets, DVWA VirtualBox lab, attack commands, labelling, thesis tables, threats to validity).
+
+### Step 9 — Quality
+- 74 xUnit tests (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
+- `SecurityHeadersMiddleware`: CSP `script-src 'self' https://cdn.jsdelivr.net` (no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
+- Login rate limiter: 10 POSTs/min per IP → 429 (verified).
+- Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
+- README.md.
 
 ## 8. Known gotchas / lessons
-- When files were pushed to the laptop remotely, some writes silently landed as the *previous* version (appsettings.json and the csproj once, Index.cshtml/site.css once) → always verify file content/size after writing. (With Claude Code working locally this should no longer be an issue.)
-- The app uses `localhost`, not `.\SQLEXPRESS` (connection string was never switched; kept on purpose for the Developer edition).
-- In SSMS/VS SQL Server Object Explorer you must connect to `localhost` to see `LogAnalyzerDb`.
-- Package Manager Console EF commands error out; use `dotnet ef` from the terminal in the project folder.
+- The app uses `localhost`, not `.\SQLEXPRESS`. In SSMS connect to `localhost` to see `LogAnalyzerDb`.
+- Package Manager Console EF commands error out; use `dotnet ef` in the project folder.
 - `EF.IsDesignTime` guards seeding; `DesignTimeDbContextFactory` exists for EF tools.
-- MaxMind GeoLite2 sign-up form was broken ("intended use is required") → switched to DB-IP Lite (no account). GeoLite2 also works if its .mmdb is dropped in App_Data.
+- MaxMind GeoLite2 sign-up form was broken → DB-IP Lite used.
+- Don't name action parameters / query params `action` (clashes with MVC route value) — use e.g. `intent`, `type`.
+- Stop the running app before `dotnet build` from the CLI (bin files are locked while it runs).
+- Duplicate sample uploads were cleaned on 2026-11-13: only log file **#4** (sample-access.log) remains.
+- The Desktop copy of this file (`OneDrive\Desktop\CLAUDE.md`) is the old version — this repo file is the source of truth.
 
 ## 9. Decisions & advice already given
-- **Zimmerman tools / Chainsaw (Windows forensics):** out of the proposal's scope → postponed. Possible later "Windows event log module" (run Chainsaw + Sigma on uploaded .evtx, show results in the same Alerts page) as an extension chapter or future work; changing core scope needs supervisor approval.
-- **Threat intel:** add **GreyNoise** (identifies benign mass scanners → lower severity / reduce alert fatigue — good evaluation angle) and **VirusTotal** (optional multi-vendor verdict). **Do NOT use Daniel's work GTI account** (AKSK license, logging, quota, key leakage) → create personal/free accounts with the **university email**. **Snyk** is not an IP source — mention only in a secure-development section (we already use `dotnet list package --vulnerable`).
-- Daniel opens accounts for AbuseIPDB, GreyNoise, VirusTotal with the school account (pending).
-- Suggested Claude skills for later: LogAnalyzer project conventions, thesis writing (needs faculty guidelines), detection-rule writing, incident report, KQL hunting.
+- **Zimmerman tools / Chainsaw:** out of scope → possible future "Windows event log module" (needs supervisor approval).
+- **Threat intel:** use personal/free accounts with the **university email**; **do NOT use the work GTI account** (AKSK license, logging, quota, key leakage). Snyk is not an IP source — mention only in a secure-development section (`dotnet list package --vulnerable`).
+- Isolation Forest implemented in C# instead of a Python microservice: no extra runtime, reproducible (seeded), explainable; mention scikit-learn as the reference implementation in the thesis.
+- CSIC 2010 only evaluates signature rules (no real IPs/timestamps); access logs have no POST bodies → report realistic vs. `--body-as-query` upper bound.
+- Rules with alerts are disabled, not deleted (traceability); users are disabled, not deleted.
 
 ## 10. Roadmap (what's left)
-- **Step 5 — Threat intel providers:** refactor enrichment into a provider interface; AbuseIPDB (key), GreyNoise Community, VirusTotal; store results in IpInfo (new columns → migration); show on alert/dashboard/PDF; rule: GreyNoise "benign" → downgrade severity (measure before/after alert counts).
-- **Step 6 — Rule & user management (FR1, FR4):** Admin create/edit/delete rules with regex validation + test-against-sample; Admin creates/disables Analyst accounts; Analyst cannot change rules.
-- **Step 7 — ML anomaly detection (RQ2):** Isolation Forest (Python scikit-learn microservice via REST, or ML.NET alternative) on per-IP features (request rate, 4xx ratio, unique URLs, avg URL length…); new AttackType.Anomaly alerts; compare rules vs rules+ML on evaluation page.
-- **Step 8 — Real evaluation:** CSIC 2010 dataset (convert to access-log format + labels), DVWA lab on Apache attacked with sqlmap/Hydra/Nikto/gobuster (Kali VM in VirtualBox) to produce labelled logs, 1M+ line performance test (parse + detection timings) — results for chapter 6.
-- **Step 9 — Quality:** unit tests (parser, detection engine, CSV escaping), security headers/CSP, audit log, README, screenshots.
-- **Then:** write thesis chapters (1 Intro · 2 Literature review: OWASP, ELK, GoAccess, Wazuh/OSSEC, ModSecurity · 3 Requirements/UML · 4 Design/ER/architecture · 5 Implementation · 6 Testing & evaluation · 7 Conclusions/future work).
-- **Optional:** Chainsaw/EZ tools module, live log ingestion, more log formats, automatic blocking.
-- Estimate given: ~6–8 more sessions of coding, app done in ~2 weeks, then lab + writing.
+1. **Merge `steps-5-9` into `main` and push** (Daniel reviews first).
+2. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
+3. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).
+4. **RQ1/RQ2 real data:** CSIC 2010 (download, `csic` command, both variants) and DVWA lab (VirtualBox: Ubuntu+Apache+DVWA, Kali, normal-traffic VM; nikto/gobuster/sqlmap/hydra + manual XSS/LFI; `label-by-ip`) → Evaluate page tables.
+5. Screenshots for the thesis (dashboard, alerts, alert details with threat intel, rule tester, evaluation, users, audit).
+6. Write thesis chapters (1 Intro · 2 Literature review: OWASP, ELK, GoAccess, Wazuh/OSSEC, ModSecurity, Isolation Forest paper · 3 Requirements/UML · 4 Design/ER/architecture · 5 Implementation · 6 Testing & evaluation (use docs/evaluation-guide.md) · 7 Conclusions/future work).
+- Optional: tune IF threshold per dataset, batch delete for huge files, Windows event log module (Chainsaw/Sigma), live log ingestion, more log formats, automatic blocking.
 
 ## 11. Working conventions for Claude
 - Answer concisely and command-ready; Daniel works step by step in VS 2026 and sends screenshots.
-- Keep the existing patterns: primary-constructor services, enums as strings, `Format` helpers for badges, Bootstrap dark UI, `[ValidateAntiForgeryToken]` on POSTs, `[Authorize(Roles = Roles.Admin)]` for admin actions, log user actions with ILogger.
-- Schema change → tell Daniel to run `dotnet ef migrations add <Name>` in `src\LogAnalyzer.Web`, then restart (auto-migrate).
-- Security first (this is a security thesis): validate input, never trust log data in HTML/JS/CSV, secrets in user-secrets, no real employer data.
-- After each step: build, test in browser, commit to Git.
+- Keep the existing patterns: primary-constructor services, enums as strings, `Format` helpers for badges, Bootstrap dark UI, `[ValidateAntiForgeryToken]` on POSTs, `[Authorize(Roles = Roles.Admin)]` for admin actions, log user actions with ILogger **and** `IAuditLog`.
+- **No inline JavaScript or `on*` attributes** (CSP): put scripts in `wwwroot/js`, use `js-confirm` / `js-autosubmit`.
+- Detection logic goes into `DetectionCore` / `AnomalyDetector` (pure) with unit tests; `DetectionEngine` stays a thin DB wrapper.
+- Schema change → `dotnet ef migrations add <Name>` in `src\LogAnalyzer.Web`, then restart (auto-migrate).
+- Security first (security thesis): validate input, never trust log data in HTML/JS/CSV, secrets in user-secrets, no real employer data, private IPs never leave the machine.
+- After each step: build, `dotnet test`, test in browser, commit to Git (work on a branch, merge after review).
