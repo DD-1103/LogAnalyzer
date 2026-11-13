@@ -1,0 +1,132 @@
+@model AlertListViewModel
+@{
+    ViewData["Title"] = "Alerts";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">Alerts</h1>
+    <div class="d-flex align-items-center gap-3">
+        <span class="text-body-secondary small">@Model.TotalCount.ToString("N0") alert(s)</span>
+        <a asp-action="Export" asp-route-status="@Model.Status" asp-route-severity="@Model.Severity"
+           asp-route-attackType="@Model.AttackType" asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId"
+           class="btn btn-sm btn-outline-success"><i class="bi bi-filetype-csv"></i> Export CSV</a>
+    </div>
+</div>
+
+<form method="get" asp-action="Index" class="row g-2 align-items-end mb-3">
+    @if (Model.LogFileId.HasValue)
+    {
+        <input type="hidden" name="logFileId" value="@Model.LogFileId" />
+    }
+    <div class="col-6 col-md-2">
+        <label class="form-label small" for="status">Status</label>
+        <select id="status" name="status" class="form-select form-select-sm">
+            <option value="">All</option>
+            @foreach (var v in Enum.GetValues<AlertStatus>())
+            {
+                if (Model.Status == v) { <option value="@v" selected>@v</option> } else { <option value="@v">@v</option> }
+            }
+        </select>
+    </div>
+    <div class="col-6 col-md-2">
+        <label class="form-label small" for="severity">Severity</label>
+        <select id="severity" name="severity" class="form-select form-select-sm">
+            <option value="">All</option>
+            @foreach (var v in Enum.GetValues<Severity>())
+            {
+                if (Model.Severity == v) { <option value="@v" selected>@v</option> } else { <option value="@v">@v</option> }
+            }
+        </select>
+    </div>
+    <div class="col-6 col-md-3">
+        <label class="form-label small" for="attackType">Attack type</label>
+        <select id="attackType" name="attackType" class="form-select form-select-sm">
+            <option value="">All</option>
+            @foreach (var v in Enum.GetValues<AttackType>())
+            {
+                if (Model.AttackType == v) { <option value="@v" selected>@v</option> } else { <option value="@v">@v</option> }
+            }
+        </select>
+    </div>
+    <div class="col-6 col-md-2">
+        <label class="form-label small" for="ip">Source IP</label>
+        <input id="ip" name="ip" value="@Model.Ip" class="form-control form-control-sm" />
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel"></i> Filter</button>
+        <a asp-action="Index" class="btn btn-sm btn-outline-secondary">Clear</a>
+    </div>
+</form>
+
+@if (Model.LogFileId.HasValue)
+{
+    <div class="small text-body-secondary mb-2">
+        Showing alerts for one log file. <a asp-action="Index">Show all</a>
+    </div>
+}
+
+@if (Model.Alerts.Count == 0)
+{
+    <div class="text-center text-body-secondary py-5">
+        <i class="bi bi-shield-check fs-1"></i>
+        <p class="mt-2">No alerts match these filters.</p>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Severity</th>
+                    <th>Alert</th>
+                    <th>Attack type</th>
+                    <th>Source IP</th>
+                    <th class="text-end">Events</th>
+                    <th>Last seen</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in Model.Alerts)
+                {
+                    <tr>
+                        <td><span class="badge @Format.SeverityBadge(a.Severity)">@a.Severity</span></td>
+                        <td>
+                            @if (Model.IsNewSinceLastVisit(a))
+                            {
+                                <span class="badge rounded-pill text-bg-primary me-1" title="New since your last visit">new</span>
+                            }
+                            <a asp-action="Details" asp-route-id="@a.Id" class="fw-semibold">@a.Title</a>
+                            <div class="small text-body-secondary">@a.LogFile?.FileName</div>
+                        </td>
+                        <td>@Format.AttackLabel(a.AttackType)</td>
+                        <td class="font-monospace">@a.SourceIp</td>
+                        <td class="text-end">@a.EventCount.ToString("N0")</td>
+                        <td class="small text-nowrap">@a.LastSeen.ToString("dd/MM/yyyy HH:mm:ss")</td>
+                        <td><span class="badge @Format.AlertStatusBadge(a.Status)">@a.Status</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.TotalPages > 1)
+    {
+        <nav>
+            <ul class="pagination pagination-sm justify-content-center">
+                <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
+                    <a class="page-link" asp-action="Index" asp-route-page="@(Model.Page - 1)"
+                       asp-route-status="@Model.Status" asp-route-severity="@Model.Severity" asp-route-attackType="@Model.AttackType"
+                       asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId">Previous</a>
+                </li>
+                <li class="page-item disabled"><span class="page-link">Page @Model.Page of @Model.TotalPages</span></li>
+                <li class="page-item @(Model.Page == Model.TotalPages ? "disabled" : "")">
+                    <a class="page-link" asp-action="Index" asp-route-page="@(Model.Page + 1)"
+                       asp-route-status="@Model.Status" asp-route-severity="@Model.Severity" asp-route-attackType="@Model.AttackType"
+                       asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId">Next</a>
+                </li>
+            </ul>
+        </nav>
+    }
+}

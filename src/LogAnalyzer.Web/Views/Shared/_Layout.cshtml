@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] · LogAnalyzer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg border-bottom bg-body-tertiary">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-semibold" asp-controller="Home" asp-action="Index">
+                <i class="bi bi-shield-lock"></i> LogAnalyzer
+            </a>
+            @if (User.Identity?.IsAuthenticated == true)
+            {
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="nav">
+                    <ul class="navbar-nav me-auto">
+                        <li class="nav-item"><a class="nav-link" asp-controller="Home" asp-action="Index">Dashboard</a></li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="LogFiles" asp-action="Index">
+                                Log files
+                                <span id="badge-files" class="badge rounded-pill text-bg-info d-none" title="Files being processed">
+                                    <span class="spinner-border spinner-border-sm" style="width:.6rem;height:.6rem"></span>
+                                    <span class="count"></span>
+                                </span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Alerts" asp-action="Index">
+                                Alerts
+                                <span id="badge-alerts" class="badge rounded-pill text-bg-danger d-none" title="New alerts since your last visit">
+                                    <span class="count"></span>
+                                </span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Rules" asp-action="Index">
+                                Rules
+                                <span id="badge-rules" class="badge rounded-pill text-bg-warning d-none" title="Rules that fired since your last visit">
+                                    <span class="count"></span>
+                                </span>
+                            </a>
+                        </li>
+                    </ul>
+                    <span class="navbar-text me-3 small">@User.Identity!.Name</span>
+                    <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">Log out</button>
+                    </form>
+                </div>
+            }
+        </div>
+    </nav>
+
+    <main class="container py-4">
+        @if (TempData["Success"] is string ok)
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                @ok <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+        @if (TempData["Error"] is string err)
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                @err <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+        @RenderBody()
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <script>
+            (function () {
+                const url = '@Url.Action("NavCounts", "Home")';
+
+                function setBadge(id, value, prefix) {
+                    const badge = document.getElementById(id);
+                    if (!badge) return;
+                    badge.querySelector('.count').textContent = value > 0 ? prefix + value : '';
+                    badge.classList.toggle('d-none', !(value > 0));
+                }
+
+                async function refresh() {
+                    try {
+                        const res = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+                        if (!res.ok) return;
+                        const c = await res.json();
+                        setBadge('badge-files', c.processing, '');
+                        setBadge('badge-alerts', c.newAlerts, '+');
+                        setBadge('badge-rules', c.firingRules, '+');
+                    } catch { /* offline or session expired: keep the last values */ }
+                }
+
+                refresh();
+                setInterval(refresh, 10000);
+            })();
+        </script>
+    }
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

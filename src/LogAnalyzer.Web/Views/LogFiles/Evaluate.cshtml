@@ -1,0 +1,105 @@
+@model EvaluationViewModel
+@{
+    var f = Model.File;
+    ViewData["Title"] = "Evaluate " + f.FileName;
+}
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a asp-action="Index">Log files</a></li>
+        <li class="breadcrumb-item"><a asp-action="Details" asp-route-id="@f.Id">@f.FileName</a></li>
+        <li class="breadcrumb-item active">Evaluate</li>
+    </ol>
+</nav>
+
+<h1 class="h3 mb-2">Detection evaluation</h1>
+<p class="text-body-secondary">
+    Compare the alerts for <strong>@f.FileName</strong> with a ground-truth labels file.
+    The CSV needs two columns: <code>line,label</code>. Use <code>normal</code> for benign lines and an attack name
+    (<code>sqli</code>, <code>xss</code>, <code>traversal</code>, <code>bruteforce</code>, <code>direnum</code>, <code>scanner</code>) for malicious ones.
+</p>
+
+<form asp-action="Evaluate" asp-route-id="@f.Id" method="post" enctype="multipart/form-data" class="row g-2 align-items-end mb-4">
+    <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2 small col-12" role="alert"></div>
+    <div class="col-md-6">
+        <label for="labels" class="form-label small">Labels file (.csv)</label>
+        <input type="file" id="labels" name="labels" accept=".csv" class="form-control" required />
+    </div>
+    <div class="col-md-3">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-play"></i> Evaluate</button>
+    </div>
+</form>
+
+@if (Model.Result is { } r)
+{
+    var o = r.Overall;
+    <h2 class="h5">Results <span class="text-body-secondary small">(@Model.LabelsFileName, @r.LabelledLines.ToString("N0") labelled events, @r.IgnoredLines ignored)</span></h2>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3"><div class="card stat-card"><div class="card-body">
+            <div class="text-body-secondary small">Precision</div>
+            <div class="fs-3 fw-semibold">@Format.Percent(o.Precision)</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card stat-card"><div class="card-body">
+            <div class="text-body-secondary small">Recall (detection rate)</div>
+            <div class="fs-3 fw-semibold">@Format.Percent(o.Recall)</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card stat-card"><div class="card-body">
+            <div class="text-body-secondary small">F1-score</div>
+            <div class="fs-3 fw-semibold">@Format.Percent(o.F1)</div>
+        </div></div></div>
+        <div class="col-6 col-lg-3"><div class="card stat-card"><div class="card-body">
+            <div class="text-body-secondary small">False-positive rate</div>
+            <div class="fs-3 fw-semibold">@Format.Percent(o.FalsePositiveRate)</div>
+        </div></div></div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <h3 class="h6">Confusion matrix (all attacks)</h3>
+            <table class="table table-bordered text-center">
+                <thead>
+                    <tr><th></th><th>Flagged</th><th>Not flagged</th></tr>
+                </thead>
+                <tbody>
+                    <tr><th>Malicious</th><td class="text-success fw-semibold">TP @o.TP</td><td class="text-danger">FN @o.FN</td></tr>
+                    <tr><th>Benign</th><td class="text-warning">FP @o.FP</td><td>TN @o.TN</td></tr>
+                </tbody>
+            </table>
+            <div class="small text-body-secondary">Accuracy: @Format.Percent(o.Accuracy)</div>
+        </div>
+
+        <div class="col-lg-8">
+            <h3 class="h6">Per attack type</h3>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Attack type</th>
+                            <th class="text-end">TP</th><th class="text-end">FP</th><th class="text-end">FN</th>
+                            <th class="text-end">Precision</th><th class="text-end">Recall</th><th class="text-end">F1</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in r.PerAttackType.Where(m => m.TP + m.FP + m.FN > 0))
+                        {
+                            <tr>
+                                <td>@m.Name</td>
+                                <td class="text-end">@m.TP</td>
+                                <td class="text-end">@m.FP</td>
+                                <td class="text-end">@m.FN</td>
+                                <td class="text-end">@Format.Percent(m.Precision)</td>
+                                <td class="text-end">@Format.Percent(m.Recall)</td>
+                                <td class="text-end">@Format.Percent(m.F1)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="small text-body-secondary">
+                Per-type FP counts lines flagged by that rule type but labelled as a different (or no) attack.
+                Example: sqlmap requests are labelled <code>sqli</code> but also match the scanner user-agent rule.
+            </div>
+        </div>
+    </div>
+}

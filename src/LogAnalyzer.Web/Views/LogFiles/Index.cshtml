@@ -1,0 +1,82 @@
+@model List<LogFile>
+@{
+    ViewData["Title"] = "Log files";
+    var busy = Model.Any(f => Format.IsBusy(f.Status));
+    var isAdmin = User.IsInRole(Roles.Admin);
+}
+@if (busy)
+{
+    @* Refresh while files are still being processed *@
+    <meta http-equiv="refresh" content="3" />
+}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">Log files</h1>
+    <a asp-action="Upload" class="btn btn-primary"><i class="bi bi-upload"></i> Upload log</a>
+</div>
+
+@if (Model.Count == 0)
+{
+    <div class="text-center text-body-secondary py-5">
+        <i class="bi bi-file-earmark-text fs-1"></i>
+        <p class="mt-2">No log files yet. Upload an Apache or Nginx access log to start.</p>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                    <th>Status</th>
+                    <th class="text-end">Parsed</th>
+                    <th class="text-end">Failed</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var f in Model)
+                {
+                    <tr>
+                        <td>
+                            <a asp-action="Details" asp-route-id="@f.Id" class="fw-semibold">@f.FileName</a>
+                            @if (f.Status == LogFileStatus.Failed && f.ErrorMessage is not null)
+                            {
+                                <div class="small text-danger">@f.ErrorMessage</div>
+                            }
+                        </td>
+                        <td>@Format.Bytes(f.SizeBytes)</td>
+                        <td class="small">
+                            @f.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                            <div class="text-body-secondary">@f.UploadedBy?.Email</div>
+                        </td>
+                        <td>
+                            <span class="badge @Format.StatusBadge(f.Status)">
+                                @if (f.Status is LogFileStatus.Processing or LogFileStatus.Analyzing)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                @f.Status
+                            </span>
+                        </td>
+                        <td class="text-end">@f.ParsedLines.ToString("N0")</td>
+                        <td class="text-end @(f.FailedLines > 0 ? "text-warning" : "")">@f.FailedLines.ToString("N0")</td>
+                        <td class="text-end text-nowrap">
+                            <a asp-action="Details" asp-route-id="@f.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            @if (isAdmin)
+                            {
+                                <form asp-action="Delete" asp-route-id="@f.Id" method="post" class="d-inline"
+                                      onsubmit="return confirm('Delete this log file and all its events?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

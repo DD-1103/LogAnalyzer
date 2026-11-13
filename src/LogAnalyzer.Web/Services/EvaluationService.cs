@@ -1,0 +1,114 @@
+using LogAnalyzer.Web.Data;
+using LogAnalyzer.Web.Models;
+using Microsoft.EntityFrameworkCore;
+
+namespace LogAnalyzer.Web.Services;
+
+public sealed record Metrics(string Name, int TP, int FP, int FN, int TN)
+{
+    public double Precision => TP + FP == 0 ? 0 : (double)TP / (TP + FP);
+    public double Recall => TP + FN == 0 ? 0 : (double)TP / (TP + FN);
+    public double F1 => Precision + Recall == 0 ? 0 : 2 * Precision * Recall / (Precision + Recall);
+    public double Accuracy => TP + FP + FN + TN == 0 ? 0 : (double)(TP + TN) / (TP + FP + FN + TN);
+    public double FalsePositiveRate => FP + TN == 0 ? 0 : (double)FP / (FP + TN);
+}
+
+public sealed class EvaluationResult
+{
+    public required Metrics Overall { get; init; }
+    public required List<Metrics> PerAttackType { get; init; }
+    public int LabelledLines { get; init; }
+    public int IgnoredLines { get; init; }
+}
+
+/// <summary>
+/// Compares detection results with a ground-truth labels file (CSV: line,label).
+/// Label "normal" = benign; "malformed" lines are ignored (they are not events);
+/// any other label = malicious. Evaluation is done per log line.
+/// </summary>
+public sealed class EvaluationService(AppDbContext db)
+{
+    // Label names used in the labels file -> attack type of the rule that should catch them.
+    public static readonly Dictionary<string, AttackType> LabelMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sqli"] = AttackType.SqlInjection,
+        ["xss"] = AttackType.Xss,
+        ["traversal"] = AttackType.PathTraversal,
+        ["bruteforce"] = AttackType.BruteForce,
+        ["direnum"] = AttackType.DirectoryEnumeration,
+        ["scanner"] = AttackType.Scanner
+    };
+
+    public static Dictionary<int, string> ParseLabels(Stream csv)
+    {
+        var labels = new Dictionary<int, string>();
+        using var reader = new StreamReader(csv);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            var parts = line.Split(',', 2);
+            if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out var n))
+                labels[n] = parts[1].Trim().Trim('"');
+        }
+        return labels;
+    }
+
+    public async Task<EvaluationResult> EvaluateAsync(int logFileId, Dictionary<int, string> labels, CancellationToken ct)
+    {
+        // Line number -> attack types of the alerts that flagged it
+        var flagged = (await db.AlertEvidence.AsNoTracking()
+                .Where(e => e.Alert!.LogFileId == logFileId)
+                .Select(e => new { e.LogEvent!.LineNumber, e.Alert!.AttackType })
+                .ToListAsync(ct))
+            .GroupBy(x => x.LineNumber)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.AttackType).ToHashSet());
+
+        var eventLines = (await db.LogEvents.AsNoTracking()
+                .Where(e => e.LogFileId == logFileId)
+                .Select(e => e.LineNumber)
+                .ToListAsync(ct))
+            .ToHashSet();
+
+        int tp = 0, fp = 0, fn = 0, tn = 0, ignored = 0;
+        var perType = LabelMap.Values.Distinct().ToDictionary(t => t, _ => new int[4]); // TP, FP, FN, TN
+
+        foreach (var (lineNo, label) in labels)
+        {
+            if (!eventLines.Contains(lineNo) || label.Equals("malformed", StringComparison.OrdinalIgnoreCase))
+            {
+                ignored++;
+                continue;
+            }
+
+            var isMalicious = !label.Equals("normal", StringComparison.OrdinalIgnoreCase);
+            var types = flagged.GetValueOrDefault(lineNo);
+            var isFlagged = types is { Count: > 0 };
+
+            if (isMalicious && isFlagged) tp++;
+            else if (!isMalicious && isFlagged) fp++;
+            else if (isMalicious) fn++;
+            else tn++;
+
+            LabelMap.TryGetValue(label, out var trueType);
+            foreach (var (type, c) in perType)
+            {
+                var actual = isMalicious && LabelMap.ContainsKey(label) && trueType == type;
+                var predicted = types?.Contains(type) == true;
+                if (actual && predicted) c[0]++;
+                else if (!actual && predicted) c[1]++;
+                else if (actual) c[2]++;
+                else c[3]++;
+            }
+        }
+
+        return new EvaluationResult
+        {
+            Overall = new Metrics("All attacks", tp, fp, fn, tn),
+            PerAttackType = perType
+                .Select(p => new Metrics(p.Key.ToString(), p.Value[0], p.Value[1], p.Value[2], p.Value[3]))
+                .ToList(),
+            LabelledLines = labels.Count - ignored,
+            IgnoredLines = ignored
+        };
+    }
+}

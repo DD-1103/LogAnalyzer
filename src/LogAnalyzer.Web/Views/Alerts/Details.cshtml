@@ -1,0 +1,136 @@
+@model AlertDetailsViewModel
+@{
+    var a = Model.Alert;
+    ViewData["Title"] = a.Title;
+}
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a asp-action="Index">Alerts</a></li>
+        <li class="breadcrumb-item active">#@a.Id</li>
+    </ol>
+</nav>
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-4">
+    <span class="badge @Format.SeverityBadge(a.Severity) fs-6">@a.Severity</span>
+    <h1 class="h3 mb-0 text-break">@a.Title</h1>
+    <span class="badge @Format.AlertStatusBadge(a.Status)">@a.Status</span>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Attack type</dt>
+                    <dd class="col-sm-8">@Format.AttackLabel(a.AttackType)</dd>
+
+                    <dt class="col-sm-4">Source IP</dt>
+                    <dd class="col-sm-8 font-monospace">
+                        @a.SourceIp
+                        <a asp-action="Index" asp-route-ip="@a.SourceIp" class="small ms-2">other alerts from this IP</a>
+                    </dd>
+
+                    <dt class="col-sm-4">Location / reputation</dt>
+                    <dd class="col-sm-8">
+                        @if (Model.IpInfo?.CountryCode is not null)
+                        {
+                            <span class="badge text-bg-secondary">@Model.IpInfo.CountryCode</span>
+                            @(string.Join(", ", new[] { Model.IpInfo.City, Model.IpInfo.CountryName }.Where(x => !string.IsNullOrEmpty(x))))
+                        }
+                        else
+                        {
+                            <span class="text-body-secondary">Unknown</span>
+                        }
+                        @if (Model.IpInfo?.AbuseScore is int score)
+                        {
+                            <span class="badge @Format.AbuseBadge(score) ms-2" title="AbuseIPDB confidence score">AbuseIPDB @(score)%</span>
+                        }
+                    </dd>
+
+                    <dt class="col-sm-4">Rule</dt>
+                    <dd class="col-sm-8">
+                        @a.Rule?.Name
+                        <div class="small text-body-secondary">@a.Rule?.Description</div>
+                    </dd>
+
+                    <dt class="col-sm-4">Matching events</dt>
+                    <dd class="col-sm-8">@a.EventCount.ToString("N0")</dd>
+
+                    <dt class="col-sm-4">First / last seen</dt>
+                    <dd class="col-sm-8">
+                        @a.FirstSeen.ToString("dd/MM/yyyy HH:mm:ss") → @a.LastSeen.ToString("dd/MM/yyyy HH:mm:ss")
+                        <span class="text-body-secondary small">(@((a.LastSeen - a.FirstSeen).ToString(@"hh\:mm\:ss")))</span>
+                    </dd>
+
+                    <dt class="col-sm-4">Log file</dt>
+                    <dd class="col-sm-8">
+                        <a asp-controller="LogFiles" asp-action="Details" asp-route-id="@a.LogFileId">@a.LogFile?.FileName</a>
+                    </dd>
+
+                    <dt class="col-sm-4">Assigned to</dt>
+                    <dd class="col-sm-8">@(a.AssignedTo?.Email ?? "—")</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Triage</h2>
+                <form asp-action="Update" asp-route-id="@a.Id" method="post">
+                    <div class="mb-3">
+                        <label for="Status" class="form-label small">Status</label>
+                        <select id="Status" name="Status" class="form-select">
+                            @foreach (var s in Enum.GetValues<AlertStatus>())
+                            {
+                                if (a.Status == s) { <option value="@s" selected>@s</option> } else { <option value="@s">@s</option> }
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="Notes" class="form-label small">Analyst notes</label>
+                        <textarea id="Notes" name="Notes" rows="4" maxlength="4000" class="form-control"
+                                  placeholder="What did you find? Was the attack successful?">@a.Notes</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check2"></i> Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<h2 class="h5">
+    Evidence
+    <span class="text-body-secondary small">
+        (@Model.EvidenceShown.ToString("N0") of @a.EventCount.ToString("N0") events shown)
+    </span>
+</h2>
+<div class="table-responsive">
+    <table class="table table-sm table-hover small align-middle">
+        <thead>
+            <tr>
+                <th>Line</th>
+                <th>Time</th>
+                <th>Method</th>
+                <th>URL (decoded)</th>
+                <th>Status</th>
+                <th>User agent</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var e in Model.Evidence)
+            {
+                <tr>
+                    <td class="text-body-secondary">@e.LineNumber</td>
+                    <td class="text-nowrap">@e.Timestamp.ToString("dd/MM HH:mm:ss")</td>
+                    <td>@e.Method</td>
+                    <td class="font-monospace text-break url-cell" title="@e.Url">@LogAnalyzer.Web.Services.UrlDecoder.Decode(e.Url)</td>
+                    <td class="@Format.HttpStatusClass(e.StatusCode)">@e.StatusCode</td>
+                    <td class="text-body-secondary ua-cell" title="@e.UserAgent">@e.UserAgent</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

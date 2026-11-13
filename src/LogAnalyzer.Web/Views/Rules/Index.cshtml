@@ -1,0 +1,70 @@
+@model List<DetectionRule>
+@{
+    ViewData["Title"] = "Detection rules";
+    var counts = (Dictionary<int, int>)ViewBag.AlertCounts;
+    var isAdmin = User.IsInRole(Roles.Admin);
+}
+
+<h1 class="h3 mb-4">Detection rules</h1>
+
+<div class="table-responsive">
+    <table class="table align-middle">
+        <thead>
+            <tr>
+                <th>Rule</th>
+                <th>Type</th>
+                <th>Severity</th>
+                <th>Logic</th>
+                <th class="text-end">Alerts</th>
+                <th>Enabled</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var r in Model)
+            {
+                <tr class="@(r.IsEnabled ? "" : "opacity-50")">
+                    <td>
+                        <div class="fw-semibold">@r.Name</div>
+                        <div class="small text-body-secondary">@r.Description</div>
+                        <div class="small">@Format.AttackLabel(r.AttackType)</div>
+                    </td>
+                    <td><span class="badge text-bg-secondary">@r.Kind</span></td>
+                    <td><span class="badge @Format.SeverityBadge(r.Severity)">@r.Severity</span></td>
+                    <td class="small">
+                        @if (r.Kind == RuleKind.Signature)
+                        {
+                            <div>Regex on <strong>@r.Field</strong>:</div>
+                            <code class="text-break rule-pattern">@r.Pattern</code>
+                        }
+                        else
+                        {
+                            <div>
+                                ≥ <strong>@r.Threshold</strong> requests from one IP in <strong>@r.WindowSeconds s</strong>
+                            </div>
+                            <div class="text-body-secondary">
+                                @if (r.MethodFilter is not null) { <span>method = @r.MethodFilter; </span> }
+                                @if (r.StatusFilter is not null) { <span>status = @r.StatusFilter; </span> }
+                                @if (r.PathPattern is not null) { <span>path ~ <code>@r.PathPattern</code></span> }
+                            </div>
+                        }
+                    </td>
+                    <td class="text-end">@(counts.TryGetValue(r.Id, out var c) ? c : 0)</td>
+                    <td>
+                        @if (isAdmin)
+                        {
+                            <form asp-action="Toggle" asp-route-id="@r.Id" method="post">
+                                <button type="submit" class="btn btn-sm @(r.IsEnabled ? "btn-success" : "btn-outline-secondary")">
+                                    @(r.IsEnabled ? "On" : "Off")
+                                </button>
+                            </form>
+                        }
+                        else
+                        {
+                            @(r.IsEnabled ? "On" : "Off")
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
