@@ -2,7 +2,17 @@
     ViewData["Title"] = "Error";
 }
 
-<div class="text-center mt-5">
-    <h1 class="h3 text-danger">Something went wrong</h1>
-    <p class="text-body-secondary">An error occurred while processing your request.</p>
+@section Head {
+    <link rel="stylesheet" href="~/css/views-a.css" asp-append-version="true" />
+}
+
+<div class="lg-auth">
+    <div class="card lg-auth-card text-center">
+        <span class="lg-icon lg-icon-lg lg-tint-orange mx-auto mb-3" aria-hidden="true"><i class="bi bi-exclamation-triangle-fill"></i></span>
+        <h1 class="lg-auth-title">Something went wrong</h1>
+        <p class="lg-auth-subtitle mb-4">The request could not be completed. Try again, and if it keeps happening check the application log.</p>
+        <a asp-controller="Home" asp-action="Index" class="btn btn-primary w-100">
+            <i class="bi bi-grid-1x2" aria-hidden="true"></i> Back to dashboard
+        </a>
+    </div>
 </div>

@@ -6,118 +6,217 @@
     // (e.g. a crafted "IP" field) cannot close the JSON <script> block or inject markup.
     var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
     string ToJson(object value) => JsonSerializer.Serialize(value, jsonOptions);
+
+    var scopedFile = Model.LogFileId.HasValue ? Model.Files.FirstOrDefault(f => f.Id == Model.LogFileId) : null;
+    var totalAlerts = Model.BySeverity.Sum(s => s.Count);
 }
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
-    <h1 class="h3 mb-0">Dashboard</h1>
-    <form method="get" asp-action="Index" class="d-flex align-items-center gap-2">
-        <label for="logFileId" class="small text-body-secondary text-nowrap">Scope</label>
-        <select id="logFileId" name="logFileId" class="form-select form-select-sm js-autosubmit">
-            <option value="">All log files</option>
-            @foreach (var f in Model.Files)
-            {
-                if (Model.LogFileId == f.Id) { <option value="@f.Id" selected>#@f.Id · @f.FileName</option> }
-                else { <option value="@f.Id">#@f.Id · @f.FileName</option> }
-            }
-        </select>
-    </form>
-</div>
+@section Head {
+    <link rel="stylesheet" href="~/css/views-a.css" asp-append-version="true" />
+}
 
-<div class="row g-3 mb-4">
-    <div class="col-6 col-lg-3">
-        <div class="card stat-card h-100"><div class="card-body">
-            <div class="text-body-secondary small">Log files</div>
-            <div class="fs-2 fw-semibold">@Model.LogFiles</div>
-        </div></div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card stat-card h-100"><div class="card-body">
-            <div class="text-body-secondary small">Parsed events</div>
-            <div class="fs-2 fw-semibold">@Model.Events.ToString("N0")</div>
-        </div></div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card stat-card h-100"><div class="card-body">
-            <div class="text-body-secondary small">Open alerts</div>
-            <div class="fs-2 fw-semibold text-danger">@Model.OpenAlerts</div>
-            <div class="small text-body-secondary">@Model.OpenHighOrCritical high / critical</div>
-        </div></div>
-    </div>
-    <div class="col-6 col-lg-3">
-        <div class="card stat-card h-100"><div class="card-body">
-            <div class="text-body-secondary small">Enabled rules</div>
-            <div class="fs-2 fw-semibold">@Model.EnabledRules</div>
-        </div></div>
-    </div>
-</div>
-
-<div class="row g-3 mb-4">
-    <div class="col-lg-8">
-        <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Requests over time</h2>
-            @if (Model.HourLabels.Count == 0)
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title">Dashboard</h1>
+        <p class="lg-subtitle">
+            @if (scopedFile is not null)
             {
-                <p class="text-body-secondary small mb-0">No events yet. Upload a log file to see traffic.</p>
+                <span>Traffic, alerts and attacker origins in <strong>@scopedFile.FileName</strong>.</span>
             }
             else
             {
-                <div class="chart-box"><canvas id="chartTimeline"></canvas></div>
+                <span>Traffic, alerts and attacker origins across all uploaded logs.</span>
+            }
+        </p>
+    </div>
+    <div class="lg-actions">
+        <form method="get" asp-action="Index" class="d-flex align-items-center gap-2" role="search">
+            <label for="logFileId" class="visually-hidden">Show data for</label>
+            <i class="bi bi-funnel text-body-secondary" aria-hidden="true"></i>
+            <select id="logFileId" name="logFileId" class="form-select form-select-sm js-autosubmit lg-dash-scope">
+                <option value="">All log files</option>
+                @foreach (var f in Model.Files)
+                {
+                    if (Model.LogFileId == f.Id) { <option value="@f.Id" selected>#@f.Id @f.FileName</option> }
+                    else { <option value="@f.Id">#@f.Id @f.FileName</option> }
+                }
+            </select>
+        </form>
+        <a asp-controller="LogFiles" asp-action="Upload" class="btn btn-primary btn-sm">
+            <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i> Upload log
+        </a>
+    </div>
+</header>
+
+@* ---- Key numbers ---- *@
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <a asp-controller="LogFiles" asp-action="Index" class="card lg-stat text-reset text-decoration-none">
+            <div class="card-body">
+                <div class="lg-stat-top">
+                    <span class="lg-stat-label">Log files</span>
+                    <span class="lg-icon lg-tint-blue" aria-hidden="true"><i class="bi bi-file-earmark-text"></i></span>
+                </div>
+                <div>
+                    <div class="lg-stat-value" data-countup>@Model.LogFiles.ToString("N0")</div>
+                    <div class="lg-stat-meta">@(scopedFile is not null ? "Selected file" : "Uploaded and analysed")</div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card lg-stat">
+            <div class="card-body">
+                <div class="lg-stat-top">
+                    <span class="lg-stat-label">Parsed events</span>
+                    <span class="lg-icon lg-tint-indigo" aria-hidden="true"><i class="bi bi-activity"></i></span>
+                </div>
+                <div>
+                    <div class="lg-stat-value" data-countup>@Model.Events.ToString("N0")</div>
+                    <div class="lg-stat-meta">HTTP requests in the logs</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <a asp-controller="Alerts" asp-action="Index" class="card lg-stat text-reset text-decoration-none @(Model.OpenHighOrCritical > 0 ? "lg-glow lg-tint-red" : "")">
+            <div class="card-body">
+                <div class="lg-stat-top">
+                    <span class="lg-stat-label">Open alerts</span>
+                    <span class="lg-icon lg-tint-red" aria-hidden="true"><i class="bi bi-bell-fill"></i></span>
+                </div>
+                <div>
+                    <div class="lg-stat-value" data-countup>@Model.OpenAlerts.ToString("N0")</div>
+                    <div class="lg-stat-meta">@Model.OpenHighOrCritical.ToString("N0") high or critical</div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-6 col-lg-3">
+        <a asp-controller="Rules" asp-action="Index" class="card lg-stat text-reset text-decoration-none">
+            <div class="card-body">
+                <div class="lg-stat-top">
+                    <span class="lg-stat-label">Enabled rules</span>
+                    <span class="lg-icon lg-tint-teal" aria-hidden="true"><i class="bi bi-funnel-fill"></i></span>
+                </div>
+                <div>
+                    <div class="lg-stat-value" data-countup>@Model.EnabledRules.ToString("N0")</div>
+                    <div class="lg-stat-meta">Signature, threshold and anomaly</div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+@* ---- Traffic and severity ---- *@
+<div class="row g-3 mb-4">
+    <div class="col-lg-8">
+        <div class="card h-100"><div class="card-body">
+            <h2 class="lg-section-title">
+                <span class="lg-icon lg-icon-sm lg-tint-blue" aria-hidden="true"><i class="bi bi-graph-up"></i></span>
+                Requests over time
+            </h2>
+            @if (Model.HourLabels.Count == 0)
+            {
+                <div class="lg-empty">
+                    <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i>
+                    <p>No traffic yet. Upload an access log to see requests per hour.</p>
+                    <a asp-controller="LogFiles" asp-action="Upload" class="btn btn-primary btn-sm">Upload a log file</a>
+                </div>
+            }
+            else
+            {
+                <div class="chart-box lg-chart-tall"><canvas id="chartTimeline" aria-label="Requests per hour, all and malicious" role="img"></canvas></div>
             }
         </div></div>
     </div>
     <div class="col-lg-4">
         <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Alerts by severity</h2>
-            <div class="chart-box"><canvas id="chartSeverity"></canvas></div>
-        </div></div>
-    </div>
-</div>
-
-<div class="row g-3 mb-4">
-    <div class="col-lg-5">
-        <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Malicious requests by attack type</h2>
-            @if (Model.ByAttackType.Count == 0)
+            <h2 class="lg-section-title">
+                <span class="lg-icon lg-icon-sm lg-tint-orange" aria-hidden="true"><i class="bi bi-pie-chart-fill"></i></span>
+                Alerts by severity
+            </h2>
+            @if (totalAlerts == 0)
             {
-                <p class="text-body-secondary small mb-0">No alerts yet.</p>
+                <div class="lg-empty">
+                    <i class="bi bi-shield-check" aria-hidden="true"></i>
+                    <p class="mb-0">No alerts. Nothing matched the detection rules.</p>
+                </div>
             }
             else
             {
-                <div class="chart-box"><canvas id="chartTypes"></canvas></div>
-            }
-        </div></div>
-    </div>
-    <div class="col-lg-7">
-        <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Attack origins</h2>
-            @if (!Model.GeoIpAvailable)
-            {
-                <div class="alert alert-secondary small mb-2">
-                    GeoIP is off. Put a city database (<strong>dbip-city-lite-*.mmdb</strong> from db-ip.com or
-                    <strong>GeoLite2-City.mmdb</strong> from MaxMind) in <code>src/LogAnalyzer.Web/App_Data/</code>,
-                    then restart and re-run detection.
-                </div>
-            }
-            <div id="map" class="attack-map"></div>
-            @if (Model.GeoIpSource == "DB-IP")
-            {
-                <div class="small text-body-secondary mt-1"><a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a></div>
-            }
-            else if (Model.GeoIpSource is not null)
-            {
-                <div class="small text-body-secondary mt-1">This product includes GeoLite2 data created by MaxMind, available from <a href="https://www.maxmind.com" target="_blank" rel="noopener">maxmind.com</a>.</div>
+                <div class="chart-box lg-chart-tall"><canvas id="chartSeverity" aria-label="Alerts by severity" role="img"></canvas></div>
             }
         </div></div>
     </div>
 </div>
 
+@* ---- Attack types and origins ---- *@
+<div class="row g-3 mb-4">
+    <div class="col-lg-5">
+        <div class="card h-100"><div class="card-body">
+            <h2 class="lg-section-title">
+                <span class="lg-icon lg-icon-sm lg-tint-red" aria-hidden="true"><i class="bi bi-bar-chart-fill"></i></span>
+                Malicious requests by attack type
+            </h2>
+            @if (Model.ByAttackType.Count == 0)
+            {
+                <div class="lg-empty">
+                    <i class="bi bi-bar-chart" aria-hidden="true"></i>
+                    <p class="mb-0">No attacks detected yet.</p>
+                </div>
+            }
+            else
+            {
+                <div class="chart-box lg-chart-tall"><canvas id="chartTypes" aria-label="Malicious requests by attack type" role="img"></canvas></div>
+            }
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card h-100"><div class="card-body d-flex flex-column">
+            <h2 class="lg-section-title">
+                <span class="lg-icon lg-icon-sm lg-tint-green" aria-hidden="true"><i class="bi bi-globe-americas"></i></span>
+                Attack origins
+                <span class="lg-count ms-auto">@Model.MapPoints.Count.ToString("N0") located IPs</span>
+            </h2>
+            @if (!Model.GeoIpAvailable)
+            {
+                <div class="alert alert-secondary small mb-3 lg-flash">
+                    <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                    <div>
+                        GeoIP is off. Put a city database (<strong>dbip-city-lite-*.mmdb</strong> from db-ip.com or
+                        <strong>GeoLite2-City.mmdb</strong> from MaxMind) in <code>src/LogAnalyzer.Web/App_Data/</code>,
+                        then restart and re-run detection.
+                    </div>
+                </div>
+            }
+            <div id="map" class="attack-map flex-grow-1"></div>
+            @if (Model.GeoIpSource == "DB-IP")
+            {
+                <div class="small text-body-secondary mt-2"><a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a></div>
+            }
+            else if (Model.GeoIpSource is not null)
+            {
+                <div class="small text-body-secondary mt-2">This product includes GeoLite2 data created by MaxMind, available from <a href="https://www.maxmind.com" target="_blank" rel="noopener">maxmind.com</a>.</div>
+            }
+        </div></div>
+    </div>
+</div>
+
+@* ---- Attackers and latest alerts ---- *@
 <div class="row g-3">
     <div class="col-lg-7">
         <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Top attacking IPs</h2>
+            <h2 class="lg-section-title">
+                <span class="lg-icon lg-icon-sm lg-tint-indigo" aria-hidden="true"><i class="bi bi-crosshair"></i></span>
+                Top attacking IPs
+            </h2>
             @if (Model.TopIps.Count == 0)
             {
-                <p class="text-body-secondary small mb-0">No attackers detected.</p>
+                <div class="lg-empty">
+                    <i class="bi bi-person-check" aria-hidden="true"></i>
+                    <p class="mb-0">No attackers detected.</p>
+                </div>
             }
             else
             {
@@ -137,10 +236,10 @@
                             @foreach (var ip in Model.TopIps)
                             {
                                 <tr>
-                                    <td class="font-monospace">
-                                        <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@ip.Ip">@ip.Ip</a>
+                                    <td class="font-monospace text-nowrap">
+                                        <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@ip.Ip" class="fw-semibold text-decoration-none">@ip.Ip</a>
                                     </td>
-                                    <td>
+                                    <td class="text-nowrap">
                                         @if (ip.CountryCode is not null)
                                         {
                                             <span class="badge text-bg-secondary">@ip.CountryCode</span>
@@ -149,18 +248,20 @@
                                         else { <span class="text-body-secondary">—</span> }
                                     </td>
                                     <td>
-                                        @if (ip.Reputation.Count == 0)
-                                        {
-                                            <span class="text-body-secondary">—</span>
-                                        }
-                                        @foreach (var r in ip.Reputation)
-                                        {
-                                            <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@ip.Ip"
-                                               class="badge @Format.VerdictBadge(r.Verdict) text-decoration-none" title="@r.Summary">@Format.ReputationShort(r)</a>
-                                        }
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @if (ip.Reputation.Count == 0)
+                                            {
+                                                <span class="text-body-secondary">—</span>
+                                            }
+                                            @foreach (var r in ip.Reputation)
+                                            {
+                                                <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@ip.Ip"
+                                                   class="badge @Format.VerdictBadge(r.Verdict) text-decoration-none" title="@r.Summary">@Format.ReputationShort(r)</a>
+                                            }
+                                        </div>
                                     </td>
-                                    <td class="text-end">@ip.Events.ToString("N0")</td>
-                                    <td>@ip.AttackTypes</td>
+                                    <td class="text-end fw-semibold">@ip.Events.ToString("N0")</td>
+                                    <td class="text-body-secondary">@ip.AttackTypes</td>
                                     <td><span class="badge @Format.SeverityBadge(ip.MaxSeverity)">@ip.MaxSeverity</span></td>
                                 </tr>
                             }
@@ -172,24 +273,34 @@
     </div>
     <div class="col-lg-5">
         <div class="card h-100"><div class="card-body">
-            <h2 class="h6">Latest alerts</h2>
+            <h2 class="lg-section-title">
+                <span class="lg-icon lg-icon-sm lg-tint-red" aria-hidden="true"><i class="bi bi-bell-fill"></i></span>
+                Latest alerts
+                <a asp-controller="Alerts" asp-action="Index" class="ms-auto small fw-semibold text-decoration-none">See all</a>
+            </h2>
             @if (Model.RecentAlerts.Count == 0)
             {
-                <p class="text-body-secondary small mb-0">No alerts yet.</p>
+                <div class="lg-empty">
+                    <i class="bi bi-bell-slash" aria-hidden="true"></i>
+                    <p class="mb-0">No alerts yet.</p>
+                </div>
             }
-            <ul class="list-group list-group-flush small">
-                @foreach (var a in Model.RecentAlerts)
-                {
-                    <li class="list-group-item px-0 d-flex align-items-start gap-2">
-                        <span class="badge @Format.SeverityBadge(a.Severity)">@a.Severity</span>
-                        <div class="flex-grow-1">
-                            <a asp-controller="Alerts" asp-action="Details" asp-route-id="@a.Id">@a.Title</a>
-                            <div class="text-body-secondary">@a.LogFile?.FileName · @a.EventCount events</div>
-                        </div>
-                        <span class="badge @Format.AlertStatusBadge(a.Status)">@a.Status</span>
-                    </li>
-                }
-            </ul>
+            else
+            {
+                <ul class="list-group list-group-flush small lg-alert-list">
+                    @foreach (var a in Model.RecentAlerts)
+                    {
+                        <li class="list-group-item px-0 d-flex align-items-start gap-2">
+                            <span class="badge @Format.SeverityBadge(a.Severity)">@a.Severity</span>
+                            <div class="flex-grow-1 min-w-0">
+                                <a asp-controller="Alerts" asp-action="Details" asp-route-id="@a.Id" class="fw-semibold text-decoration-none text-break">@a.Title</a>
+                                <div class="text-body-secondary">@a.EventCount.ToString("N0") events in @a.LogFile?.FileName</div>
+                            </div>
+                            <span class="badge @Format.AlertStatusBadge(a.Status)">@a.Status</span>
+                        </li>
+                    }
+                </ul>
+            }
         </div></div>
     </div>
 </div>

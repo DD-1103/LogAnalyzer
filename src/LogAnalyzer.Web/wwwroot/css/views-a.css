@@ -1,0 +1,60 @@
+/* Dashboard and account views (Liquid Glass). Builds on glass.css tokens only. */
+
+/* ---- Dashboard ---- */
+.lg-dash-scope { min-width: 14rem; max-width: 22rem; }
+.lg-chart-tall { height: 280px; }
+.min-w-0 { min-width: 0; }
+
+/* Latest alerts: rows read as tappable list cells */
+.lg-alert-list .list-group-item {
+    background: transparent;
+    border-color: var(--lg-hairline);
+    padding-top: .7rem;
+    padding-bottom: .7rem;
+    border-radius: var(--lg-radius-sm);
+    transition: background-color .2s var(--lg-ease), padding .3s var(--lg-spring);
+}
+.lg-alert-list .list-group-item:hover {
+    background: var(--lg-row-hover);
+    padding-left: .5rem !important;
+    padding-right: .5rem !important;
+}
+
+/* The section title "See all" / count sits on the right */
+.lg-section-title > a { font-size: .8125rem; }
+
+/* ---- Account pages ---- */
+.lg-auth-title {
+    margin: 0;
+    font-size: clamp(1.5rem, 1.2rem + 1vw, 1.85rem);
+    font-weight: 750;
+    letter-spacing: -.03em;
+}
+.lg-auth-subtitle { margin: .45rem 0 0; color: var(--lg-text-2); }
+.lg-auth-note { margin: 1.25rem 0 0; text-align: center; font-size: .8125rem; color: var(--lg-text-3); }
+.lg-auth-card .lg-brandmark-lg { display: inline-grid; }
+
+/* Input with a leading icon inside the field */
+.lg-input-icon { position: relative; }
+.lg-input-icon > .bi {
+    position: absolute;
+    left: .95rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--lg-text-3);
+    pointer-events: none;
+    transition: color .2s var(--lg-ease);
+}
+.lg-input-icon > .form-control { padding-left: 2.6rem; }
+.lg-input-icon:focus-within > .bi { color: var(--lg-accent-ink); }
+.lg-auth-card .form-control { padding-top: .65rem; padding-bottom: .65rem; }
+
+/* A valid validation summary renders an empty element: keep it out of the layout */
+.validation-summary-valid { display: none; }
+
+@media (max-width: 575.98px) {
+    .lg-dash-scope { min-width: 0; width: 100%; }
+    .lg-page-header .lg-actions { width: 100%; }
+    .lg-page-header .lg-actions form { flex: 1; }
+    .lg-auth-card { padding: 1.75rem 1.25rem; }
+}
