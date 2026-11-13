@@ -3,6 +3,9 @@
     var f = Model.File;
     ViewData["Title"] = f.FileName;
 }
+@section Head {
+    <link rel="stylesheet" href="~/css/views-b.css" asp-append-version="true" />
+}
 @if (Format.IsBusy(f.Status))
 {
     <meta http-equiv="refresh" content="3" />
@@ -11,65 +14,92 @@
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a asp-action="Index">Log files</a></li>
-        <li class="breadcrumb-item active">@f.FileName</li>
+        <li class="breadcrumb-item active" aria-current="page">@f.FileName</li>
     </ol>
 </nav>
 
-<div class="d-flex flex-wrap align-items-center gap-3 mb-4">
-    <h1 class="h3 mb-0 text-break">@f.FileName</h1>
-    <span class="badge @Format.StatusBadge(f.Status)">@f.Status</span>
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title text-break">@f.FileName</h1>
+        <p class="lg-subtitle">
+            <span class="badge @Format.StatusBadge(f.Status) me-1">
+                @if (f.Status is LogFileStatus.Processing or LogFileStatus.Analyzing)
+                {
+                    <span class="spinner-border spinner-border-sm me-1 lg-nav-spinner" aria-hidden="true"></span>
+                }
+                @f.Status
+            </span>
+            Uploaded @f.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm") by @(f.UploadedBy?.Email ?? "unknown").
+        </p>
+    </div>
     @if (f.Status == LogFileStatus.Completed)
     {
-        <div class="ms-auto d-flex gap-2">
-            <a asp-controller="Alerts" asp-action="Index" asp-route-logFileId="@f.Id" class="btn btn-sm btn-danger">
-                <i class="bi bi-exclamation-triangle"></i> @Model.AlertCount alert(s)
+        <div class="lg-actions">
+            <a asp-controller="Alerts" asp-action="Index" asp-route-logFileId="@f.Id"
+               class="btn btn-sm @(Model.AlertCount > 0 ? "btn-danger" : "btn-outline-secondary")">
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> @Model.AlertCount alert(s)
             </a>
             <a asp-action="Report" asp-route-id="@f.Id" class="btn btn-sm btn-outline-light">
-                <i class="bi bi-file-earmark-pdf"></i> PDF report
+                <i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF report
             </a>
             <a asp-action="Evaluate" asp-route-id="@f.Id" class="btn btn-sm btn-outline-info">
-                <i class="bi bi-clipboard-data"></i> Evaluate
+                <i class="bi bi-clipboard-data" aria-hidden="true"></i> Evaluate
             </a>
             @if (User.IsInRole(Roles.Admin))
             {
                 <form asp-action="RerunDetection" asp-route-id="@f.Id" method="post" class="js-confirm"
                       data-confirm="Re-run detection? Existing alerts for this file (and their status/notes) will be replaced.">
-                    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Re-run detection</button>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-run detection</button>
                 </form>
             }
         </div>
     }
-</div>
+</header>
 
 @if (f.Status == LogFileStatus.Failed && f.ErrorMessage is not null)
 {
-    <div class="alert alert-danger">@f.ErrorMessage</div>
+    <div class="alert alert-danger lg-flash" role="alert">
+        <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
+        <div>@f.ErrorMessage</div>
+    </div>
 }
 
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-3">
     <div class="col-6 col-lg-3">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-body-secondary small">Total lines</div>
-            <div class="fs-4 fw-semibold">@f.TotalLines.ToString("N0")</div>
+        <div class="card lg-stat"><div class="card-body">
+            <div class="lg-stat-top">
+                <span class="lg-stat-label">Total lines</span>
+                <span class="lg-icon lg-icon-sm lg-tint-blue" aria-hidden="true"><i class="bi bi-list-ol"></i></span>
+            </div>
+            <div class="lg-stat-value" data-countup>@f.TotalLines.ToString("N0")</div>
         </div></div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-body-secondary small">Parsed</div>
-            <div class="fs-4 fw-semibold text-success">@f.ParsedLines.ToString("N0")</div>
+        <div class="card lg-stat"><div class="card-body">
+            <div class="lg-stat-top">
+                <span class="lg-stat-label">Parsed</span>
+                <span class="lg-icon lg-icon-sm lg-tint-green" aria-hidden="true"><i class="bi bi-check2-circle"></i></span>
+            </div>
+            <div class="lg-stat-value text-success" data-countup>@f.ParsedLines.ToString("N0")</div>
         </div></div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-body-secondary small">Failed to parse</div>
-            <div class="fs-4 fw-semibold @(f.FailedLines > 0 ? "text-warning" : "")">@f.FailedLines.ToString("N0")</div>
+        <div class="card lg-stat"><div class="card-body">
+            <div class="lg-stat-top">
+                <span class="lg-stat-label">Failed to parse</span>
+                <span class="lg-icon lg-icon-sm @(f.FailedLines > 0 ? "lg-tint-orange" : "lg-tint-gray")" aria-hidden="true"><i class="bi bi-exclamation-triangle"></i></span>
+            </div>
+            <div class="lg-stat-value @(f.FailedLines > 0 ? "text-warning" : "")" data-countup>@f.FailedLines.ToString("N0")</div>
         </div></div>
     </div>
     <div class="col-6 col-lg-3">
-        <div class="card stat-card"><div class="card-body">
-            <div class="text-body-secondary small">Size</div>
-            <div class="fs-4 fw-semibold">@Format.Bytes(f.SizeBytes)</div>
-            <div class="small text-body-secondary">by @f.UploadedBy?.Email</div>
+        <div class="card lg-stat"><div class="card-body">
+            <div class="lg-stat-top">
+                <span class="lg-stat-label">Size</span>
+                <span class="lg-icon lg-icon-sm lg-tint-indigo" aria-hidden="true"><i class="bi bi-hdd"></i></span>
+            </div>
+            <div class="lg-stat-value">@Format.Bytes(f.SizeBytes)</div>
+            <div class="lg-stat-meta text-truncate">by @f.UploadedBy?.Email</div>
         </div></div>
     </div>
 </div>
@@ -77,18 +107,20 @@
 @if (f.ParseMilliseconds is long parseMs)
 {
     var linesPerSecond = f.TotalLines / Math.Max(parseMs / 1000.0, 0.001);
-    <p class="small text-body-secondary mb-4">
-        <i class="bi bi-stopwatch"></i>
-        Parse + import: <strong>@((parseMs / 1000.0).ToString("0.00")) s</strong> (@linesPerSecond.ToString("N0") lines/s)
+    <div class="lg-chip-row" aria-label="Processing time">
+        <span class="lg-chip"><i class="bi bi-stopwatch" aria-hidden="true"></i> Parse and import <strong>@((parseMs / 1000.0).ToString("0.00")) s</strong></span>
+        <span class="lg-chip"><i class="bi bi-speedometer2" aria-hidden="true"></i> <strong>@linesPerSecond.ToString("N0")</strong> lines/s</span>
         @if (f.DetectionMilliseconds is long detectMs)
         {
-            <span> · Detection: <strong>@((detectMs / 1000.0).ToString("0.00")) s</strong></span>
-            <span> · Total: <strong>@(((parseMs + detectMs) / 1000.0).ToString("0.00")) s</strong></span>
+            <span class="lg-chip"><i class="bi bi-shield-check" aria-hidden="true"></i> Detection <strong>@((detectMs / 1000.0).ToString("0.00")) s</strong></span>
+            <span class="lg-chip"><i class="bi bi-hourglass-bottom" aria-hidden="true"></i> Total <strong>@(((parseMs + detectMs) / 1000.0).ToString("0.00")) s</strong></span>
         }
-    </p>
+    </div>
 }
 
-<form method="get" asp-action="Details" asp-route-id="@f.Id" class="row g-2 align-items-end mb-3">
+<h2 class="lg-section-title">Events <span class="lg-count">@Model.FilteredCount.ToString("N0")</span></h2>
+
+<form method="get" asp-action="Details" asp-route-id="@f.Id" class="lg-toolbar row g-2 align-items-end mx-0">
     <div class="col-sm-4">
         <label class="form-label small" for="ip">Client IP</label>
         <input id="ip" name="ip" value="@Model.Ip" class="form-control form-control-sm" placeholder="e.g. 185.220.101.45" />
@@ -98,49 +130,59 @@
         <input id="status" name="status" type="number" value="@Model.Status" class="form-control form-control-sm" placeholder="e.g. 404" />
     </div>
     <div class="col-sm-5 d-flex gap-2">
-        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel"></i> Filter</button>
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Filter</button>
         <a asp-action="Details" asp-route-id="@f.Id" class="btn btn-sm btn-outline-secondary">Clear</a>
         <span class="small text-body-secondary align-self-center ms-auto">@Model.FilteredCount.ToString("N0") events</span>
     </div>
 </form>
 
-<div class="table-responsive">
-    <table class="table table-sm table-hover small align-middle">
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Time</th>
-                <th>IP</th>
-                <th>Method</th>
-                <th>URL</th>
-                <th>Status</th>
-                <th class="text-end">Size</th>
-                <th>User agent</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var e in Model.Events)
-            {
+@if (Model.Events.Count == 0)
+{
+    <div class="lg-panel lg-empty">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        <p class="mb-0">No events match these filters.</p>
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-hover small align-middle">
+            <thead>
                 <tr>
-                    <td class="text-body-secondary">@e.LineNumber</td>
-                    <td class="text-nowrap">@e.Timestamp.ToString("dd/MM HH:mm:ss")</td>
-                    <td class="font-monospace">
-                        <a asp-action="Details" asp-route-id="@f.Id" asp-route-ip="@e.ClientIp">@e.ClientIp</a>
-                    </td>
-                    <td>@e.Method</td>
-                    <td class="font-monospace text-break url-cell" title="@e.Url">@e.Url</td>
-                    <td class="@Format.HttpStatusClass(e.StatusCode)">@e.StatusCode</td>
-                    <td class="text-end">@(e.ResponseSize?.ToString("N0") ?? "-")</td>
-                    <td class="text-body-secondary ua-cell" title="@e.UserAgent">@e.UserAgent</td>
+                    <th>#</th>
+                    <th>Time</th>
+                    <th>IP</th>
+                    <th>Method</th>
+                    <th>URL</th>
+                    <th>Status</th>
+                    <th class="text-end">Size</th>
+                    <th>User agent</th>
                 </tr>
-            }
-        </tbody>
-    </table>
-</div>
+            </thead>
+            <tbody>
+                @foreach (var e in Model.Events)
+                {
+                    <tr>
+                        <td class="text-body-secondary">@e.LineNumber</td>
+                        <td class="text-nowrap">@e.Timestamp.ToString("dd/MM HH:mm:ss")</td>
+                        <td class="font-monospace">
+                            <a asp-action="Details" asp-route-id="@f.Id" asp-route-ip="@e.ClientIp">@e.ClientIp</a>
+                        </td>
+                        <td>@e.Method</td>
+                        <td class="font-monospace text-break url-cell" title="@e.Url">@e.Url</td>
+                        <td class="@Format.HttpStatusClass(e.StatusCode) fw-semibold">@e.StatusCode</td>
+                        <td class="text-end">@(e.ResponseSize?.ToString("N0") ?? "-")</td>
+                        <td class="text-body-secondary ua-cell" title="@e.UserAgent">@e.UserAgent</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
 
 @if (Model.TotalPages > 1)
 {
-    <nav>
+    <nav aria-label="Events pages">
         <ul class="pagination pagination-sm justify-content-center">
             <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
                 <a class="page-link" asp-action="Details" asp-route-id="@f.Id" asp-route-page="@(Model.Page - 1)"

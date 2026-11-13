@@ -1,0 +1,146 @@
+/* =====================================================================================
+   Liquid Glass — log file and alert views (LogFiles/*, Alerts/*)
+   Builds on glass.css tokens; nothing here redefines the shared components.
+   ===================================================================================== */
+
+/* The validation summary tag helper always renders a container: hide it while it has no errors */
+.validation-summary-valid { display: none; }
+
+/* ---------------------------------------------------------------- Upload drop zone */
+.lg-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .85rem;
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    border-radius: var(--lg-radius-lg);
+    border: 2px dashed rgba(var(--lg-accent-rgb), .35);
+    background: linear-gradient(160deg, rgba(var(--lg-accent-rgb), .09), rgba(var(--lg-indigo-rgb), .05));
+    transition: border-color .25s var(--lg-ease), background-color .25s var(--lg-ease), box-shadow .3s var(--lg-ease);
+}
+.lg-dropzone:hover,
+.lg-dropzone:focus-within {
+    border-color: rgba(var(--lg-accent-rgb), .7);
+    background-color: rgba(var(--lg-accent-rgb), .06);
+    box-shadow: 0 0 0 4px var(--lg-input-focus);
+}
+.lg-dropzone-title { margin: 0; font-size: 1.1rem; font-weight: 680; letter-spacing: -.015em; }
+.lg-dropzone-hint { margin: 0; color: var(--lg-text-2); font-size: .9rem; max-width: 46ch; }
+.lg-dropzone .form-control { max-width: 440px; }
+.lg-motion .lg-dropzone .lg-icon-lg { animation: lg-float 4.5s var(--lg-ease) infinite alternate; }
+@keyframes lg-float { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+
+code.lg-sample-line {
+    display: block;
+    padding: .75rem 1rem;
+    border-radius: var(--lg-radius-md);
+    background: var(--lg-surface-sunken);
+    border: 1px solid var(--lg-hairline);
+    color: var(--lg-text-2);
+    font-size: .78rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* ---------------------------------------------------------------- Lists and tables */
+.lg-file-cell { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+.lg-file-cell > div { min-width: 0; }
+.lg-file-cell a { overflow-wrap: anywhere; }
+.lg-file-error { color: rgb(var(--lg-red-ink-rgb)); font-size: .8rem; }
+
+.lg-row-actions { display: inline-flex; align-items: center; gap: .35rem; }
+.lg-row-actions form { display: inline; }
+
+.lg-sev-cell { white-space: nowrap; }
+.lg-sev-cell .bi { color: rgb(var(--lg-teal-ink-rgb)); margin-left: .25rem; }
+
+/* "New since your last visit": a dot before the title and an accent edge on the row */
+.lg-new-dot {
+    display: inline-block;
+    width: .55rem;
+    height: .55rem;
+    margin-right: .45rem;
+    border-radius: 50%;
+    background: rgb(var(--lg-accent-rgb));
+    box-shadow: 0 0 0 3px rgba(var(--lg-accent-rgb), .2);
+    vertical-align: .08em;
+}
+.table > tbody > tr.lg-row-new > td:first-child {
+    box-shadow: inset 3px 0 0 rgb(var(--lg-accent-rgb)),
+                inset 0 0 0 9999px var(--bs-table-bg-state, var(--bs-table-bg-type, var(--bs-table-accent-bg)));
+}
+
+.lg-filter-note { margin: -.5rem 0 1rem; color: var(--lg-text-2); font-size: .85rem; }
+
+/* ---------------------------------------------------------------- Chips row (timings, meta) */
+.lg-chip-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; }
+.lg-chip strong { color: var(--lg-text); font-weight: 650; }
+.lg-chip .bi { color: var(--lg-text-3); }
+
+/* ---------------------------------------------------------------- Progress meters (no inline styles) */
+.lg-progress {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 7px;
+    border: 0;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--lg-surface-sunken);
+    box-shadow: inset 0 0 0 1px var(--lg-hairline);
+}
+.lg-progress::-webkit-progress-bar { background: transparent; border-radius: 999px; }
+.lg-progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(var(--t, var(--lg-accent-rgb)), .65), rgb(var(--t, var(--lg-accent-rgb))));
+}
+.lg-progress::-moz-progress-bar {
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(var(--t, var(--lg-accent-rgb)), .65), rgb(var(--t, var(--lg-accent-rgb))));
+}
+
+/* ---------------------------------------------------------------- Evaluation */
+.lg-confusion { text-align: center; }
+.lg-confusion > :not(caption) > * > * { padding: .9rem .75rem; }
+.lg-confusion .lg-cm-value { display: block; font-size: 1.35rem; font-weight: 720; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.lg-confusion .lg-cm-label { display: block; font-size: .75rem; color: var(--lg-text-2); }
+.lg-confusion .lg-cm-tp { --bs-table-bg-type: rgba(var(--lg-green-rgb), .14); }
+.lg-confusion .lg-cm-tn { --bs-table-bg-type: rgba(var(--lg-accent-rgb), .08); }
+.lg-confusion .lg-cm-fp { --bs-table-bg-type: rgba(var(--lg-orange-rgb), .14); }
+.lg-confusion .lg-cm-fn { --bs-table-bg-type: rgba(var(--lg-red-rgb), .14); }
+.lg-confusion .lg-cm-tp .lg-cm-value { color: rgb(var(--lg-green-ink-rgb)); }
+.lg-confusion .lg-cm-fp .lg-cm-value { color: rgb(var(--lg-orange-ink-rgb)); }
+.lg-confusion .lg-cm-fn .lg-cm-value { color: rgb(var(--lg-red-ink-rgb)); }
+
+.lg-note { color: var(--lg-text-2); font-size: .85rem; margin: .75rem 0 0; }
+
+/* ---------------------------------------------------------------- Alert details */
+.lg-alert-hero { display: flex; align-items: flex-start; gap: 1rem; min-width: 0; }
+.lg-alert-hero > div { min-width: 0; }
+
+/* glass.css declares .lg-glow { --t: accent } after the tint classes, so restate the tint for glows */
+.lg-glow.lg-tint-red    { --t: var(--lg-red-rgb); }
+.lg-glow.lg-tint-orange { --t: var(--lg-orange-rgb); }
+.lg-glow.lg-tint-teal   { --t: var(--lg-teal-rgb); }
+.lg-glow.lg-tint-gray   { --t: var(--lg-gray-rgb); }
+.lg-glow.lg-tint-green  { --t: var(--lg-green-rgb); }
+.lg-glow.lg-tint-indigo { --t: var(--lg-indigo-rgb); }
+.lg-alert-hero .lg-title { font-size: clamp(1.45rem, 1.1rem + 1.2vw, 2.1rem); }
+.lg-hero-badges { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .55rem; }
+
+.lg-score { display: flex; align-items: center; gap: .75rem; }
+.lg-score-value { font-size: 1.35rem; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.lg-score .lg-progress { flex: 1; min-width: 80px; max-width: 220px; }
+.lg-why { margin-top: .5rem; color: var(--lg-text-2); font-size: .85rem; }
+
+.lg-ti-header { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: .9rem; }
+.lg-ti-header .lg-section-title { margin: 0; }
+.lg-ti-header form { margin-left: auto; }
+
+@media (max-width: 575.98px) {
+    .lg-alert-hero .lg-icon-lg { display: none; }
+    .lg-ti-header form { margin-left: 0; }
+    .lg-row-actions { gap: .25rem; }
+}
