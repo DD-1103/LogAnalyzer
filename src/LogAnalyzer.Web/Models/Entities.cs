@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 
 namespace LogAnalyzer.Web.Models;
@@ -99,6 +100,10 @@ public class Alert
     public DateTimeOffset LastSeen { get; set; }
     public int EventCount { get; set; }
 
+    // Set when threat intelligence changed the severity (e.g. GreyNoise says the IP is a benign scanner).
+    public Severity? OriginalSeverity { get; set; }
+    public string? SeverityNote { get; set; }
+
     public string? Notes { get; set; }
     public string? AssignedToId { get; set; }
     public AppUser? AssignedTo { get; set; }
@@ -129,4 +134,53 @@ public class IpInfo
     public double? Longitude { get; set; }
     public int? AbuseScore { get; set; }
     public DateTime LastChecked { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Cached answer of one threat-intelligence provider (AbuseIPDB, GreyNoise, VirusTotal) about one IP.
+/// One row per (Ip, Provider); refreshed after <c>Enrichment:CacheDays</c> or on demand.
+/// </summary>
+public class IpReputation
+{
+    public long Id { get; set; }
+    public string Ip { get; set; } = string.Empty;
+    public string Provider { get; set; } = string.Empty;
+    public ThreatVerdict Verdict { get; set; }
+
+    /// <summary>0-100 where the provider gives a score (AbuseIPDB confidence, VirusTotal % of engines).</summary>
+    public int? Score { get; set; }
+
+    public string? Summary { get; set; }
+
+    /// <summary>Provider-specific details as a JSON object of label -> value (ISP, last seen, ...).</summary>
+    public string? AttributesJson { get; set; }
+
+    public string? Error { get; set; }
+    public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
+
+    public Dictionary<string, string> GetAttributes()
+    {
+        if (string.IsNullOrEmpty(AttributesJson))
+            return [];
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(AttributesJson) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+}
+
+/// <summary>One audited user action (login, upload, rule change, triage, export...).</summary>
+public class AuditEntry
+{
+    public long Id { get; set; }
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public string? UserName { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string? Target { get; set; }
+    public string? Details { get; set; }
+    public string? IpAddress { get; set; }
 }

@@ -35,6 +35,12 @@ public sealed class ReportService(AppDbContext db)
             .Where(i => ips.Contains(i.Ip))
             .ToDictionaryAsync(i => i.Ip, ct);
 
+        var reputation = (await db.IpReputations.AsNoTracking()
+                .Where(r => ips.Contains(r.Ip) && r.Verdict != ThreatVerdict.Skipped && r.Verdict != ThreatVerdict.Error)
+                .ToListAsync(ct))
+            .GroupBy(r => r.Ip)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Provider).ToList());
+
         var samples = new Dictionary<long, List<LogEvent>>();
         foreach (var alert in alerts)
         {
@@ -141,8 +147,14 @@ public sealed class ReportService(AppDbContext db)
                             var location = info is null
                                 ? "unknown"
                                 : string.Join(", ", new[] { info.City, info.CountryName }.Where(s => !string.IsNullOrEmpty(s)));
-                            var abuse = info?.AbuseScore is int score ? $"  |  AbuseIPDB score: {score}%" : "";
-                            box.Item().Text($"Source: {a.SourceIp} ({(string.IsNullOrEmpty(location) ? "unknown" : location)}){abuse}");
+                            box.Item().Text($"Source: {a.SourceIp} ({(string.IsNullOrEmpty(location) ? "unknown" : location)})");
+
+                            if (reputation.TryGetValue(a.SourceIp, out var rep))
+                                box.Item().Text("Threat intel: " + string.Join("  |  ",
+                                    rep.Select(r => $"{r.Provider}: {r.Verdict} ({r.Summary})")));
+
+                            if (a.OriginalSeverity is not null)
+                                box.Item().Text(a.SeverityNote ?? $"Severity lowered from {a.OriginalSeverity}").Italic();
 
                             if (!string.IsNullOrWhiteSpace(a.Notes))
                                 box.Item().Text($"Analyst notes: {a.Notes}").Italic();

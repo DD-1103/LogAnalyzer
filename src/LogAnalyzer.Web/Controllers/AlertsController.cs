@@ -2,6 +2,7 @@ using System.Text;
 using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Helpers;
 using LogAnalyzer.Web.Models;
+using LogAnalyzer.Web.Services;
 using LogAnalyzer.Web.ViewModels;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -50,7 +51,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         });
     }
 
-    public async Task<IActionResult> Details(long id)
+    public async Task<IActionResult> Details(long id, [FromServices] ThreatIntelService threatIntel)
     {
         var alert = await db.Alerts.AsNoTracking()
             .Include(a => a.Rule)
@@ -72,7 +73,9 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
             Alert = alert,
             Evidence = evidence,
             EvidenceShown = evidence.Count,
-            IpInfo = await db.IpInfos.AsNoTracking().FirstOrDefaultAsync(i => i.Ip == alert.SourceIp)
+            IpInfo = await db.IpInfos.AsNoTracking().FirstOrDefaultAsync(i => i.Ip == alert.SourceIp),
+            Providers = threatIntel.Providers,
+            Reputation = (await threatIntel.GetCachedAsync(alert.SourceIp)).ToDictionary(r => r.Provider)
         });
     }
 

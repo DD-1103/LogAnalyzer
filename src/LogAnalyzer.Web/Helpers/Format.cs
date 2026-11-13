@@ -89,4 +89,37 @@ public static class Format
         >= 300 => "text-info",
         _ => "text-success"
     };
+
+    public static string VerdictBadge(ThreatVerdict verdict) => verdict switch
+    {
+        ThreatVerdict.Malicious => "text-bg-danger",
+        ThreatVerdict.Suspicious => "text-bg-warning",
+        ThreatVerdict.Benign => "text-bg-success",
+        ThreatVerdict.Error => "text-bg-dark border border-danger-subtle",
+        ThreatVerdict.Skipped => "text-bg-dark border",
+        _ => "text-bg-secondary"
+    };
+
+    /// <summary>Compact label for tables: "AbuseIPDB 87%", "GreyNoise benign", "VT 5/94".</summary>
+    public static string ReputationShort(IpReputation r)
+    {
+        var a = r.GetAttributes();
+        return r.Provider switch
+        {
+            "AbuseIPDB" when r.Score is int s => $"AbuseIPDB {s}%",
+            "GreyNoise" when a.TryGetValue("Classification", out var c) => $"GreyNoise {c}",
+            "GreyNoise" when r.Verdict == ThreatVerdict.NotFound => "GreyNoise: not noise",
+            "VirusTotal" when a.TryGetValue("Malicious", out var m) => $"VT {m} malicious",
+            _ => $"{r.Provider} {r.Verdict.ToString().ToLowerInvariant()}"
+        };
+    }
+
+    public static string TimeAgo(DateTime utc)
+    {
+        var d = DateTime.UtcNow - utc;
+        return d.TotalMinutes < 1 ? "just now"
+            : d.TotalHours < 1 ? $"{(int)d.TotalMinutes} min ago"
+            : d.TotalDays < 1 ? $"{(int)d.TotalHours} h ago"
+            : $"{(int)d.TotalDays} d ago";
+    }
 }

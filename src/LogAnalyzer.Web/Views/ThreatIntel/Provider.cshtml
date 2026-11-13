@@ -1,0 +1,102 @@
+@model ThreatIntelProviderViewModel
+@{
+    var p = Model.Provider;
+    ViewData["Title"] = p.Name;
+    var isAdmin = User.IsInRole(Roles.Admin);
+}
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a asp-action="Index">Threat intelligence</a></li>
+        <li class="breadcrumb-item active">@p.Name</li>
+    </ol>
+</nav>
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <h1 class="h3 mb-0">@p.Name</h1>
+    @if (p.IsConfigured)
+    {
+        <span class="badge text-bg-success"><i class="bi bi-check-circle"></i> Configured</span>
+    }
+    else
+    {
+        <span class="badge text-bg-dark border">No API key</span>
+    }
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-7">
+        <div class="card h-100"><div class="card-body">
+            <p>@p.Description</p>
+            <dl class="row small mb-0">
+                <dt class="col-sm-4">Quota</dt>
+                <dd class="col-sm-8">@p.QuotaNote</dd>
+                <dt class="col-sm-4">Automatic lookups</dt>
+                <dd class="col-sm-8">up to @p.MaxPerRun IP(s) per log file@(p.MinInterval > TimeSpan.Zero ? $", at least {p.MinInterval.TotalSeconds:0} s apart" : "")</dd>
+                <dt class="col-sm-4">Configuration key</dt>
+                <dd class="col-sm-8"><code>@p.ApiKeySetting</code></dd>
+                <dt class="col-sm-4">Get a free key</dt>
+                <dd class="col-sm-8"><a href="@p.SignupUrl" target="_blank" rel="noopener noreferrer">@p.SignupUrl</a> (use your university e-mail)</dd>
+                <dt class="col-sm-4">JSON route</dt>
+                <dd class="col-sm-8"><code>/ThreatIntel/Api/@p.Slug/{ip}</code></dd>
+            </dl>
+        </div></div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card h-100"><div class="card-body">
+            <h2 class="h6">Setup</h2>
+            <ol class="small">
+                <li>Create a free account and copy the API key.</li>
+                <li>In <code>src\LogAnalyzer.Web</code> run:<br /><code class="text-break">dotnet user-secrets set "@p.ApiKeySetting" "YOUR_KEY"</code></li>
+                <li>Restart the app, then press <em>Test</em>.</li>
+            </ol>
+            @if (isAdmin)
+            {
+                <form asp-action="Test" asp-route-id="@p.Slug" method="post">
+                    <button type="submit" class="btn btn-sm btn-primary" disabled="@(!p.IsConfigured)">
+                        <i class="bi bi-plug"></i> Test with 8.8.8.8
+                    </button>
+                </form>
+            }
+        </div></div>
+    </div>
+</div>
+
+<h2 class="h5">Cached answers <span class="text-body-secondary small">(@Model.TotalCount.ToString("N0"))</span></h2>
+@if (Model.Results.Count == 0)
+{
+    <p class="text-body-secondary">No answers yet@(p.IsConfigured ? "." : " – add an API key first.")</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm small align-middle">
+            <thead>
+                <tr><th>IP</th><th>Verdict</th><th class="text-end">Score</th><th>Summary</th><th>Checked</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Results)
+                {
+                    <tr>
+                        <td class="font-monospace"><a asp-action="Lookup" asp-route-ip="@r.Ip">@r.Ip</a></td>
+                        <td><span class="badge @Format.VerdictBadge(r.Verdict)">@r.Verdict</span></td>
+                        <td class="text-end">@(r.Score is int s ? s + "%" : "—")</td>
+                        <td>@(r.Error ?? r.Summary)</td>
+                        <td class="text-body-secondary text-nowrap" title="@r.CheckedAt.ToString("u")">@Format.TimeAgo(r.CheckedAt)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.TotalPages > 1)
+    {
+        <nav><ul class="pagination pagination-sm">
+            @for (var i = 1; i <= Model.TotalPages; i++)
+            {
+                <li class="page-item @(i == Model.Page ? "active" : "")">
+                    <a class="page-link" asp-action="Provider" asp-route-id="@p.Slug" asp-route-page="@i">@i</a>
+                </li>
+            }
+        </ul></nav>
+    }
+}

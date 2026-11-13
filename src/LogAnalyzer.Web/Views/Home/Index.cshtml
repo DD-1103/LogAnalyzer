@@ -127,7 +127,7 @@
                             <tr>
                                 <th>IP</th>
                                 <th>Location</th>
-                                <th class="text-end">Abuse</th>
+                                <th>Reputation</th>
                                 <th class="text-end">Malicious req.</th>
                                 <th>Attacks</th>
                                 <th>Max</th>
@@ -148,12 +148,16 @@
                                         }
                                         else { <span class="text-body-secondary">—</span> }
                                     </td>
-                                    <td class="text-end">
-                                        @if (ip.AbuseScore is int score)
+                                    <td>
+                                        @if (ip.Reputation.Count == 0)
                                         {
-                                            <span class="badge @Format.AbuseBadge(score)">@(score)%</span>
+                                            <span class="text-body-secondary">—</span>
                                         }
-                                        else { <span class="text-body-secondary">—</span> }
+                                        @foreach (var r in ip.Reputation)
+                                        {
+                                            <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@ip.Ip"
+                                               class="badge @Format.VerdictBadge(r.Verdict) text-decoration-none" title="@r.Summary">@Format.ReputationShort(r)</a>
+                                        }
                                     </td>
                                     <td class="text-end">@ip.Events.ToString("N0")</td>
                                     <td>@ip.AttackTypes</td>

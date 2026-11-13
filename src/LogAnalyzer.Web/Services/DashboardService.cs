@@ -97,6 +97,12 @@ public sealed class DashboardService(AppDbContext db, GeoIpLookup geo)
             .Where(i => ips.Contains(i.Ip))
             .ToDictionaryAsync(i => i.Ip, ct);
 
+        var reputation = (await db.IpReputations.AsNoTracking()
+                .Where(r => ips.Contains(r.Ip) && r.Verdict != ThreatVerdict.Skipped && r.Verdict != ThreatVerdict.Error)
+                .ToListAsync(ct))
+            .GroupBy(r => r.Ip)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Provider).ToList());
+
         var perIp = alerts
             .GroupBy(a => a.SourceIp)
             .Select(g =>
@@ -113,7 +119,8 @@ public sealed class DashboardService(AppDbContext db, GeoIpLookup geo)
                     MaxSeverity: g.Max(a => a.Severity),
                     AttackTypes: string.Join(", ", g.Select(a => Format.AttackLabel(a.AttackType)).Distinct()),
                     Latitude: info?.Latitude,
-                    Longitude: info?.Longitude);
+                    Longitude: info?.Longitude,
+                    Reputation: reputation.GetValueOrDefault(g.Key) ?? []);
             })
             .OrderByDescending(x => x.MaxSeverity)
             .ThenByDescending(x => x.Events)

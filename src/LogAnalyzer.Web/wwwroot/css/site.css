@@ -29,6 +29,17 @@
     border-radius: .375rem;
 }
 
+.summary-cell {
+    max-width: 260px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lookup-form {
+    max-width: 520px;
+}
+
 .map-tiles-dark {
     filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
 }

@@ -1,7 +1,5 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Sockets;
-using System.Text.Json;
 using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Models;
 using MaxMind.GeoIP2;
@@ -81,56 +79,17 @@ public sealed class GeoIpLookup : IDisposable
 }
 
 /// <summary>
-/// Optional reputation lookup at AbuseIPDB (free tier: 1,000 checks/day).
-/// Only used when an API key is configured (user secret "Enrichment:AbuseIpDbApiKey").
+/// Fills the IpInfos cache with offline GeoIP data (country, city, coordinates) for attacker IPs.
+/// Reputation lookups (AbuseIPDB, GreyNoise, VirusTotal) are done by <see cref="ThreatIntelService"/>.
 /// </summary>
-public sealed class AbuseIpDbClient(HttpClient http, IConfiguration config, ILogger<AbuseIpDbClient> logger)
-{
-    private readonly string? _apiKey = config["Enrichment:AbuseIpDbApiKey"];
-
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(_apiKey);
-
-    public async Task<int?> GetScoreAsync(string ip, CancellationToken ct)
-    {
-        if (!IsConfigured)
-            return null;
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get,
-                $"https://api.abuseipdb.com/api/v2/check?ipAddress={Uri.EscapeDataString(ip)}&maxAgeInDays=90");
-            request.Headers.Add("Key", _apiKey);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            using var response = await http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("AbuseIPDB returned {Status} for {Ip}", (int)response.StatusCode, ip);
-                return null;
-            }
-
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-            return doc.RootElement.GetProperty("data").GetProperty("abuseConfidenceScore").GetInt32();
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException
-                                       or KeyNotFoundException or InvalidOperationException)
-        {
-            logger.LogWarning(ex, "AbuseIPDB lookup failed for {Ip}", ip);
-            return null;
-        }
-    }
-}
-
-/// <summary>Fills the IpInfos cache (country, city, coordinates, abuse score) for attacker IPs.</summary>
 public sealed class IpEnrichmentService(
     AppDbContext db,
     GeoIpLookup geo,
-    AbuseIpDbClient abuse,
     ILogger<IpEnrichmentService> logger)
 {
     private static readonly TimeSpan CacheLifetime = TimeSpan.FromDays(7);
 
-    /// <summary>Enriches the source IPs of all alerts of one log file.</summary>
+    /// <summary>Geolocates the source IPs of all alerts of one log file.</summary>
     public async Task EnrichAlertSourcesAsync(int logFileId, CancellationToken ct)
     {
         var ips = await db.Alerts.AsNoTracking()
@@ -143,6 +102,9 @@ public sealed class IpEnrichmentService(
 
     public async Task EnrichAsync(IEnumerable<string> ips, CancellationToken ct)
     {
+        if (!geo.IsAvailable)
+            return;
+
         var candidates = ips.Where(ip => IPAddress.TryParse(ip, out _)).Distinct().ToList();
         if (candidates.Count == 0)
             return;
@@ -154,11 +116,7 @@ public sealed class IpEnrichmentService(
         foreach (var ip in candidates)
         {
             cached.TryGetValue(ip, out var info);
-
-            // Skip fresh entries unless a data source became available since the last check.
-            var missingGeo = info?.CountryCode is null && geo.IsAvailable;
-            var missingAbuse = info?.AbuseScore is null && abuse.IsConfigured && IsPublic(ip);
-            if (info is not null && info.LastChecked > freshAfter && !missingGeo && !missingAbuse)
+            if (info is not null && info.LastChecked > freshAfter && info.CountryCode is not null)
                 continue;
 
             if (info is null)
@@ -176,16 +134,12 @@ public sealed class IpEnrichmentService(
                 info.Longitude = g.Longitude;
             }
 
-            if (abuse.IsConfigured && IsPublic(ip))
-                info.AbuseScore = await abuse.GetScoreAsync(ip, ct) ?? info.AbuseScore;
-
             info.LastChecked = DateTime.UtcNow;
             updated++;
         }
 
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("IP enrichment: {Updated} of {Total} addresses updated (GeoIP {Geo}, AbuseIPDB {Abuse})",
-            updated, candidates.Count, geo.IsAvailable ? "on" : "off", abuse.IsConfigured ? "on" : "off");
+        logger.LogInformation("GeoIP enrichment: {Updated} of {Total} addresses updated", updated, candidates.Count);
     }
 
     /// <summary>Private, loopback and link-local addresses are never sent to external services.</summary>

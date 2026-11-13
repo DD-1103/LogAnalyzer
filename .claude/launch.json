@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "loganalyzer",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/LogAnalyzer.Web", "--launch-profile", "https"],
+      "port": 7180,
+      "url": "https://localhost:7180"
+    }
+  ]
+}

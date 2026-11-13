@@ -121,12 +121,14 @@ public class LogFilesController(
         });
     }
 
-    /// <summary>Runs the current rules again (e.g. after a rule was changed). Alert statuses are reset.</summary>
+    /// <summary>
+    /// Runs the current rules again (e.g. after a rule was changed) in the background worker.
+    /// Alerts are recreated, so their triage status is reset.
+    /// </summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [Authorize(Roles = Roles.Admin)]
-    public async Task<IActionResult> RerunDetection(int id, [FromServices] DetectionEngine engine,
-        [FromServices] IpEnrichmentService enrichment, CancellationToken ct)
+    public async Task<IActionResult> RerunDetection(int id, CancellationToken ct)
     {
         var file = await db.LogFiles.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
         if (file is null)
@@ -137,9 +139,13 @@ public class LogFilesController(
             return RedirectToAction(nameof(Details), new { id });
         }
 
-        var alerts = await engine.RunAsync(id, ct);
-        await enrichment.EnrichAlertSourcesAsync(id, ct);
-        TempData["Success"] = $"Detection finished: {alerts} alert(s).";
+        // Mark as busy right away so the UI shows progress and a second click is rejected.
+        await db.LogFiles.Where(f => f.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.Status, LogFileStatus.Analyzing), ct);
+        await queue.EnqueueDetectionAsync(id, ct);
+
+        logger.LogInformation("User {User} re-ran detection on log file {Id}", User.Identity?.Name, id);
+        TempData["Success"] = "Detection was queued. The alerts will be updated in a few seconds.";
         return RedirectToAction(nameof(Details), new { id });
     }
 

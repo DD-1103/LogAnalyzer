@@ -91,7 +91,13 @@ else
                 @foreach (var a in Model.Alerts)
                 {
                     <tr>
-                        <td><span class="badge @Format.SeverityBadge(a.Severity)">@a.Severity</span></td>
+                        <td class="text-nowrap">
+                            <span class="badge @Format.SeverityBadge(a.Severity)">@a.Severity</span>
+                            @if (a.OriginalSeverity is not null)
+                            {
+                                <i class="bi bi-arrow-down-circle text-info" title="@a.SeverityNote"></i>
+                            }
+                        </td>
                         <td>
                             @if (Model.IsNewSinceLastVisit(a))
                             {

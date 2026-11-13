@@ -12,6 +12,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<Alert> Alerts => Set<Alert>();
     public DbSet<AlertEvidence> AlertEvidence => Set<AlertEvidence>();
     public DbSet<IpInfo> IpInfos => Set<IpInfo>();
+    public DbSet<IpReputation> IpReputations => Set<IpReputation>();
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -67,6 +69,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Severity).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Notes).HasMaxLength(4000);
+            e.Property(x => x.OriginalSeverity).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.SeverityNote).HasMaxLength(300);
             e.HasOne(x => x.Rule).WithMany(r => r.Alerts)
                 .HasForeignKey(x => x.RuleId)
                 .OnDelete(DeleteBehavior.Restrict);
@@ -101,6 +105,29 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.CountryCode).HasMaxLength(2);
             e.Property(x => x.CountryName).HasMaxLength(100);
             e.Property(x => x.City).HasMaxLength(100);
+        });
+
+        b.Entity<IpReputation>(e =>
+        {
+            e.Property(x => x.Ip).HasMaxLength(45).IsRequired();
+            e.Property(x => x.Provider).HasMaxLength(30).IsRequired();
+            e.Property(x => x.Verdict).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Summary).HasMaxLength(500);
+            e.Property(x => x.AttributesJson).HasMaxLength(4000);
+            e.Property(x => x.Error).HasMaxLength(500);
+            e.HasIndex(x => new { x.Ip, x.Provider }).IsUnique();
+            e.HasIndex(x => x.Provider);
+        });
+
+        b.Entity<AuditEntry>(e =>
+        {
+            e.Property(x => x.UserName).HasMaxLength(256);
+            e.Property(x => x.Action).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Target).HasMaxLength(300);
+            e.Property(x => x.Details).HasMaxLength(2000);
+            e.Property(x => x.IpAddress).HasMaxLength(45);
+            e.HasIndex(x => x.Timestamp);
+            e.HasIndex(x => x.Action);
         });
     }
 }

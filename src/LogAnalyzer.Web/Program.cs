@@ -39,6 +39,10 @@ builder.Services.ConfigureApplicationCookie(options =>
 var requireAuth = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
 builder.Services.AddControllersWithViews(options => options.Filters.Add(new AuthorizeFilter(requireAuth)));
 
+// Audit trail of user actions
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<IAuditLog, AuditLog>();
+
 // Log ingestion: parser, file storage and background processing queue
 builder.Services.AddSingleton<ILogParser, CombinedLogParser>();
 builder.Services.AddSingleton<LogFileStorage>();
@@ -49,10 +53,20 @@ builder.Services.AddHostedService<LogProcessingWorker>();
 builder.Services.AddScoped<DetectionEngine>();
 builder.Services.AddScoped<EvaluationService>();
 
-// IP enrichment, dashboard and reports
+// IP enrichment: offline GeoIP + threat-intel providers (API keys in user-secrets, see README)
+builder.Services.Configure<EnrichmentOptions>(builder.Configuration.GetSection(EnrichmentOptions.Section));
 builder.Services.AddSingleton<GeoIpLookup>();
-builder.Services.AddHttpClient<AbuseIpDbClient>(c => c.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddScoped<IpEnrichmentService>();
+builder.Services.AddSingleton<ProviderThrottle>();
+builder.Services.AddHttpClient<AbuseIpDbProvider>(c => c.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient<GreyNoiseProvider>(c => c.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient<VirusTotalProvider>(c => c.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<AbuseIpDbProvider>());
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<GreyNoiseProvider>());
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<VirusTotalProvider>());
+builder.Services.AddScoped<ThreatIntelService>();
+
+// Dashboard and reports
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<ReportService>();
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;

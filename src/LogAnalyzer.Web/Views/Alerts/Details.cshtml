@@ -17,6 +17,11 @@
     <span class="badge @Format.AlertStatusBadge(a.Status)">@a.Status</span>
 </div>
 
+@if (a.OriginalSeverity is not null)
+{
+    <div class="alert alert-info small py-2"><i class="bi bi-arrow-down-circle"></i> @a.SeverityNote</div>
+}
+
 <div class="row g-4 mb-4">
     <div class="col-lg-7">
         <div class="card h-100">
@@ -99,6 +104,31 @@
             </div>
         </div>
     </div>
+</div>
+
+@{
+    var isPublicIp = IpEnrichmentService.IsPublic(a.SourceIp);
+    var returnUrl = Context.Request.Path.ToString();
+}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <h2 class="h5 mb-0">Threat intelligence</h2>
+    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@a.SourceIp" class="small">full IP page</a>
+    @if (isPublicIp && Model.Providers.Any(p => p.IsConfigured))
+    {
+        <form asp-controller="ThreatIntel" asp-action="Refresh" method="post" class="ms-auto">
+            <input type="hidden" name="ip" value="@a.SourceIp" />
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+            <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Refresh all providers</button>
+        </form>
+    }
+</div>
+<div class="row g-3 mb-4">
+    @foreach (var p in Model.Providers)
+    {
+        <div class="col-lg-4">
+            <partial name="_ReputationCard" model="new ReputationCardModel(p, Model.Reputation.GetValueOrDefault(p.Name), a.SourceIp, isPublicIp, returnUrl)" />
+        </div>
+    }
 </div>
 
 <h2 class="h5">

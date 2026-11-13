@@ -50,3 +50,15 @@ public enum AlertStatus
     FalsePositive = 2,
     Closed = 3
 }
+
+/// <summary>Normalised verdict of a threat-intelligence provider about an IP address.</summary>
+public enum ThreatVerdict
+{
+    Unknown = 0,
+    Benign = 1,
+    Suspicious = 2,
+    Malicious = 3,
+    NotFound = 4,   // the provider has no data about this IP
+    Error = 5,      // lookup failed (bad key, quota, network) - retried on the next run
+    Skipped = 6     // not configured, or a private address that is never sent out
+}

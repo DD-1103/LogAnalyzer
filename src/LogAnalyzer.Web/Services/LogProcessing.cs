@@ -9,15 +9,21 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LogAnalyzer.Web.Services;
 
-/// <summary>In-memory queue of log file ids waiting to be processed.</summary>
+/// <summary>A unit of background work: parse + detect a new file, or only re-run detection on stored events.</summary>
+public sealed record ProcessingJob(int LogFileId, bool DetectionOnly = false);
+
+/// <summary>In-memory queue of log files waiting to be processed.</summary>
 public sealed class LogProcessingQueue
 {
-    private readonly Channel<int> _channel = Channel.CreateUnbounded<int>();
+    private readonly Channel<ProcessingJob> _channel = Channel.CreateUnbounded<ProcessingJob>();
 
     public ValueTask EnqueueAsync(int logFileId, CancellationToken ct = default) =>
-        _channel.Writer.WriteAsync(logFileId, ct);
+        _channel.Writer.WriteAsync(new ProcessingJob(logFileId), ct);
 
-    public IAsyncEnumerable<int> ReadAllAsync(CancellationToken ct) =>
+    public ValueTask EnqueueDetectionAsync(int logFileId, CancellationToken ct = default) =>
+        _channel.Writer.WriteAsync(new ProcessingJob(logFileId, DetectionOnly: true), ct);
+
+    public IAsyncEnumerable<ProcessingJob> ReadAllAsync(CancellationToken ct) =>
         _channel.Reader.ReadAllAsync(ct);
 }
 
@@ -38,11 +44,15 @@ public sealed class LogProcessingWorker(
     {
         await RequeueUnfinishedAsync(stoppingToken);
 
-        await foreach (var id in queue.ReadAllAsync(stoppingToken))
+        await foreach (var job in queue.ReadAllAsync(stoppingToken))
         {
+            var id = job.LogFileId;
             try
             {
-                await ProcessAsync(id, stoppingToken);
+                if (job.DetectionOnly)
+                    await AnalyzeAsync(id, Stopwatch.StartNew(), parseMs: null, stoppingToken);
+                else
+                    await ProcessAsync(id, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -56,18 +66,24 @@ public sealed class LogProcessingWorker(
         }
     }
 
-    // Files left Pending/Processing when the app stopped are picked up again on startup.
+    // Files left unfinished when the app stopped are picked up again on startup:
+    // Pending/Processing are parsed again, Analyzing only needs detection (events are already stored).
     private async Task RequeueUnfinishedAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var ids = await db.LogFiles
+        var files = await db.LogFiles
             .Where(f => f.Status == LogFileStatus.Pending || f.Status == LogFileStatus.Processing
                         || f.Status == LogFileStatus.Analyzing)
-            .Select(f => f.Id)
+            .Select(f => new { f.Id, f.Status })
             .ToListAsync(ct);
-        foreach (var id in ids)
-            await queue.EnqueueAsync(id, ct);
+        foreach (var f in files)
+        {
+            if (f.Status == LogFileStatus.Analyzing)
+                await queue.EnqueueDetectionAsync(f.Id, ct);
+            else
+                await queue.EnqueueAsync(f.Id, ct);
+        }
     }
 
     private async Task ProcessAsync(int id, CancellationToken ct)
@@ -169,18 +185,35 @@ public sealed class LogProcessingWorker(
             id, file.FileName, parsed, total, failed, parseMs,
             total / Math.Max(sw.Elapsed.TotalSeconds, 0.001));
 
-        // Run the detection rules on the freshly parsed events.
-        var engine = scope.ServiceProvider.GetRequiredService<DetectionEngine>();
-        var alerts = await engine.RunAsync(id, ct);
+        await AnalyzeAsync(id, sw, parseMs, ct);
+    }
 
-        // Country / reputation lookup for the attacker IPs. Never fails the whole file.
+    /// <summary>
+    /// Detection + enrichment on the stored events of one file. Used after parsing and for "Re-run detection".
+    /// Threat-intel lookups run after the file is marked Completed, because rate-limited providers can be slow.
+    /// </summary>
+    private async Task AnalyzeAsync(int id, Stopwatch sw, long? parseMs, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var sp = scope.ServiceProvider;
+        var db = sp.GetRequiredService<AppDbContext>();
+
+        await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
+            .SetProperty(f => f.Status, LogFileStatus.Analyzing), ct);
+
+        // Run the detection rules on the parsed events.
+        var detectSw = Stopwatch.StartNew();
+        var alerts = await sp.GetRequiredService<DetectionEngine>().RunAsync(id, ct);
+        detectSw.Stop();
+
+        // Offline country / city lookup for the attacker IPs. Never fails the whole file.
         try
         {
-            await scope.ServiceProvider.GetRequiredService<IpEnrichmentService>().EnrichAlertSourcesAsync(id, ct);
+            await sp.GetRequiredService<IpEnrichmentService>().EnrichAlertSourcesAsync(id, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "IP enrichment failed for log file {Id}", id);
+            logger.LogWarning(ex, "GeoIP enrichment failed for log file {Id}", id);
         }
 
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
@@ -188,8 +221,21 @@ public sealed class LogProcessingWorker(
             .SetProperty(f => f.ProcessedAt, DateTime.UtcNow), ct);
 
         sw.Stop();
-        logger.LogInformation("Log file {Id} completed: {Alerts} alerts, total {Ms} ms (parse {ParseMs} ms)",
-            id, alerts, sw.ElapsedMilliseconds, parseMs);
+        logger.LogInformation("Log file {Id} completed: {Alerts} alerts, total {Ms} ms (parse {ParseMs} ms, detection {DetectMs} ms)",
+            id, alerts, sw.ElapsedMilliseconds, parseMs?.ToString() ?? "-", detectSw.ElapsedMilliseconds);
+
+        // Reputation lookups (AbuseIPDB, GreyNoise, VirusTotal) + GreyNoise severity rule. Best effort.
+        try
+        {
+            var ti = await sp.GetRequiredService<ThreatIntelService>().RunForLogFileAsync(id, ct);
+            if (ti.Lookups > 0 || ti.Downgraded > 0)
+                logger.LogInformation("Threat intel for log file {Id}: {Lookups} lookups, {Downgraded} alerts lowered",
+                    id, ti.Lookups, ti.Downgraded);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Threat-intel enrichment failed for log file {Id}", id);
+        }
     }
 
     private static Task UpdateProgressAsync(AppDbContext db, int id, int total, int parsed, int failed, CancellationToken ct) =>

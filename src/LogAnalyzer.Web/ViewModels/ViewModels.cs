@@ -44,7 +44,8 @@ public class DashboardViewModel
 public record NameCount(string Name, int Count);
 
 public record TopIp(string Ip, string? CountryCode, string? Country, string? City, int? AbuseScore,
-    int Alerts, int Events, Severity MaxSeverity, string AttackTypes, double? Latitude, double? Longitude);
+    int Alerts, int Events, Severity MaxSeverity, string AttackTypes, double? Latitude, double? Longitude,
+    List<IpReputation> Reputation);
 
 public record MapPoint(string Ip, double Lat, double Lon, string? Country, string? City,
     int Alerts, int Events, string Severity);
@@ -90,6 +91,8 @@ public class AlertDetailsViewModel
     public List<LogEvent> Evidence { get; set; } = [];
     public int EvidenceShown { get; set; }
     public IpInfo? IpInfo { get; set; }
+    public IReadOnlyList<LogAnalyzer.Web.Services.IThreatIntelProvider> Providers { get; set; } = [];
+    public Dictionary<string, IpReputation> Reputation { get; set; } = [];
 }
 
 public class AlertUpdateModel
@@ -99,3 +102,44 @@ public class AlertUpdateModel
     [StringLength(4000)]
     public string? Notes { get; set; }
 }
+
+// ---- Threat intelligence ----
+
+public record ProviderStatus(LogAnalyzer.Web.Services.IThreatIntelProvider Provider, Dictionary<ThreatVerdict, int> Verdicts)
+{
+    public int Total => Verdicts.Values.Sum();
+}
+
+public record SeverityChange(Severity From, Severity To, int Count);
+
+public class ThreatIntelIndexViewModel
+{
+    public List<ProviderStatus> Providers { get; set; } = [];
+    public int TotalAlerts { get; set; }
+    public List<SeverityChange> Downgrades { get; set; } = [];
+    public List<IpReputation> Recent { get; set; } = [];
+}
+
+public class ThreatIntelProviderViewModel
+{
+    public required LogAnalyzer.Web.Services.IThreatIntelProvider Provider { get; set; }
+    public List<IpReputation> Results { get; set; } = [];
+    public int Page { get; set; }
+    public int TotalPages { get; set; }
+    public int TotalCount { get; set; }
+}
+
+public class ThreatIntelLookupViewModel
+{
+    public IReadOnlyList<LogAnalyzer.Web.Services.IThreatIntelProvider> Providers { get; set; } = [];
+    public string? Ip { get; set; }
+    public string? Error { get; set; }
+    public bool IsPublic { get; set; }
+    public Dictionary<string, IpReputation> Results { get; set; } = [];
+    public IpInfo? IpInfo { get; set; }
+    public int AlertCount { get; set; }
+    public int EventCount { get; set; }
+}
+
+public record ReputationCardModel(LogAnalyzer.Web.Services.IThreatIntelProvider Provider, IpReputation? Result,
+    string Ip, bool IsPublic, string? ReturnUrl);
