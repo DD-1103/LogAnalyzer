@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Background worker |
 | **CWE** | CWE-209 Information exposure through error messages |
-| **Status** | Confirmed |
+| **Status** | Fixed (branch `security-fixes`): worker stores user-safe messages, full exception only in the log |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

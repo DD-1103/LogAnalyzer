@@ -35,12 +35,13 @@ Non-functional: 1M lines < 2 min (CPU part measured ≈ 10 s; end-to-end with SQ
   ```
   The app applies migrations on startup only when some are pending (`DbSeeder`: `GetPendingMigrationsAsync` → `MigrateAsync`); EF migration/infrastructure logs are at Warning, so normal start-ups show no "Migration" lines.
 - When debugging from Visual Studio (F5), `ConsoleWindow.HideWhenDebuggedByVisualStudio` hides the log console (Daniel closed it by accident, which stops the app). Only if a debugger is attached and the console belongs to VsDebugConsole/devenv alone; terminals and Ctrl+F5 keep it. Logs: VS Output window. `LOGANALYZER_SHOW_CONSOLE=1` disables the hiding.
-- **Dev seed logins** (`appsettings.Development.json` → `SeedAdmin`, `SeedAnalyst`): `admin@loganalyzer.local` / `Admin#2026!`; `analyst@loganalyzer.local` (password in the same file). Created only if missing.
+- **Seed logins:** e-mails in `appsettings.Development.json` (`admin@loganalyzer.local`, `analyst@loganalyzer.local`); passwords **never in files** – only user-secrets / env vars (`dotnet user-secrets set "SeedAdmin:Password" "..."`, `SeedAdmin__Password`). Created only if missing; seeded accounts and passwords set by an admin get `MustChangePassword` (redirect to Change password). The existing dev accounts keep their old passwords – change the admin password before the jury demo. The analyst is seeded only in Development.
+- **Launch profiles:** `https` = Development (developer exception page). **`demo` = environment "Demo" for the jury**: generic error page, HSTS, `appsettings.Demo.json` + user-secrets. Claude Code preview configs: `loganalyzer`, `loganalyzer-demo`.
 - **Git:** repo initialised 2026-11-13, remote `origin` = private GitHub repo `DD-1103/LogAnalyzer`. Steps 5–9 were done on branch `steps-5-9` and fast-forward merged into `main` and pushed on 2026-11-13 (the branch also exists on GitHub and can be deleted). `.gitattributes` normalises line endings (CRLF warnings on commit are harmless).
 - `sqlcmd` is available (`sqlcmd -S localhost -E -C -d LogAnalyzerDb -Q "..."`).
 
 ## 3. Tech stack
-ASP.NET Core 10 MVC (C#, nullable, primary constructors) · EF Core 10 + SQL Server · ASP.NET Identity (custom login, no Identity UI) · BackgroundService + `Channel<ProcessingJob>` queue (instead of Hangfire) · SqlBulkCopy (TableLock) for bulk inserts · Bootstrap 5.3 + Bootstrap Icons (CDN) re-skinned by the **Liquid Glass** design system (`wwwroot/css/glass.css`, light + dark) · Chart.js 4.4 · Leaflet 1.9.4 + OpenStreetMap tiles (CSS-darkened) · MaxMind.GeoIP2 5.x (reads DB-IP or GeoLite2 .mmdb) · QuestPDF 2025.x (Community license) · System.Security.Cryptography.Pkcs 10.0.* pinned (NU1902/NU1903 fix) · ASP.NET Core rate limiter · xUnit (tests) · Isolation Forest implemented in C# (no Python/ML.NET dependency).
+ASP.NET Core 10 MVC (C#, nullable, primary constructors) · EF Core 10 + SQL Server · ASP.NET Identity (custom login, no Identity UI) · BackgroundService + `Channel<ProcessingJob>` queue (instead of Hangfire) · SqlBulkCopy (TableLock) for bulk inserts · Bootstrap 5.3.3 + Bootstrap Icons 1.11.3 (self-hosted in `wwwroot/lib`, no CDN) re-skinned by the **Liquid Glass** design system (`wwwroot/css/glass.css`, light + dark) · Chart.js 4.4.4 · Leaflet 1.9.4 (both in `wwwroot/lib`) + OpenStreetMap tiles (CSS-darkened) · MaxMind.GeoIP2 5.x (reads DB-IP or GeoLite2 .mmdb) · QuestPDF 2025.x (Community license) · System.Security.Cryptography.Pkcs 10.0.* pinned (NU1902/NU1903 fix) · ASP.NET Core rate limiter · xUnit (tests) · Isolation Forest implemented in C# (no Python/ML.NET dependency).
 
 csproj uses floating versions `10.0.*`, `5.*`, `2025.*`. `UserSecretsId = loganalyzer-web-2026`.
 
@@ -152,8 +153,8 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - `docs/evaluation-guide.md` = full protocol (datasets, DVWA VirtualBox lab, attack commands, labelling, thesis tables, threats to validity).
 
 ### Step 9 — Quality
-- 74 xUnit tests (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
-- `SecurityHeadersMiddleware`: CSP `script-src 'self' https://cdn.jsdelivr.net` (no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
+- 74 xUnit tests at step 9, 108 after the audit fixes (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
+- `SecurityHeadersMiddleware`: CSP `script-src 'self'` (since the audit fixes all libraries are self-hosted; no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
 - Login rate limiter: 10 POSTs/min per IP → 429 (verified).
 - Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
 - README.md.
@@ -183,6 +184,16 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Duplicate sample uploads were cleaned on 2026-11-13: only log file **#4** (sample-access.log) remains.
 - The Desktop copy of this file (`OneDrive\Desktop\CLAUDE.md`) is the old version — this repo file is the source of truth.
 
+### Audit fixes (2026-11-17, branch `security-fixes`)
+- **Worker** (`LogProcessing.cs`): jobs Parse / Detect / Delete; the loop never throws (DB down → logged, next job); shutdown is not a failure; `LogFile.ProcessingAttempts` (≥ 3 interrupted runs → Failed); Admin *Process again* on Failed files (`LogFiles/Reprocess`); user-safe error messages; 10 min command timeout in worker scopes.
+- **Delete** runs in the worker: status `Deleting`, batched `DELETE TOP (n)` via `LogFileCleanup` (evidence → alerts → events → file); also used before re-parse and by DetectionEngine.
+- **Input limits** (`ProcessingOptions`, section `Processing`): MaxDecompressedBytes 2 GB and 50x ratio (min 64 MB) via `LimitedReadStream`, MaxLines 5M, `BoundedLineReader` 16 KB (longer lines = failed); over the limits → Failed and partial events removed.
+- **Threat intel** runs in its own `ThreatIntelWorker` (`ThreatIntelQueue`, 10 min budget per file); `ILogFileThreatIntel` = ThreatIntelService.
+- **Threshold rules** linear (`SlidingWindow` with pending counter); evidence identical to the old algorithm (property test).
+- **DB:** LogEvents indexes `(LogFileId, LineNumber)`, `(LogFileId, Timestamp, LineNumber)`, `ClientIp`; `LogFileHourStats` (per file/hour Total + Flagged, rebuilt after detection, backfilled by migration `ProcessingLimitsAndIndexes`) feeds the dashboard chart. Database in SIMPLE recovery.
+- **Auth/config:** `AppUser.MustChangePassword` + `AppUserClaimsPrincipalFactory` claim + `RequirePasswordChangeFilter` (JSON requests get 403); `ClientNetwork.RateLimitKey` (IPv4-mapped → IPv4, IPv6 per /64); `ForwardedHeaders:KnownProxies`; `Database:MigrateOnStartup`; `AllowedHosts` = localhost; `appsettings.Development.json` not published; no-store on signed-in responses.
+- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs` (108 total).
+
 ## 9. Decisions & advice already given
 - **Zimmerman tools / Chainsaw:** out of scope → possible future "Windows event log module" (needs supervisor approval).
 - **Threat intel:** use personal/free accounts with the **university email**; **do NOT use the work GTI account** (AKSK license, logging, quota, key leakage). Snyk is not an IP source — mention only in a secure-development section (`dotnet list package --vulnerable`).
@@ -191,7 +202,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Rules with alerts are disabled, not deleted (traceability); users are disabled, not deleted.
 
 ## 10. Roadmap (what's left)
-- **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High (01 quadratic threshold rules, 02 big-file delete timeout), 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed.
+- **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High, 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed. **Fixed on branch `security-fixes`:** 01, 02, 05, 06, 08, 09, 12, 15, 18, 21, 26, 29c. **Next (before the evaluation chapter):** 04, 03, 29a, 07, 10; then the remaining Low/Info.
 0. **Review the `ui-liquid-glass` branch in the browser (both themes), then merge into `main` and push.**
 1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
 2. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).

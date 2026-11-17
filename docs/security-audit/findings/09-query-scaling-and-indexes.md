@@ -6,7 +6,7 @@
 | **Kind** | Will break |
 | **Area** | Database / performance |
 | **CWE** | CWE-405 Asymmetric resource consumption |
-| **Status** | Likely (query shapes + index list; not measured) |
+| **Status** | Fixed (branch `security-fixes`): composite indexes, Timestamp index dropped, per-file hourly stats table for the dashboard |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

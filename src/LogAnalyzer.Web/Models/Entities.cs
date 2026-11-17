@@ -12,6 +12,9 @@ public class AppUser : IdentityUser
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
 
+    /// <summary>Set for seeded accounts and passwords chosen by an administrator: the user must pick a new password first.</summary>
+    public bool MustChangePassword { get; set; }
+
     // When the user last opened these pages; drives the "new since last visit" nav badges.
     public DateTime? AlertsSeenAt { get; set; }
     public DateTime? RulesSeenAt { get; set; }
@@ -38,8 +41,24 @@ public class LogFile
     public long? ParseMilliseconds { get; set; }
     public long? DetectionMilliseconds { get; set; }
 
+    /// <summary>Times processing was started since the last success; protects against crash loops on start-up.</summary>
+    public int ProcessingAttempts { get; set; }
+
     public ICollection<LogEvent> Events { get; set; } = new List<LogEvent>();
     public ICollection<Alert> Alerts { get; set; } = new List<Alert>();
+}
+
+/// <summary>
+/// Requests per hour of one log file (all / flagged as malicious), computed once after detection so the dashboard
+/// does not have to aggregate millions of events on every page load.
+/// </summary>
+public class LogFileHourStat
+{
+    public int LogFileId { get; set; }
+    /// <summary>Start of the hour, in the time zone of the log (as written in the log lines).</summary>
+    public DateTime Hour { get; set; }
+    public int Total { get; set; }
+    public int Flagged { get; set; }
 }
 
 /// <summary>One parsed line of an access log (Combined Log Format).</summary>

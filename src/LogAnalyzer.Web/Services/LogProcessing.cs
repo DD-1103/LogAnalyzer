@@ -1,4 +1,5 @@
 using System.Data;
+using System.Data.Common;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Threading.Channels;
@@ -6,11 +7,22 @@ using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Models;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LogAnalyzer.Web.Services;
 
-/// <summary>A unit of background work: parse + detect a new file, or only re-run detection on stored events.</summary>
-public sealed record ProcessingJob(int LogFileId, bool DetectionOnly = false);
+public enum ProcessingJobKind
+{
+    /// <summary>Parse the uploaded file, then detect.</summary>
+    Parse,
+    /// <summary>Only re-run detection on the stored events.</summary>
+    Detect,
+    /// <summary>Delete the file and all its data (in batches).</summary>
+    Delete
+}
+
+/// <summary>A unit of background work for one log file.</summary>
+public sealed record ProcessingJob(int LogFileId, ProcessingJobKind Kind = ProcessingJobKind.Parse);
 
 /// <summary>In-memory queue of log files waiting to be processed.</summary>
 public sealed class LogProcessingQueue
@@ -21,7 +33,10 @@ public sealed class LogProcessingQueue
         _channel.Writer.WriteAsync(new ProcessingJob(logFileId), ct);
 
     public ValueTask EnqueueDetectionAsync(int logFileId, CancellationToken ct = default) =>
-        _channel.Writer.WriteAsync(new ProcessingJob(logFileId, DetectionOnly: true), ct);
+        _channel.Writer.WriteAsync(new ProcessingJob(logFileId, ProcessingJobKind.Detect), ct);
+
+    public ValueTask EnqueueDeleteAsync(int logFileId, CancellationToken ct = default) =>
+        _channel.Writer.WriteAsync(new ProcessingJob(logFileId, ProcessingJobKind.Delete), ct);
 
     public IAsyncEnumerable<ProcessingJob> ReadAllAsync(CancellationToken ct) =>
         _channel.Reader.ReadAllAsync(ct);
@@ -30,82 +45,145 @@ public sealed class LogProcessingQueue
 /// <summary>
 /// Background worker: reads an uploaded file line by line, parses it and bulk-inserts
 /// the events into SQL Server. Runs outside the HTTP request so large files don't time out.
+/// The loop never throws: a failing job (or a failing database) marks the file Failed and the worker carries on,
+/// so one problem can never stop the whole web app.
 /// </summary>
 public sealed class LogProcessingWorker(
     LogProcessingQueue queue,
+    ThreatIntelQueue threatIntelQueue,
     IServiceScopeFactory scopeFactory,
     ILogParser parser,
     LogFileStorage storage,
+    IOptions<ProcessingOptions> options,
     ILogger<LogProcessingWorker> logger) : BackgroundService
 {
     private const int BatchSize = 5000;
 
+    /// <summary>Per SQL command in the worker (big deletes and detection queries on 1-2M rows exceed the default 30 s).</summary>
+    private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(10);
+
+    private ProcessingOptions Limits => options.Value;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await RequeueUnfinishedAsync(stoppingToken);
-
-        await foreach (var job in queue.ReadAllAsync(stoppingToken))
+        try
         {
-            var id = job.LogFileId;
-            try
+            await RequeueUnfinishedAsync(stoppingToken);
+        }
+        catch (Exception) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not re-queue unfinished log files at start-up");
+        }
+
+        try
+        {
+            await foreach (var job in queue.ReadAllAsync(stoppingToken))
             {
-                if (job.DetectionOnly)
-                    await AnalyzeAsync(id, Stopwatch.StartNew(), parseMs: null, stoppingToken);
-                else
-                    await ProcessAsync(id, stoppingToken);
+                try
+                {
+                    await RunJobAsync(job, stoppingToken);
+                }
+                catch (Exception) when (stoppingToken.IsCancellationRequested)
+                {
+                    // App shutdown (SqlClient often reports it as SqlException, not OperationCanceledException):
+                    // leave the status as it is, the file is resumed at the next start.
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "{Kind} of log file {Id} failed", job.Kind, job.LogFileId);
+                    await TryMarkFailedAsync(job.LogFileId, UserMessage(job.Kind, ex),
+                        removeEvents: ex is LogLimitExceededException);
+                }
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Processing of log file {Id} failed", id);
-                await MarkFailedAsync(id, ex.Message);
-            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
         }
     }
 
+    private Task RunJobAsync(ProcessingJob job, CancellationToken ct) => job.Kind switch
+    {
+        ProcessingJobKind.Parse => ProcessAsync(job.LogFileId, ct),
+        ProcessingJobKind.Detect => AnalyzeAsync(job.LogFileId, Stopwatch.StartNew(), parseMs: null, ct),
+        ProcessingJobKind.Delete => DeleteAsync(job.LogFileId, ct),
+        _ => Task.CompletedTask
+    };
+
+    /// <summary>Text shown to users on the file page. Technical details (paths, SQL, accounts) stay in the server log.</summary>
+    public static string UserMessage(ProcessingJobKind kind, Exception ex) => ex switch
+    {
+        LogLimitExceededException => ex.Message,
+        InvalidDataException => "The file could not be read: it is not a valid gzip archive.",
+        _ when kind == ProcessingJobKind.Delete => "Deleting the file failed. Try again; details are in the server log.",
+        DbException or DbUpdateException => "Database error while processing the file. Details are in the server log.",
+        _ => "Unexpected error while processing the file. Details are in the server log."
+    };
+
+    private static AppDbContext CreateDb(IServiceScope scope)
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Database.SetCommandTimeout(CommandTimeout);
+        return db;
+    }
+
     // Files left unfinished when the app stopped are picked up again on startup:
-    // Pending/Processing are parsed again, Analyzing only needs detection (events are already stored).
+    // Pending/Processing are parsed again, Analyzing only needs detection (events are already stored),
+    // Deleting continues the delete. A file that was interrupted too often is marked Failed (no crash loop).
     private async Task RequeueUnfinishedAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = CreateDb(scope);
         var files = await db.LogFiles
             .Where(f => f.Status == LogFileStatus.Pending || f.Status == LogFileStatus.Processing
-                        || f.Status == LogFileStatus.Analyzing)
-            .Select(f => new { f.Id, f.Status })
+                        || f.Status == LogFileStatus.Analyzing || f.Status == LogFileStatus.Deleting)
+            .Select(f => new { f.Id, f.Status, f.ProcessingAttempts })
             .ToListAsync(ct);
         foreach (var f in files)
         {
-            if (f.Status == LogFileStatus.Analyzing)
+            if (f.Status == LogFileStatus.Deleting)
+                await queue.EnqueueDeleteAsync(f.Id, ct);
+            else if (f.ProcessingAttempts >= Limits.MaxAttempts)
+            {
+                logger.LogWarning("Log file {Id} was interrupted {Attempts} times and is marked Failed", f.Id, f.ProcessingAttempts);
+                await TryMarkFailedAsync(f.Id,
+                    $"Processing was interrupted {f.ProcessingAttempts} times (the app stopped or crashed). " +
+                    "An administrator can process the file again.", removeEvents: false);
+            }
+            else if (f.Status == LogFileStatus.Analyzing)
                 await queue.EnqueueDetectionAsync(f.Id, ct);
             else
                 await queue.EnqueueAsync(f.Id, ct);
         }
     }
 
+    private static Task CountAttemptAsync(AppDbContext db, int id, CancellationToken ct) =>
+        db.LogFiles.Where(f => f.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.ProcessingAttempts, f => f.ProcessingAttempts + 1), ct);
+
     private async Task ProcessAsync(int id, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = CreateDb(scope);
 
         var file = await db.LogFiles.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
-        if (file is null)
+        if (file is null || file.Status == LogFileStatus.Deleting)
             return;
 
         var path = storage.GetPath(file);
         if (!File.Exists(path))
         {
-            await MarkFailedAsync(id, "Uploaded file not found on disk.");
+            await TryMarkFailedAsync(id, "Uploaded file not found on disk.", removeEvents: false);
             return;
         }
+        await CountAttemptAsync(db, id, ct);
 
-        // Remove results from an earlier (or interrupted) run. Evidence first: it references events.
-        await db.AlertEvidence.Where(e => e.Alert!.LogFileId == id).ExecuteDeleteAsync(ct);
-        await db.Alerts.Where(a => a.LogFileId == id).ExecuteDeleteAsync(ct);
-        await db.LogEvents.Where(e => e.LogFileId == id).ExecuteDeleteAsync(ct);
+        // Remove results from an earlier (or interrupted) run, in batches.
+        await LogFileCleanup.DeleteResultsAndEventsAsync(db, id, ct);
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
             .SetProperty(f => f.Status, LogFileStatus.Processing)
             .SetProperty(f => f.TotalLines, 0)
@@ -115,12 +193,20 @@ public sealed class LogProcessingWorker(
 
         var sw = Stopwatch.StartNew();
         int total = 0, parsed = 0, failed = 0, lineNumber = 0;
+        var limits = Limits;
 
         await using var fileStream = File.OpenRead(path);
-        Stream input = LogFileStorage.IsGzip(file.FileName)
-            ? new GZipStream(fileStream, CompressionMode.Decompress)
-            : fileStream;
-        using var reader = new StreamReader(input);
+        Stream input = fileStream;
+        if (LogFileStorage.IsGzip(file.FileName))
+        {
+            // Gzip bomb protection: limit the decompressed size (absolute, and relative to the upload).
+            var cap = Math.Min(limits.MaxDecompressedBytes,
+                Math.Max(64L * 1024 * 1024, fileStream.Length * (long)limits.MaxCompressionRatio));
+            input = new LimitedReadStream(new GZipStream(fileStream, CompressionMode.Decompress), cap,
+                $"The file expands to more than {Helpers.Format.Bytes(cap)} when decompressed. " +
+                "It is too large or not a normal log file (gzip bomb).");
+        }
+        using var reader = new BoundedLineReader(new StreamReader(input), limits.MaxLineLength);
 
         // TableLock: one bulk-update lock instead of row locks -> much faster large imports.
         using var bulk = new SqlBulkCopy(db.Database.GetConnectionString(), SqlBulkCopyOptions.TableLock)
@@ -133,15 +219,19 @@ public sealed class LogProcessingWorker(
         foreach (DataColumn c in table.Columns)
             bulk.ColumnMappings.Add(c.ColumnName, c.ColumnName);
 
-        string? line;
-        while ((line = await reader.ReadLineAsync(ct)) is not null)
+        while (await reader.ReadLineAsync(ct) is { } read)
         {
             lineNumber++;
-            if (string.IsNullOrWhiteSpace(line))
+            if (lineNumber > limits.MaxLines)
+                throw new LogLimitExceededException(
+                    $"The file has more than {limits.MaxLines:N0} lines (limit). Split it into smaller files.");
+            var line = read.Text;
+            if (!read.TooLong && string.IsNullOrWhiteSpace(line))
                 continue;
             total++;
 
-            if (parser.TryParse(line, out var p) && p is not null)
+            // Over-long lines are never parsed: no web server writes 16 KB request lines into an access log.
+            if (!read.TooLong && parser.TryParse(line, out var p) && p is not null)
             {
                 parsed++;
                 table.Rows.Add(
@@ -186,18 +276,24 @@ public sealed class LogProcessingWorker(
             id, file.FileName, parsed, total, failed, parseMs,
             total / Math.Max(sw.Elapsed.TotalSeconds, 0.001));
 
-        await AnalyzeAsync(id, sw, parseMs, ct);
+        await AnalyzeAsync(id, sw, parseMs, ct, attemptCounted: true);
     }
 
     /// <summary>
     /// Detection + enrichment on the stored events of one file. Used after parsing and for "Re-run detection".
-    /// Threat-intel lookups run after the file is marked Completed, because rate-limited providers can be slow.
+    /// Threat-intel lookups are handed to <see cref="ThreatIntelWorker"/> after the file is marked Completed,
+    /// because rate-limited providers can be slow and must not block the next upload.
     /// </summary>
-    private async Task AnalyzeAsync(int id, Stopwatch sw, long? parseMs, CancellationToken ct)
+    private async Task AnalyzeAsync(int id, Stopwatch sw, long? parseMs, CancellationToken ct, bool attemptCounted = false)
     {
         using var scope = scopeFactory.CreateScope();
         var sp = scope.ServiceProvider;
-        var db = sp.GetRequiredService<AppDbContext>();
+        var db = CreateDb(scope);
+
+        if (!await db.LogFiles.AnyAsync(f => f.Id == id && f.Status != LogFileStatus.Deleting, ct))
+            return;
+        if (!attemptCounted)
+            await CountAttemptAsync(db, id, ct);
 
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
             .SetProperty(f => f.Status, LogFileStatus.Analyzing), ct);
@@ -207,12 +303,15 @@ public sealed class LogProcessingWorker(
         var alerts = await sp.GetRequiredService<DetectionEngine>().RunAsync(id, ct);
         detectSw.Stop();
 
+        // Hourly totals for the dashboard chart (computed once here instead of on every dashboard load).
+        await LogFileStats.RebuildHourlyAsync(db, id, ct);
+
         // Offline country / city lookup for the attacker IPs. Never fails the whole file.
         try
         {
             await sp.GetRequiredService<IpEnrichmentService>().EnrichAlertSourcesAsync(id, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "GeoIP enrichment failed for log file {Id}", id);
         }
@@ -220,24 +319,30 @@ public sealed class LogProcessingWorker(
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
             .SetProperty(f => f.Status, LogFileStatus.Completed)
             .SetProperty(f => f.ProcessedAt, DateTime.UtcNow)
+            .SetProperty(f => f.ProcessingAttempts, 0)
             .SetProperty(f => f.DetectionMilliseconds, detectSw.ElapsedMilliseconds), ct);
 
         sw.Stop();
         logger.LogInformation("Log file {Id} completed: {Alerts} alerts, total {Ms} ms (parse {ParseMs} ms, detection {DetectMs} ms)",
             id, alerts, sw.ElapsedMilliseconds, parseMs?.ToString() ?? "-", detectSw.ElapsedMilliseconds);
 
-        // Reputation lookups (AbuseIPDB, GreyNoise, VirusTotal) + GreyNoise severity rule. Best effort.
-        try
-        {
-            var ti = await sp.GetRequiredService<ThreatIntelService>().RunForLogFileAsync(id, ct);
-            if (ti.Lookups > 0 || ti.Downgraded > 0)
-                logger.LogInformation("Threat intel for log file {Id}: {Lookups} lookups, {Downgraded} alerts lowered",
-                    id, ti.Lookups, ti.Downgraded);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogWarning(ex, "Threat-intel enrichment failed for log file {Id}", id);
-        }
+        // Reputation lookups (AbuseIPDB, GreyNoise, VirusTotal) + GreyNoise severity rule: own worker, best effort.
+        await threatIntelQueue.EnqueueAsync(id, ct);
+    }
+
+    /// <summary>Deletes a file and all its data in batches (the request only marks it Deleting).</summary>
+    private async Task DeleteAsync(int id, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = CreateDb(scope);
+        var file = await db.LogFiles.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
+        if (file is null)
+            return;
+
+        var sw = Stopwatch.StartNew();
+        await LogFileCleanup.DeleteFileAsync(db, id, ct);
+        storage.Delete(file);
+        logger.LogInformation("Log file {Id} ({Name}) deleted in {Ms} ms", id, file.FileName, sw.ElapsedMilliseconds);
     }
 
     private static Task UpdateProgressAsync(AppDbContext db, int id, int total, int parsed, int failed, CancellationToken ct) =>
@@ -246,13 +351,24 @@ public sealed class LogProcessingWorker(
             .SetProperty(f => f.ParsedLines, parsed)
             .SetProperty(f => f.FailedLines, failed), ct);
 
-    private async Task MarkFailedAsync(int id, string message)
+    /// <summary>Marks a file Failed. Never throws: if the database itself is down, the error is only logged.</summary>
+    private async Task TryMarkFailedAsync(int id, string message, bool removeEvents)
     {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
-            .SetProperty(f => f.Status, LogFileStatus.Failed)
-            .SetProperty(f => f.ErrorMessage, Cut(message, 2000)));
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var db = CreateDb(scope);
+            await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
+                .SetProperty(f => f.Status, LogFileStatus.Failed)
+                .SetProperty(f => f.ErrorMessage, Cut(message, 2000)));
+            // A file over the limits keeps no partial data (it would distort the dashboard).
+            if (removeEvents)
+                await LogFileCleanup.DeleteResultsAndEventsAsync(db, id, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not mark log file {Id} as failed", id);
+        }
     }
 
     // Column names must match the LogEvents table created by the migration.

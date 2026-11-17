@@ -52,8 +52,7 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
         }
 
         // Detection is repeatable: previous results for this file are replaced.
-        await db.AlertEvidence.Where(e => e.Alert!.LogFileId == logFileId).ExecuteDeleteAsync(ct);
-        await db.Alerts.Where(a => a.LogFileId == logFileId).ExecuteDeleteAsync(ct);
+        await LogFileCleanup.DeleteAlertsAsync(db, logFileId, ct);
 
         var core = new DetectionCore(compiled);
         var anomalyRules = rules.Where(r => r.Kind == RuleKind.Anomaly).ToList();

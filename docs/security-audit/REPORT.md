@@ -21,35 +21,35 @@
 
 | # | Severity | Kind | Finding | Status |
 |---|---|---|---|---|
-| [01](findings/01-threshold-evidence-quadratic.md) | **High** | Will break | Threshold rules are quadratic on fast scanners – detection alone ~170 s for 1M lines at 200 req/s (RQ3 fails) | Confirmed (benchmark) |
-| [02](findings/02-large-file-delete-timeout.md) | **High** | Will break | Deleting / re-parsing a 1–2M line file times out (30 s) and leaves alerts without evidence | Likely |
+| [01](findings/01-threshold-evidence-quadratic.md) | **High** | Will break | Threshold rules are quadratic on fast scanners – detection alone ~170 s for 1M lines at 200 req/s (RQ3 fails) | **Fixed** |
+| [02](findings/02-large-file-delete-timeout.md) | **High** | Will break | Deleting / re-parsing a 1–2M line file times out (30 s) and leaves alerts without evidence | **Fixed** |
 | [03](findings/03-private-ip-leak-to-threat-intel.md) | Medium | Vulnerability | `::ffff:10.x`, `100.64/10`, `::` … treated as public → internal IPs sent to AbuseIPDB/GreyNoise/VirusTotal | **Confirmed live** |
 | [04](findings/04-regex-timeout-fails-open.md) | Medium | Vulnerability | Regex timeout = "no match": attackers can hide payloads from weak admin rules; validator misses `(\w+\s*)+` | Confirmed (experiment) |
-| [05](findings/05-upload-expansion-and-unbounded-input.md) | Medium | Vulnerability | gzip bomb (3.5 MB → 10M rows), unbounded line length, int line counters | Confirmed (measured) |
-| [06](findings/06-worker-crash-and-cancel-handling.md) | Medium | Will break | A DB error inside the worker's catch stops the whole app; shutdown can mark files Failed | Confirmed (code) |
+| [05](findings/05-upload-expansion-and-unbounded-input.md) | Medium | Vulnerability | gzip bomb (3.5 MB → 10M rows), unbounded line length, int line counters | **Fixed** |
+| [06](findings/06-worker-crash-and-cancel-handling.md) | Medium | Will break | A DB error inside the worker's catch stops the whole app; shutdown can mark files Failed | **Fixed** |
 | [07](findings/07-threat-intel-cache-overwrite-and-race.md) | Medium | Broken | Rate-limited/failed lookup overwrites a good verdict; concurrent lookups → 500 | Confirmed |
-| [08](findings/08-threat-intel-blocks-queue.md) | Medium | Will break | Threat-intel lookups block the upload queue (up to ~30 min) | Confirmed (design) |
-| [09](findings/09-query-scaling-and-indexes.md) | Medium | Will break | Dashboard/events/detection queries scan all events; missing composite indexes | Likely |
+| [08](findings/08-threat-intel-blocks-queue.md) | Medium | Will break | Threat-intel lookups block the upload queue (up to ~30 min) | **Fixed** |
+| [09](findings/09-query-scaling-and-indexes.md) | Medium | Will break | Dashboard/events/detection queries scan all events; missing composite indexes | **Fixed** |
 | [10](findings/10-report-and-alert-fanout.md) | Medium | Will break | PDF report N+1 queries; unlimited alerts from fake IP fields | Confirmed (code) |
 | [11](findings/11-login-enumeration-and-admin-lockout.md) | Low | Vulnerability | Login reveals existing accounts; anyone can keep the admin locked out | Confirmed (code) |
-| [12](findings/12-dev-seed-credentials.md) | Low | Hardening | Seed passwords committed/documented; fresh Production has no admin | Confirmed |
+| [12](findings/12-dev-seed-credentials.md) | Low | Hardening | Seed passwords committed/documented; fresh Production has no admin | **Fixed** |
 | [13](findings/13-session-revocation-window.md) | Low | Hardening | Disabled admin keeps rights 60 s; logout doesn't revoke copied cookies | Confirmed |
 | [14](findings/14-last-admin-guard-bugs.md) | Low | Broken | Last-admin guard: race to zero admins; can't demote a disabled admin | Confirmed (code) |
-| [15](findings/15-rule-save-empty-name-500.md) | Low | Broken | Empty rule name → HTTP 500 NullReferenceException | **Confirmed live** |
+| [15](findings/15-rule-save-empty-name-500.md) | Low | Broken | Empty rule name → HTTP 500 NullReferenceException | **Fixed** |
 | [16](findings/16-change-password-no-throttle.md) | Low | Hardening | Change password has no rate limit/lockout | Confirmed |
 | [17](findings/17-threat-intel-quota-and-http-hardening.md) | Low | Hardening | Analysts can burn API quotas; HttpClient follows redirects, unbounded bodies | Confirmed / Likely |
-| [18](findings/18-exception-details-in-ui.md) | Low | Hardening | Raw exception text (paths, SQL, account) shown in the UI | Confirmed |
+| [18](findings/18-exception-details-in-ui.md) | Low | Hardening | Raw exception text (paths, SQL, account) shown in the UI | **Fixed** |
 | [19](findings/19-log-and-audit-forging.md) | Low | Hardening | CR/LF from the login form forged into logs/audit | Confirmed (code) |
 | [20](findings/20-evaluate-memory.md) | Low | Hardening | Evaluate loads 100 MB labels + all line numbers per request | Confirmed (code) |
-| [21](findings/21-deployment-config-defaults.md) | Low | Hardening | Demo runs in Development (stack traces), TrustServerCertificate, no forwarded headers | Confirmed |
+| [21](findings/21-deployment-config-defaults.md) | Low | Hardening | Demo runs in Development (stack traces), TrustServerCertificate, no forwarded headers | **Fixed** |
 | [22](findings/22-floating-package-versions.md) | Low | Hardening | Floating NuGet versions, no lock file (no vulnerable packages today) | Confirmed |
 | [23](findings/23-rule-delete-during-detection.md) | Low | Broken | Deleting a rule during detection fails the file (FK) | Confirmed (code) |
 | [24](findings/24-ip-normalisation-mismatch.md) | Low | Broken | IP lookup canonicalises, stored IPs don't → 0 counts, duplicate lookups | Confirmed (logic) |
 | [25](findings/25-alerts-paging-and-triage-validation.md) | Low | Broken | Alert paging without tie-breaker; invalid status → misleading message | Confirmed (live for status) |
-| [26](findings/26-browser-hardening.md) | Low | Hardening | CDN scripts without SRI; no `Cache-Control: no-store` on signed-in pages | Confirmed |
+| [26](findings/26-browser-hardening.md) | Low | Hardening | CDN scripts without SRI; no `Cache-Control: no-store` on signed-in pages | **Fixed** |
 | [27](findings/27-csrf-defense-in-depth.md) | Info | Hardening | No global antiforgery filter / verb-less actions (not exploitable today) | Confirmed |
 | [28](findings/28-privacy-retention-and-auto-sharing.md) | Info | Hardening | No switch for automatic lookups, no retention limit | Confirmed |
-| [29](findings/29-thesis-validity-notes.md) | Info | Hardening | Evaluation ignores unparsed attacks; anomaly feature skew; DB FULL recovery | Confirmed |
+| [29](findings/29-thesis-validity-notes.md) | Info | Hardening | Evaluation ignores unparsed attacks; anomaly feature skew; DB FULL recovery | Partly fixed (c) |
 | [30](findings/30-frontend-edge-cases.md) | Info | Will break | CSV full-width signs, count-up locale, nested tables, autosubmit | Confirmed (code) |
 
 **Kinds:** *Vulnerability* = can be abused · *Broken* = wrong today · *Will break* = fails at scale / under failure · *Hardening* = defence in depth.
@@ -66,6 +66,12 @@ Each finding file ends with a ready-to-paste instruction, e.g.:
 ```
 Fix docs/security-audit/findings/01-threshold-evidence-quadratic.md: implement the fix and the tests described there, ...
 ```
+
+### Fix progress
+
+| Date | Branch | Fixed |
+|---|---|---|
+| 2026-11-17 | `security-fixes` | Before the jury demo: 15, 21, 12, 06, 26 · Before RQ3: 01, 02, 05, 09, 29c, 08 · also 18 (same code). 108 tests (was 74). |
 
 ## 4. Scope and method
 

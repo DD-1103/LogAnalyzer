@@ -6,7 +6,7 @@
 | **Kind** | Broken |
 | **Area** | Rules |
 | **CWE** | CWE-476 NULL pointer dereference |
-| **Status** | Confirmed live (HTTP 500, NullReferenceException) |
+| **Status** | Fixed (branch `security-fixes`): verified live, validation message instead of 500 |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

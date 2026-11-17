@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Configuration |
 | **CWE** | CWE-16 Configuration / CWE-295 |
-| **Status** | Confirmed (config) |
+| **Status** | Fixed (branch `security-fixes`): `demo` launch profile (Demo environment), TrustServerCertificate only in Development/Demo, AllowedHosts, optional forwarded headers, IPv6 /64 rate-limit key, MigrateOnStartup switch |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

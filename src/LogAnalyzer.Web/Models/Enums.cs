@@ -6,7 +6,8 @@ public enum LogFileStatus
     Processing = 1,
     Completed = 2,
     Failed = 3,
-    Analyzing = 4
+    Analyzing = 4,
+    Deleting = 5
 }
 
 public enum AttackType

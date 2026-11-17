@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Frontend / headers |
 | **CWE** | CWE-829 Inclusion of functionality from untrusted control sphere / CWE-525 |
-| **Status** | Confirmed |
+| **Status** | Fixed (branch `security-fixes`): libraries self-hosted in wwwroot/lib, CSP self only, no-store for signed-in pages |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

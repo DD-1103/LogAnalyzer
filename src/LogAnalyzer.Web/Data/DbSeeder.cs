@@ -22,9 +22,17 @@ public static class DbSeeder
 
         // Apply new migrations only when there are any. Checking first keeps normal start-ups quiet and fast
         // (MigrateAsync always takes a database lock and logs "Acquiring an exclusive lock for migration application").
+        // Database:MigrateOnStartup = false: the app account needs no DDL rights; run `dotnet ef database update`
+        // (or a migration script) with a separate admin account instead.
         var pending = (await db.Database.GetPendingMigrationsAsync()).ToList();
         if (pending.Count > 0)
         {
+            if (!config.GetValue("Database:MigrateOnStartup", true))
+            {
+                logger.LogCritical("The database is missing migrations ({Migrations}) and Database:MigrateOnStartup is off. " +
+                                   "Apply them with an account that has DDL rights.", string.Join(", ", pending));
+                throw new InvalidOperationException("Database schema is out of date.");
+            }
             logger.LogInformation("Updating the database: {Migrations}", string.Join(", ", pending));
             await db.Database.MigrateAsync();
         }
@@ -37,11 +45,17 @@ public static class DbSeeder
                 await roleManager.CreateAsync(new IdentityRole(role));
         }
 
-        // First admin account (credentials from configuration / user secrets) and, in development,
-        // a demo analyst account. Created only if missing; never overwritten.
+        // First admin account and, in development, a demo analyst account. E-mail and password come from
+        // user-secrets or environment variables (SeedAdmin__Email / SeedAdmin__Password), never from files in git.
+        // Created only if missing, never overwritten; the user must choose a new password at the first login.
         var userManager = sp.GetRequiredService<UserManager<AppUser>>();
         await SeedUserAsync(userManager, config, "SeedAdmin", "Administrator", Roles.Admin, logger);
-        await SeedUserAsync(userManager, config, "SeedAnalyst", "Demo Analyst", Roles.Analyst, logger);
+        if (sp.GetRequiredService<IHostEnvironment>().IsDevelopment())
+            await SeedUserAsync(userManager, config, "SeedAnalyst", "Demo Analyst", Roles.Analyst, logger);
+
+        if ((await userManager.GetUsersInRoleAsync(Roles.Admin)).Count == 0)
+            logger.LogWarning("There is no administrator account. Set SeedAdmin:Email and SeedAdmin:Password " +
+                              "(user-secrets or the environment variables SeedAdmin__Email / SeedAdmin__Password) and restart.");
 
         // Default detection rules
         // (The Isolation Forest anomaly rule is inserted by the AnomalyDetection migration.)
@@ -61,7 +75,10 @@ public static class DbSeeder
             || await userManager.FindByEmailAsync(email) is not null)
             return;
 
-        var user = new AppUser { UserName = email, Email = email, EmailConfirmed = true, FullName = fullName };
+        var user = new AppUser
+        {
+            UserName = email, Email = email, EmailConfirmed = true, FullName = fullName, MustChangePassword = true
+        };
         var result = await userManager.CreateAsync(user, password);
         if (result.Succeeded)
             await userManager.AddToRoleAsync(user, role);

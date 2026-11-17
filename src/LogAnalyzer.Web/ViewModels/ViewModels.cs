@@ -201,7 +201,7 @@ public class RuleFormModel
     /// <summary>Clears the fields that do not apply to the chosen kind, and trims text.</summary>
     public void Normalize()
     {
-        Name = Name.Trim();
+        Name = (Name ?? string.Empty).Trim();
         Description = string.IsNullOrWhiteSpace(Description) ? null : Description.Trim();
         Pattern = string.IsNullOrWhiteSpace(Pattern) ? null : Pattern;
         PathPattern = string.IsNullOrWhiteSpace(PathPattern) ? null : PathPattern;

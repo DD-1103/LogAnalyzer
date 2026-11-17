@@ -408,13 +408,19 @@ public sealed class ProviderThrottle
 
 public sealed record ThreatIntelRunSummary(int Lookups, int Downgraded);
 
+/// <summary>The threat-intel step for one processed log file (run by <see cref="ThreatIntelWorker"/>).</summary>
+public interface ILogFileThreatIntel
+{
+    Task<ThreatIntelRunSummary> RunForLogFileAsync(int logFileId, CancellationToken ct);
+}
+
 /// <summary>Looks IPs up at every configured provider, caches the answers in IpReputations and applies the GreyNoise rule.</summary>
 public sealed class ThreatIntelService(
     AppDbContext db,
     IEnumerable<IThreatIntelProvider> providers,
     ProviderThrottle throttle,
     IOptions<EnrichmentOptions> options,
-    ILogger<ThreatIntelService> logger)
+    ILogger<ThreatIntelService> logger) : ILogFileThreatIntel
 {
     private readonly EnrichmentOptions _o = options.Value;
 

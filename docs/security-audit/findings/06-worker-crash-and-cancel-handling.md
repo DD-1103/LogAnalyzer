@@ -6,7 +6,7 @@
 | **Kind** | Will break |
 | **Area** | Background worker |
 | **CWE** | CWE-755 Improper handling of exceptional conditions |
-| **Status** | Confirmed in code (not executed) |
+| **Status** | Fixed (branch `security-fixes`): worker loop never throws, shutdown is not a failure, attempt counter, re-process button |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

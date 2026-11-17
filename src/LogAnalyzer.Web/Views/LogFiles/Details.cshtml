@@ -23,7 +23,7 @@
         <h1 class="lg-title text-break">@f.FileName</h1>
         <p class="lg-subtitle">
             <span class="badge @Format.StatusBadge(f.Status) me-1">
-                @if (f.Status is LogFileStatus.Processing or LogFileStatus.Analyzing)
+                @if (f.Status is LogFileStatus.Processing or LogFileStatus.Analyzing or LogFileStatus.Deleting)
                 {
                     <span class="spinner-border spinner-border-sm me-1 lg-nav-spinner" aria-hidden="true"></span>
                 }
@@ -60,7 +60,20 @@
 {
     <div class="alert alert-danger lg-flash" role="alert">
         <i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>
-        <div>@f.ErrorMessage</div>
+        <div class="flex-grow-1">@f.ErrorMessage</div>
+        @if (User.IsInRole(Roles.Admin))
+        {
+            <form asp-action="Reprocess" asp-route-id="@f.Id" method="post">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Process again</button>
+            </form>
+        }
+    </div>
+}
+@if (f.Status == LogFileStatus.Deleting)
+{
+    <div class="alert alert-secondary lg-flash" role="status">
+        <i class="bi bi-trash" aria-hidden="true"></i>
+        <div>This file is being deleted.</div>
     </div>
 }
 

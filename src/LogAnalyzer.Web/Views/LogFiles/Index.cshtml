@@ -8,12 +8,14 @@
     {
         LogFileStatus.Completed => "lg-tint-green",
         LogFileStatus.Failed => "lg-tint-red",
+        LogFileStatus.Deleting => "lg-tint-gray",
         _ => "lg-tint-blue"
     };
     string FileIcon(LogFileStatus s) => s switch
     {
         LogFileStatus.Completed => "bi-file-earmark-check",
         LogFileStatus.Failed => "bi-file-earmark-x",
+        LogFileStatus.Deleting => "bi-trash",
         _ => "bi-hourglass-split"
     };
 }
@@ -95,7 +97,7 @@ else
                         </td>
                         <td>
                             <span class="badge @Format.StatusBadge(f.Status)">
-                                @if (f.Status is LogFileStatus.Processing or LogFileStatus.Analyzing)
+                                @if (f.Status is LogFileStatus.Processing or LogFileStatus.Analyzing or LogFileStatus.Deleting)
                                 {
                                     <span class="spinner-border spinner-border-sm me-1 lg-nav-spinner" aria-hidden="true"></span>
                                 }
@@ -107,7 +109,7 @@ else
                         <td class="text-end">
                             <div class="lg-row-actions">
                                 <a asp-action="Details" asp-route-id="@f.Id" class="btn btn-sm btn-outline-secondary">View</a>
-                                @if (isAdmin)
+                                @if (isAdmin && !Format.IsBusy(f.Status))
                                 {
                                     <form asp-action="Delete" asp-route-id="@f.Id" method="post" class="d-inline js-confirm"
                                           data-confirm="Delete this log file and all its events?">

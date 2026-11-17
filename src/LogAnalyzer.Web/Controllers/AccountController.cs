@@ -92,7 +92,12 @@ public class AccountController(
             return View(model);
         }
 
-        await signInManager.RefreshSignInAsync(user);
+        if (user.MustChangePassword)
+        {
+            user.MustChangePassword = false;
+            await userManager.UpdateAsync(user);
+        }
+        await signInManager.RefreshSignInAsync(user);   // new cookie without the "must change password" claim
         await audit.WriteAsync("User.ChangeOwnPassword", user.Email);
         TempData["Success"] = "Your password was changed.";
         return RedirectToAction("Index", "Home");

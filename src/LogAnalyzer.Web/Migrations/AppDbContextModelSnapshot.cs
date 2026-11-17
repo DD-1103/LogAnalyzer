@@ -178,6 +178,9 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<DateTimeOffset?>("LockoutEnd")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("bit");
+
                     b.Property<string>("NormalizedEmail")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
@@ -481,9 +484,9 @@ namespace LogAnalyzer.Web.Migrations
 
                     b.HasIndex("ClientIp");
 
-                    b.HasIndex("LogFileId");
+                    b.HasIndex("LogFileId", "LineNumber");
 
-                    b.HasIndex("Timestamp");
+                    b.HasIndex("LogFileId", "Timestamp", "LineNumber");
 
                     b.ToTable("LogEvents");
                 });
@@ -520,6 +523,9 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<DateTime?>("ProcessedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("ProcessingAttempts")
+                        .HasColumnType("int");
+
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
 
@@ -543,6 +549,25 @@ namespace LogAnalyzer.Web.Migrations
                     b.HasIndex("UploadedById");
 
                     b.ToTable("LogFiles");
+                });
+
+            modelBuilder.Entity("LogAnalyzer.Web.Models.LogFileHourStat", b =>
+                {
+                    b.Property<int>("LogFileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("Hour")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Flagged")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Total")
+                        .HasColumnType("int");
+
+                    b.HasKey("LogFileId", "Hour");
+
+                    b.ToTable("LogFileHourStats");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
@@ -743,6 +768,15 @@ namespace LogAnalyzer.Web.Migrations
                         .IsRequired();
 
                     b.Navigation("UploadedBy");
+                });
+
+            modelBuilder.Entity("LogAnalyzer.Web.Models.LogFileHourStat", b =>
+                {
+                    b.HasOne("LogAnalyzer.Web.Models.LogFile", null)
+                        .WithMany()
+                        .HasForeignKey("LogFileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>

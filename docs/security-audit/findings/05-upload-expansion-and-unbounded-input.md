@@ -6,7 +6,7 @@
 | **Kind** | Vulnerability (resource exhaustion) |
 | **Area** | Upload / ingestion |
 | **CWE** | CWE-409 Highly compressed data / CWE-770 Allocation without limits / CWE-190 Integer overflow |
-| **Status** | Confirmed (code + measured compression ratio) |
+| **Status** | Fixed (branch `security-fixes`): decompressed-size cap, MaxLines, 16 KB line reader; verified live with a 246 MB gzip bomb |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

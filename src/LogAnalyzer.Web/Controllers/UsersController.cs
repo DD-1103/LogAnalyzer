@@ -62,7 +62,8 @@ public class UsersController(
             Email = model.Email.Trim(),
             EmailConfirmed = true,
             FullName = model.FullName.Trim(),
-            LockoutEnabled = true
+            LockoutEnabled = true,
+            MustChangePassword = true   // the administrator knows this password
         };
         var result = await userManager.CreateAsync(user, model.Password);
         if (!result.Succeeded)
@@ -158,10 +159,12 @@ public class UsersController(
         if (!result.Succeeded)
             return Fail("Password not changed: " + string.Join(" ", result.Errors.Select(e => e.Description)));
 
+        user.MustChangePassword = true;   // the administrator knows the new password
+        await userManager.UpdateAsync(user);
         await userManager.UpdateSecurityStampAsync(user);
         await audit.WriteAsync("User.ResetPassword", user.Email);
         logger.LogInformation("User {Admin} reset the password of {Email}", User.Identity?.Name, user.Email);
-        TempData["Success"] = $"Password of {user.Email} reset. Give it to the user over a safe channel.";
+        TempData["Success"] = $"Password of {user.Email} reset. Give it to the user over a safe channel; they must choose a new one at the next login.";
         return RedirectToAction(nameof(Index));
     }
 

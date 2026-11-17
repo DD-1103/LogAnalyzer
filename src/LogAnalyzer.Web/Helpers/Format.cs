@@ -24,11 +24,12 @@ public static class Format
         LogFileStatus.Analyzing => "text-bg-primary",
         LogFileStatus.Completed => "text-bg-success",
         LogFileStatus.Failed => "text-bg-danger",
+        LogFileStatus.Deleting => "text-bg-dark",
         _ => "text-bg-secondary"
     };
 
     public static bool IsBusy(LogFileStatus status) =>
-        status is LogFileStatus.Pending or LogFileStatus.Processing or LogFileStatus.Analyzing;
+        status is LogFileStatus.Pending or LogFileStatus.Processing or LogFileStatus.Analyzing or LogFileStatus.Deleting;
 
     public static string SeverityBadge(Severity severity) => severity switch
     {

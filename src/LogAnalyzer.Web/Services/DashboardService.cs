@@ -54,20 +54,17 @@ public sealed class DashboardService(AppDbContext db, GeoIpLookup geo)
             .OrderByDescending(x => x.Count)
             .ToList();
 
-        // ---- Requests per hour: all vs. flagged as malicious ----
-        var totalPerHour = await events
-            .GroupBy(e => new { e.Timestamp.Year, e.Timestamp.Month, e.Timestamp.Day, e.Timestamp.Hour })
-            .Select(g => new { g.Key.Year, g.Key.Month, g.Key.Day, g.Key.Hour, Count = g.Count() })
+        // ---- Requests per hour: all vs. flagged as malicious (pre-computed per file after detection) ----
+        var hourStats = db.LogFileHourStats.AsNoTracking().AsQueryable();
+        if (logFileId.HasValue)
+            hourStats = hourStats.Where(s => s.LogFileId == logFileId);
+        var perHour = await hourStats
+            .GroupBy(s => s.Hour)
+            .Select(g => new { Hour = g.Key, Total = g.Sum(x => x.Total), Flagged = g.Sum(x => x.Flagged) })
             .ToListAsync(ct);
 
-        var flaggedPerHour = await events
-            .Where(e => db.AlertEvidence.Any(x => x.LogEventId == e.Id))
-            .GroupBy(e => new { e.Timestamp.Year, e.Timestamp.Month, e.Timestamp.Day, e.Timestamp.Hour })
-            .Select(g => new { g.Key.Year, g.Key.Month, g.Key.Day, g.Key.Hour, Count = g.Count() })
-            .ToListAsync(ct);
-
-        var totals = totalPerHour.ToDictionary(x => new DateTime(x.Year, x.Month, x.Day, x.Hour, 0, 0), x => x.Count);
-        var flagged = flaggedPerHour.ToDictionary(x => new DateTime(x.Year, x.Month, x.Day, x.Hour, 0, 0), x => x.Count);
+        var totals = perHour.ToDictionary(x => x.Hour, x => x.Total);
+        var flagged = perHour.ToDictionary(x => x.Hour, x => x.Flagged);
 
         if (totals.Count > 0)
         {

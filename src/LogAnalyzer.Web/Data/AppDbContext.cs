@@ -8,6 +8,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 {
     public DbSet<LogFile> LogFiles => Set<LogFile>();
     public DbSet<LogEvent> LogEvents => Set<LogEvent>();
+    public DbSet<LogFileHourStat> LogFileHourStats => Set<LogFileHourStat>();
     public DbSet<DetectionRule> DetectionRules => Set<DetectionRule>();
     public DbSet<Alert> Alerts => Set<Alert>();
     public DbSet<AlertEvidence> AlertEvidence => Set<AlertEvidence>();
@@ -42,9 +43,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasOne(x => x.LogFile).WithMany(f => f.Events)
                 .HasForeignKey(x => x.LogFileId)
                 .OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => x.LogFileId);
+            // Every query filters by file: events page (ORDER BY LineNumber), detection and rule tester
+            // (ORDER BY Timestamp, LineNumber). ClientIp serves the IP lookup page. No standalone Timestamp index:
+            // it was never used with the file filter and only slowed down every bulk insert.
+            e.HasIndex(x => new { x.LogFileId, x.LineNumber });
+            e.HasIndex(x => new { x.LogFileId, x.Timestamp, x.LineNumber });
             e.HasIndex(x => x.ClientIp);
-            e.HasIndex(x => x.Timestamp);
+        });
+
+        b.Entity<LogFileHourStat>(e =>
+        {
+            e.HasKey(x => new { x.LogFileId, x.Hour });
+            e.HasOne<LogFile>().WithMany()
+                .HasForeignKey(x => x.LogFileId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<DetectionRule>(e =>

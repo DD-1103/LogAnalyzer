@@ -6,7 +6,7 @@
 | **Kind** | Will break |
 | **Area** | Background worker / threat intel |
 | **CWE** | CWE-400 Uncontrolled resource consumption |
-| **Status** | Confirmed (design) |
+| **Status** | Fixed (branch `security-fixes`): own ThreatIntelWorker + queue with a time budget per file |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

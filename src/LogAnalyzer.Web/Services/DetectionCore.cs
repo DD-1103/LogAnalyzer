@@ -61,7 +61,7 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
     public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
 
     private readonly Dictionary<(int RuleId, string Ip), RuleHit> _hits = [];
-    private readonly Dictionary<(int RuleId, string Ip), Queue<(DateTimeOffset Ts, long Id)>> _windows = [];
+    private readonly Dictionary<(int RuleId, string Ip), SlidingWindow> _windows = [];
 
     public IReadOnlyCollection<RuleHit> Hits => _hits.Values;
     public long EventsProcessed { get; private set; }
@@ -88,19 +88,16 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
             {
                 var key = (r.Rule.Id, e.ClientIp);
                 if (!_windows.TryGetValue(key, out var window))
-                    _windows[key] = window = new Queue<(DateTimeOffset, long)>();
+                    _windows[key] = window = new SlidingWindow();
 
-                window.Enqueue((e.Timestamp, e.Id));
-                while (e.Timestamp - window.Peek().Ts > r.Window)
-                    window.Dequeue();
+                window.Add(e.Timestamp, e.Id);
+                window.DropOlderThan(e.Timestamp - r.Window);
 
-                // Threshold reached: every event currently in the window is evidence.
+                // Threshold reached: every event currently in the window is evidence. Events added at an earlier
+                // trigger are already in the hit, so only the not-yet-added newest ones are copied (linear time;
+                // copying the whole window every time was quadratic for fast scanners).
                 if (window.Count >= r.Rule.Threshold)
-                {
-                    var hit = GetHit(r.Rule.Id, e.ClientIp);
-                    foreach (var (ts, id) in window)
-                        hit.Add(id, ts);
-                }
+                    window.FlushPending(GetHit(r.Rule.Id, e.ClientIp));
             }
         }
     }
@@ -158,5 +155,47 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
         if (!_hits.TryGetValue((ruleId, ip), out var hit))
             _hits[(ruleId, ip)] = hit = new RuleHit(ruleId, ip);
         return hit;
+    }
+}
+
+/// <summary>
+/// Events of one (threshold rule, IP) inside the time window, oldest first. <see cref="Pending"/> counts the newest
+/// events that are not yet evidence; all older events in the window already are (invariant).
+/// </summary>
+internal sealed class SlidingWindow
+{
+    private readonly List<(DateTimeOffset Ts, long Id)> _items = [];
+    private int _head;
+
+    public int Count => _items.Count - _head;
+    public int Pending { get; private set; }
+
+    public void Add(DateTimeOffset ts, long id)
+    {
+        _items.Add((ts, id));
+        Pending++;
+    }
+
+    /// <summary>Removes events older than <paramref name="cutoff"/> (the newest event always stays).</summary>
+    public void DropOlderThan(DateTimeOffset cutoff)
+    {
+        while (Count > 1 && _items[_head].Ts < cutoff)
+            _head++;
+        if (Pending > Count)
+            Pending = Count;
+        // Reclaim memory now and then instead of shifting the list on every event.
+        if (_head > 1024 && _head > _items.Count / 2)
+        {
+            _items.RemoveRange(0, _head);
+            _head = 0;
+        }
+    }
+
+    /// <summary>Adds the pending (newest) events to the hit; afterwards the whole window is evidence.</summary>
+    public void FlushPending(RuleHit hit)
+    {
+        for (var i = _items.Count - Pending; i < _items.Count; i++)
+            hit.Add(_items[i].Id, _items[i].Ts);
+        Pending = 0;
     }
 }

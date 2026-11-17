@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Configuration / authentication |
 | **CWE** | CWE-798 Hard-coded credentials / CWE-1188 Insecure default |
-| **Status** | Confirmed |
+| **Status** | Fixed (branch `security-fixes`): no passwords in files, MustChangePassword for seeded/admin-set passwords, analyst seeded only in Development |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where
@@ -16,10 +16,10 @@
 - `src/LogAnalyzer.Web/LogAnalyzer.Web.csproj (appsettings.Development.json is published)`
 
 ## What is wrong
-`admin@loganalyzer.local` / `Admin#2026!` and the analyst password are in git and documented. Any DB first created in Development keeps these accounts; nothing forces a password change. In Production no SeedAdmin exists, so a new database has no admin at all.
+`admin@loganalyzer.local` / `Admin#…` (redacted) and the analyst password are in git and documented. Any DB first created in Development keeps these accounts; nothing forces a password change. In Production no SeedAdmin exists, so a new database has no admin at all.
 
 ## Evidence
-`"SeedAdmin": { "Email": "admin@loganalyzer.local", "Password": "Admin#2026!" }`
+`"SeedAdmin": { "Email": "admin@loganalyzer.local", "Password": "…" }`
 
 ## How to reproduce
 Log in with the documented credentials on any instance whose DB was seeded in Development (e.g. a demo laptop reachable on the LAN).

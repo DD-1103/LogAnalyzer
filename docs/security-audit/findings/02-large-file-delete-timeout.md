@@ -6,7 +6,7 @@
 | **Kind** | Will break |
 | **Area** | Log files / database |
 | **CWE** | CWE-400 / CWE-460 Improper cleanup on thrown exception |
-| **Status** | Likely (code path confirmed; exact timing depends on disk) |
+| **Status** | Fixed (branch `security-fixes`): batched deletes in the worker (status Deleting), 10 min command timeout, re-process Failed files |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

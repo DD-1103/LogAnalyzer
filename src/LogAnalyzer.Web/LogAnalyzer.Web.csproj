@@ -27,4 +27,9 @@
     </PackageReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Development settings (local connection options, seed e-mails) never go into a published build -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
 </Project>

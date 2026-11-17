@@ -209,16 +209,47 @@ public class LogFilesController(
             return RedirectToAction(nameof(Index));
         }
 
-        // Evidence rows point at LogEvents without cascade, so remove them first.
-        await db.AlertEvidence.Where(e => e.Alert!.LogFileId == id).ExecuteDeleteAsync();
-        db.LogFiles.Remove(file);
-        await db.SaveChangesAsync();
-        storage.Delete(file);
+        // Big files have millions of rows: the background worker deletes them in batches (no request timeout).
+        await db.LogFiles.Where(f => f.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.Status, LogFileStatus.Deleting));
+        await queue.EnqueueDeleteAsync(id);
         await audit.WriteAsync("LogFile.Delete", $"#{id} {file.FileName}");
 
         logger.LogInformation("User {User} deleted log file {Id} ({Name})", User.Identity?.Name, id, file.FileName);
-        TempData["Success"] = $"\"{file.FileName}\" deleted.";
+        TempData["Success"] = $"\"{file.FileName}\" is being deleted. Large files take a few seconds.";
         return RedirectToAction(nameof(Index));
+    }
+
+    /// <summary>Parses a Failed file again from the stored upload (e.g. after a database outage).</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [Authorize(Roles = Roles.Admin)]
+    public async Task<IActionResult> Reprocess(int id, CancellationToken ct)
+    {
+        var file = await db.LogFiles.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
+        if (file is null)
+            return NotFound();
+        if (file.Status != LogFileStatus.Failed)
+        {
+            TempData["Error"] = "Only failed files can be processed again.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+        if (!System.IO.File.Exists(storage.GetPath(file)))
+        {
+            TempData["Error"] = "The uploaded file is no longer on disk. Delete this entry and upload the file again.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
+            .SetProperty(f => f.Status, LogFileStatus.Pending)
+            .SetProperty(f => f.ProcessingAttempts, 0)
+            .SetProperty(f => f.ErrorMessage, (string?)null), ct);
+        await queue.EnqueueAsync(id, ct);
+        await audit.WriteAsync("LogFile.Reprocess", $"#{id} {file.FileName}", null, ct);
+
+        logger.LogInformation("User {User} re-processed log file {Id}", User.Identity?.Name, id);
+        TempData["Success"] = "The file was queued for processing again.";
+        return RedirectToAction(nameof(Details), new { id });
     }
 
     /// <summary>Downloads a PDF incident report for one log file.</summary>

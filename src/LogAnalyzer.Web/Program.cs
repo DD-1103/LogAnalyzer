@@ -2,6 +2,7 @@ using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Models;
 using LogAnalyzer.Web.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
@@ -9,6 +10,11 @@ using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// "Demo" = the jury presentation profile: production error handling (no stack traces), but local settings
+// (appsettings.Demo.json) and the developer's user-secrets (API keys) like in Development.
+if (builder.Environment.IsEnvironment("Demo"))
+    builder.Configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -25,7 +31,8 @@ builder.Services
         options.SignIn.RequireConfirmedAccount = true;
     })
     .AddEntityFrameworkStores<AppDbContext>()
-    .AddDefaultTokenProviders();
+    .AddDefaultTokenProviders()
+    .AddClaimsPrincipalFactory<AppUserClaimsPrincipalFactory>();
 builder.Services.AddScoped<IUserConfirmation<AppUser>, EnabledUserConfirmation>();
 
 // Re-check the security stamp every minute, so disabling a user or changing a role takes effect quickly.
@@ -45,14 +52,33 @@ builder.Services.ConfigureApplicationCookie(options =>
 
 // Every page requires login unless marked [AllowAnonymous].
 var requireAuth = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
-builder.Services.AddControllersWithViews(options => options.Filters.Add(new AuthorizeFilter(requireAuth)));
+builder.Services.AddControllersWithViews(options =>
+{
+    options.Filters.Add(new AuthorizeFilter(requireAuth));
+    options.Filters.Add(new RequirePasswordChangeFilter());
+});
+
+// Behind a reverse proxy: trust X-Forwarded-For/-Proto only from the proxies listed in configuration
+// (ForwardedHeaders:KnownProxies), so rate limiting and the audit log see the real client address.
+var knownProxies = builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+if (knownProxies.Length > 0)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+        foreach (var proxy in knownProxies)
+            options.KnownProxies.Add(System.Net.IPAddress.Parse(proxy));
+    });
+}
 
 // Login throttling per client IP (on top of the per-account lockout): 10 attempts per minute.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("login", ctx => RateLimitPartition.GetFixedWindowLimiter(
-        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        ClientNetwork.RateLimitKey(ctx.Connection.RemoteIpAddress),
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
 
@@ -63,6 +89,7 @@ builder.Services.AddSingleton<IAuditLog, AuditLog>();
 // Log ingestion: parser, file storage and background processing queue
 builder.Services.AddSingleton<ILogParser, CombinedLogParser>();
 builder.Services.AddSingleton<LogFileStorage>();
+builder.Services.Configure<ProcessingOptions>(builder.Configuration.GetSection(ProcessingOptions.Section));
 builder.Services.AddSingleton<LogProcessingQueue>();
 builder.Services.AddHostedService<LogProcessingWorker>();
 
@@ -84,6 +111,9 @@ builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<GreyNoiseProvider>());
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<VirusTotalProvider>());
 builder.Services.AddScoped<ThreatIntelService>();
+builder.Services.AddScoped<ILogFileThreatIntel>(sp => sp.GetRequiredService<ThreatIntelService>());
+builder.Services.AddSingleton<ThreatIntelQueue>();
+builder.Services.AddHostedService<ThreatIntelWorker>();
 
 // Dashboard and reports
 builder.Services.AddScoped<DashboardService>();
@@ -98,6 +128,9 @@ ConsoleWindow.HideWhenDebuggedByVisualStudio(app.Lifetime, app.Logger);
 // Skip DB setup when EF Core tools (Add-Migration) load the app.
 if (!EF.IsDesignTime)
     await DbSeeder.SeedAsync(app.Services);
+
+if (knownProxies.Length > 0)
+    app.UseForwardedHeaders();
 
 if (!app.Environment.IsDevelopment())
 {

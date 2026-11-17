@@ -6,7 +6,7 @@
 | **Kind** | Will break |
 | **Area** | Detection engine |
 | **CWE** | CWE-407 Inefficient Algorithmic Complexity |
-| **Status** | Confirmed (benchmark on the real DetectionCore, Release build) |
+| **Status** | Fixed (branch `security-fixes`): linear evidence collection, equivalence + 200k-event tests |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

@@ -58,6 +58,11 @@ Report these as *synthetic* results; the real accuracy claims come from CSIC 201
 **Protocol for RQ3:** run each size (100k, 500k, 1M, 2M) three times, report mean ± min/max of the web app's
 *Total* time, plus machine specs (CPU, RAM, SSD, SQL Server edition). Note that SQL Server import dominates
 (the CPU-only `bench` shows how much is parsing vs. database work).
+Run the database in the **SIMPLE recovery model** (done on 2026-11-17; check with
+`SELECT recovery_model_desc FROM sys.databases WHERE name = 'LogAnalyzerDb'`), otherwise every 1M-row import and
+delete is fully logged once a backup exists. Also time the dashboard (`/`), a deep events page
+(`/LogFiles/Details/{id}?page=20000`) and a rule *Test* on the 1M file. Files larger than the limits in
+`Processing` (5M lines, 2 GB decompressed, 50x gzip ratio) are rejected; raise them in appsettings for bigger runs.
 
 ---
 
