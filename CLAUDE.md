@@ -51,6 +51,7 @@ LogAnalyzer/
 ├─ .gitignore, .gitattributes, README.md, CLAUDE.md
 ├─ .claude/launch.json         (browser preview config for Claude Code)
 ├─ docs/evaluation-guide.md    (CSIC 2010, DVWA lab, RQ3 protocol, thesis tables)
+├─ docs/security-audit/       REPORT.md (2026-11-17 full audit, score 7.5/10) + findings/NN-*.md (30 fix tickets)
 ├─ samples/  sample-access.log (2,933 lines) + sample-access.labels.csv
 ├─ src/LogAnalyzer.Web/
 │   ├─ Program.cs  appsettings*.json  Properties/launchSettings.json
@@ -190,6 +191,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Rules with alerts are disabled, not deleted (traceability); users are disabled, not deleted.
 
 ## 10. Roadmap (what's left)
+- **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High (01 quadratic threshold rules, 02 big-file delete timeout), 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed.
 0. **Review the `ui-liquid-glass` branch in the browser (both themes), then merge into `main` and push.**
 1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
 2. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).
