@@ -96,12 +96,13 @@ public abstract class ThreatIntelProviderBase(HttpClient http, ILogger logger) :
     {
         if (!IsConfigured)
             return ReputationResult.Skipped($"Not configured (set {ApiKeySetting})");
-        if (!IpEnrichmentService.IsPublic(ip))
+        // Only the canonical form of a public address leaves the machine (e.g. "::ffff:8.8.8.8" is sent as "8.8.8.8").
+        if (!IpAddressPolicy.TryGetPublic(ip, out var canonical))
             return ReputationResult.Skipped("Private or reserved address - never sent to external services");
 
         try
         {
-            using var request = BuildRequest(ip);
+            using var request = BuildRequest(canonical);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             using var response = await http.SendAsync(request, ct);
             var body = await response.Content.ReadAsStringAsync(ct);
@@ -449,7 +450,39 @@ public sealed class ThreatIntelService(
         else
             result = await provider.LookupAsync(ip, ct);
 
+        // Two lookups of a new IP at the same time (worker + UI, or a double click) both try to insert the row:
+        // the loser gets a unique-key violation, reloads the winner's row and applies its result to it.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var row = await ApplyResultAsync(ip, provider, result, ct);
+                await db.SaveChangesAsync(ct);
+                return row;
+            }
+            catch (DbUpdateException ex) when (attempt == 1 && IsUniqueViolation(ex))
+            {
+                db.ChangeTracker.Clear();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stores a provider answer. A failed or skipped lookup never replaces an earlier real verdict (that would turn
+    /// "Malicious 12/90" into "Error: rate limit" on a double click); it is recorded as the last attempt instead.
+    /// </summary>
+    private async Task<IpReputation> ApplyResultAsync(string ip, IThreatIntelProvider provider, ReputationResult result, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
         var row = await db.IpReputations.FirstOrDefaultAsync(r => r.Ip == ip && r.Provider == provider.Name, ct);
+        var failed = result.Verdict is ThreatVerdict.Error or ThreatVerdict.Skipped;
+        if (row is not null && row.HasVerdict && failed)
+        {
+            row.LastAttemptAt = now;
+            row.LastAttemptError = Cut(result.Error ?? result.Summary, 500);
+            return row;
+        }
+
         if (row is null)
         {
             row = new IpReputation { Ip = ip, Provider = provider.Name };
@@ -460,7 +493,9 @@ public sealed class ThreatIntelService(
         row.Summary = Cut(result.Summary, 500);
         row.AttributesJson = result.Attributes is { Count: > 0 } ? Cut(JsonSerializer.Serialize(result.Attributes), 4000) : null;
         row.Error = Cut(result.Error, 500);
-        row.CheckedAt = DateTime.UtcNow;
+        row.CheckedAt = now;
+        row.LastAttemptAt = now;
+        row.LastAttemptError = null;
 
         // Keep the AbuseIPDB score on IpInfo too (dashboard, CSV and PDF read it from there).
         if (provider.Name == AbuseIpDbProvider.ProviderName && result.Score is int score)
@@ -471,10 +506,12 @@ public sealed class ThreatIntelService(
             else
                 info.AbuseScore = score;
         }
-
-        await db.SaveChangesAsync(ct);
         return row;
     }
+
+    /// <summary>SQL Server 2601 / 2627: duplicate key in a unique index / primary key.</summary>
+    internal static bool IsUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is Microsoft.Data.SqlClient.SqlException { Number: 2601 or 2627 };
 
     /// <summary>
     /// Background enrichment: each configured provider looks up the IPs that have no fresh answer yet,

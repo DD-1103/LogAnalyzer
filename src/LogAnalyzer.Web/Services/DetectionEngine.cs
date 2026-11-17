@@ -37,6 +37,9 @@ public static class UrlDecoder
 /// </summary>
 public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDetector, ILogger<DetectionEngine> logger)
 {
+    /// <summary>Alerts per rule and file; further source addresses are merged into one alert.</summary>
+    public const int MaxAlertsPerRule = 1000;
+
     public async Task<int> RunAsync(int logFileId, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -70,7 +73,8 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
             features?.Add(e);
         }
 
-        var findings = core.Hits.Select(h => new DetectionFinding(h, double.NaN, "")).ToList();
+        var findings = DetectionCore.CapPerRule(core.Hits, MaxAlertsPerRule)
+            .Select(h => new DetectionFinding(h, double.NaN, "")).ToList();
         foreach (var rule in anomalyRules)
         {
             var anomalies = anomalyDetector.Detect(rule, features!);
@@ -81,11 +85,33 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
 
         var alertCount = await SaveAlertsAsync(logFileId, rules, findings, ct);
 
+        // Regex timeouts are reported on the file page instead of disappearing silently.
+        var names = rules.ToDictionary(r => r.Id, r => r.Name);
+        var warnings = core.Warnings(id => names.GetValueOrDefault(id, "#" + id));
+        foreach (var w in warnings)
+            logger.LogWarning("Log file {Id}: {Warning}", logFileId, w);
+        var warningText = warnings.Count == 0 ? null : string.Join(" ", warnings);
+        if (warningText is { Length: > 2000 })
+            warningText = warningText[..2000];
+        await db.LogFiles.Where(f => f.Id == logFileId)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.DetectionWarnings, warningText), ct);
+
         sw.Stop();
         logger.LogInformation(
             "Detection on log file {Id}: {Events:N0} events, {Rules} rules, {Alerts} alerts in {Ms} ms",
             logFileId, core.EventsProcessed, compiled.Count + anomalyRules.Count, alertCount, sw.ElapsedMilliseconds);
         return alertCount;
+    }
+
+    private static string? Describe(RuleHit hit)
+    {
+        var parts = new List<string>();
+        if (hit.MergedSources > 0)
+            parts.Add($"The rule matched more than {MaxAlertsPerRule:N0} source addresses in this file; the events of the " +
+                      $"{hit.MergedSources:N0} addresses with the fewest matches are grouped in this alert.");
+        if (hit.TimedOutEvents > 0)
+            parts.Add($"{hit.TimedOutEvents:N0} of these events were counted because the rule's regex timed out on them (fail-closed).");
+        return parts.Count == 0 ? null : string.Join(" ", parts);
     }
 
     private async Task<int> SaveAlertsAsync(int logFileId, List<DetectionRule> rules,
@@ -105,7 +131,7 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
             {
                 Title = isAnomaly ? $"Anomalous behaviour from {hit.Ip} (score {score:0.00})" : $"{rule.Name} from {hit.Ip}",
                 Score = isAnomaly ? Math.Round(score, 4) : null,
-                Details = isAnomaly ? details : null,
+                Details = isAnomaly ? details : Describe(hit),
                 RuleId = rule.Id,
                 LogFileId = logFileId,
                 SourceIp = hit.Ip,

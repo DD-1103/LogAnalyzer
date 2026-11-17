@@ -102,6 +102,21 @@ public sealed class IpEnrichmentService(
 
     public async Task EnrichAsync(IEnumerable<string> ips, CancellationToken ct)
     {
+        var list = ips.ToList();
+        try
+        {
+            await EnrichOnceAsync(list, ct);
+        }
+        catch (DbUpdateException ex) when (ThreatIntelService.IsUniqueViolation(ex))
+        {
+            // Another request inserted one of the same IPs meanwhile: start again from the stored rows.
+            db.ChangeTracker.Clear();
+            await EnrichOnceAsync(list, ct);
+        }
+    }
+
+    private async Task EnrichOnceAsync(IEnumerable<string> ips, CancellationToken ct)
+    {
         if (!geo.IsAvailable)
             return;
 
@@ -142,26 +157,6 @@ public sealed class IpEnrichmentService(
         logger.LogInformation("GeoIP enrichment: {Updated} of {Total} addresses updated", updated, candidates.Count);
     }
 
-    /// <summary>Private, loopback and link-local addresses are never sent to external services.</summary>
-    public static bool IsPublic(string ip)
-    {
-        if (!IPAddress.TryParse(ip, out var address))
-            return false;
-        if (IPAddress.IsLoopback(address))
-            return false;
-
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            var b = address.GetAddressBytes();
-            return !(b[0] == 10
-                     || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
-                     || (b[0] == 192 && b[1] == 168)
-                     || (b[0] == 169 && b[1] == 254)
-                     || b[0] == 0
-                     || b[0] >= 224);
-        }
-
-        return !(address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6Multicast
-                 || (address.GetAddressBytes()[0] & 0xFE) == 0xFC); // fc00::/7 unique local
-    }
+    /// <summary>Only public unicast addresses are ever sent to external services (see <see cref="IpAddressPolicy"/>).</summary>
+    public static bool IsPublic(string ip) => IpAddressPolicy.IsPublic(ip);
 }

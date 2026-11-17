@@ -188,6 +188,10 @@
                                 <div class="lg-mini-value">@t.DurationMs ms</div>
                             </div>
                         </div>
+                        @foreach (var w in t.Warnings)
+                        {
+                            <div class="alert alert-warning small mt-3 mb-0" role="status">@w</div>
+                        }
                         @if (t.TopIps.Count > 0)
                         {
                             <h3 class="h6 mt-4 mb-2">Top source IPs</h3>

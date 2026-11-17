@@ -22,6 +22,20 @@ public sealed class CompiledRule
     public Regex? Pattern { get; init; }
     public Regex? PathPattern { get; init; }
     public TimeSpan Window { get; init; }
+
+    /// <summary>
+    /// True when a pattern needs the backtracking engine (backreferences, lookarounds, atomic groups):
+    /// only such rules can time out. All other rules use the linear-time NonBacktracking engine.
+    /// </summary>
+    public bool Backtracking { get; init; }
+}
+
+/// <summary>Outcome of one regex evaluation. A timeout is never treated as a silent "no match".</summary>
+public enum MatchOutcome
+{
+    NoMatch,
+    Match,
+    Timeout
 }
 
 /// <summary>Events of one IP that matched one rule.</summary>
@@ -30,6 +44,12 @@ public sealed class RuleHit(int ruleId, string ip)
     public int RuleId { get; } = ruleId;
     public string Ip { get; } = ip;
     public HashSet<long> EventIds { get; } = [];
+
+    /// <summary>Events counted as matches only because the rule's regex timed out (fail-closed).</summary>
+    public int TimedOutEvents { get; set; }
+
+    /// <summary>Above 0: this hit merges the evidence of that many source addresses (see <see cref="DetectionCore.CapPerRule"/>).</summary>
+    public int MergedSources { get; set; }
     public DateTimeOffset First { get; private set; } = DateTimeOffset.MaxValue;
     public DateTimeOffset Last { get; private set; } = DateTimeOffset.MinValue;
 
@@ -60,11 +80,36 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
     /// <summary>Limits the damage of a badly written (catastrophic backtracking) regex.</summary>
     public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>After this many timeouts in one file a rule is skipped for the rest of it (circuit breaker).</summary>
+    public const int MaxTimeoutsPerRule = 50;
+
     private readonly Dictionary<(int RuleId, string Ip), RuleHit> _hits = [];
+    private readonly Dictionary<int, int> _timeouts = [];
+    private readonly Dictionary<int, long> _skipped = [];
     private readonly Dictionary<(int RuleId, string Ip), SlidingWindow> _windows = [];
 
     public IReadOnlyCollection<RuleHit> Hits => _hits.Values;
     public long EventsProcessed { get; private set; }
+
+    /// <summary>Regex timeouts per rule id (each one was counted as a match).</summary>
+    public IReadOnlyDictionary<int, int> Timeouts => _timeouts;
+
+    /// <summary>Events per rule id that were not checked because the rule's circuit breaker was open.</summary>
+    public IReadOnlyDictionary<int, long> SkippedEvents => _skipped;
+
+    /// <summary>Human-readable notes about timeouts and skipped rules (shown on the file page / rule tester).</summary>
+    public List<string> Warnings(Func<int, string> ruleName)
+    {
+        var list = new List<string>();
+        foreach (var (ruleId, count) in _timeouts)
+        {
+            var text = $"Rule \"{ruleName(ruleId)}\" timed out on {count:N0} event(s); they were counted as matches.";
+            if (_skipped.TryGetValue(ruleId, out var skipped))
+                text += $" After {MaxTimeoutsPerRule} timeouts the rule was skipped for the remaining {skipped:N0} event(s).";
+            list.Add(text + " Simplify its pattern.");
+        }
+        return list;
+    }
 
     public void Process(DetectionEvent e)
     {
@@ -81,8 +126,14 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
                     RuleField.Referrer => UrlDecoder.Decode(e.Referrer),
                     _ => url
                 };
-                if (r.Pattern is not null && SafeMatch(r.Pattern, value))
-                    GetHit(r.Rule.Id, e.ClientIp).Add(e.Id, e.Timestamp);
+                var outcome = r.Pattern is null ? MatchOutcome.NoMatch : Evaluate(r, r.Pattern, value);
+                if (outcome != MatchOutcome.NoMatch)
+                {
+                    var hit = GetHit(r.Rule.Id, e.ClientIp);
+                    hit.Add(e.Id, e.Timestamp);
+                    if (outcome == MatchOutcome.Timeout)
+                        hit.TimedOutEvents++;
+                }
             }
             else if (r.Rule.Kind == RuleKind.Threshold && MatchesThresholdFilters(r, e, url))
             {
@@ -102,19 +153,50 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
         }
     }
 
+    /// <summary>
+    /// Keeps at most <paramref name="maxPerRule"/> alerts per rule (the sources with the most events). The evidence of
+    /// all other sources is merged into one extra hit, so no matching event is lost (evaluation metrics stay exact),
+    /// but a log with 200k fake or spoofed "IP" values cannot create 200k alerts.
+    /// </summary>
+    public static List<RuleHit> CapPerRule(IEnumerable<RuleHit> hits, int maxPerRule)
+    {
+        var result = new List<RuleHit>();
+        foreach (var group in hits.GroupBy(h => h.RuleId))
+        {
+            var ordered = group.OrderByDescending(h => h.EventIds.Count).ThenBy(h => h.Ip, StringComparer.Ordinal).ToList();
+            if (ordered.Count <= maxPerRule)
+            {
+                result.AddRange(ordered);
+                continue;
+            }
+            result.AddRange(ordered.Take(maxPerRule));
+            var rest = ordered.Skip(maxPerRule).ToList();
+            var merged = new RuleHit(group.Key, $"{rest.Count:N0} other IPs") { MergedSources = rest.Count };
+            foreach (var h in rest)
+            {
+                merged.AddMany(h.EventIds, h.First, h.Last);
+                merged.TimedOutEvents += h.TimedOutEvents;
+            }
+            result.Add(merged);
+        }
+        return result;
+    }
+
     /// <summary>Compiles a rule; returns null (with the reason) when it cannot be used.</summary>
     public static CompiledRule? TryCompile(DetectionRule rule, out string? error)
     {
         error = null;
         try
         {
-            const RegexOptions options = RegexOptions.Compiled | RegexOptions.CultureInvariant;
+            var pattern = Build(rule.Pattern, out var patternBacktracks);
+            var path = Build(rule.PathPattern, out var pathBacktracks);
             var compiled = new CompiledRule
             {
                 Rule = rule,
-                Pattern = string.IsNullOrWhiteSpace(rule.Pattern) ? null : new Regex(rule.Pattern, options, RegexTimeout),
-                PathPattern = string.IsNullOrWhiteSpace(rule.PathPattern) ? null : new Regex(rule.PathPattern, options, RegexTimeout),
-                Window = TimeSpan.FromSeconds(rule.WindowSeconds ?? 60)
+                Pattern = pattern,
+                PathPattern = path,
+                Window = TimeSpan.FromSeconds(rule.WindowSeconds ?? 60),
+                Backtracking = patternBacktracks || pathBacktracks
             };
 
             error = rule.Kind switch
@@ -133,20 +215,59 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
         }
     }
 
-    private static bool MatchesThresholdFilters(CompiledRule r, DetectionEvent e, string decodedUrl) =>
+    /// <summary>
+    /// Compiles with the NonBacktracking engine (linear time: no catastrophic backtracking, so no timeouts and no
+    /// ReDoS evasion). Patterns using constructs it does not support fall back to the classic engine with a timeout.
+    /// </summary>
+    public static Regex? Build(string? pattern, out bool backtracking)
+    {
+        backtracking = false;
+        if (string.IsNullOrWhiteSpace(pattern))
+            return null;
+        try
+        {
+            return new Regex(pattern, RegexOptions.NonBacktracking | RegexOptions.CultureInvariant, RegexTimeout);
+        }
+        catch (NotSupportedException)
+        {
+            backtracking = true;
+            return new Regex(pattern, RegexOptions.Compiled | RegexOptions.CultureInvariant, RegexTimeout);
+        }
+    }
+
+    private bool MatchesThresholdFilters(CompiledRule r, DetectionEvent e, string decodedUrl) =>
         (r.Rule.MethodFilter is null || string.Equals(r.Rule.MethodFilter, e.Method, StringComparison.OrdinalIgnoreCase))
         && (r.Rule.StatusFilter is null || r.Rule.StatusFilter == e.StatusCode)
-        && (r.PathPattern is null || SafeMatch(r.PathPattern, decodedUrl));
+        && (r.PathPattern is null || Evaluate(r, r.PathPattern, decodedUrl) != MatchOutcome.NoMatch);
 
-    public static bool SafeMatch(Regex regex, string input)
+    /// <summary>
+    /// Runs one regex of a rule. A timeout is fail-closed (counted as a match and reported), so an attacker cannot
+    /// hide a payload behind input that makes a weak pattern backtrack. After <see cref="MaxTimeoutsPerRule"/>
+    /// timeouts the rule is skipped for the rest of the file (reported as well) so the worker is not blocked for hours.
+    /// </summary>
+    private MatchOutcome Evaluate(CompiledRule r, Regex regex, string input)
+    {
+        var id = r.Rule.Id;
+        if (_timeouts.TryGetValue(id, out var count) && count >= MaxTimeoutsPerRule)
+        {
+            _skipped[id] = _skipped.GetValueOrDefault(id) + 1;
+            return MatchOutcome.NoMatch;
+        }
+        var outcome = Match(regex, input);
+        if (outcome == MatchOutcome.Timeout)
+            _timeouts[id] = count + 1;
+        return outcome;
+    }
+
+    public static MatchOutcome Match(Regex regex, string input)
     {
         try
         {
-            return regex.IsMatch(input);
+            return regex.IsMatch(input) ? MatchOutcome.Match : MatchOutcome.NoMatch;
         }
         catch (RegexMatchTimeoutException)
         {
-            return false;
+            return MatchOutcome.Timeout;
         }
     }
 

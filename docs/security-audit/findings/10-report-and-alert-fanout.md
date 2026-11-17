@@ -6,7 +6,7 @@
 | **Kind** | Will break |
 | **Area** | Reports / detection |
 | **CWE** | CWE-770 / CWE-400 |
-| **Status** | Confirmed (code); Likely (timing) |
+| **Status** | Fixed (branch `security-fixes`): one CROSS APPLY query for samples, PDF lists top 200 alerts, max 1,000 alerts per rule (rest merged, evidence kept), streamed CSV. IP field not validated on purpose (hostnames in logs) |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

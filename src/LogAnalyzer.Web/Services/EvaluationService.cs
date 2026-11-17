@@ -22,6 +22,16 @@ public sealed class EvaluationResult
     public required List<Metrics> Comparison { get; init; }
     public int LabelledLines { get; init; }
     public int IgnoredLines { get; init; }
+
+    /// <summary>Lines labelled as an attack that the parser could not read (no event, so no rule could see them).</summary>
+    public int UnparsedMalicious { get; init; }
+    public int UnparsedNormal { get; init; }
+
+    /// <summary>
+    /// End-to-end view: unparsed attack lines count as missed (FN), unparsed normal lines as correctly ignored (TN).
+    /// <see cref="Overall"/> only covers lines that became events.
+    /// </summary>
+    public required Metrics EndToEnd { get; init; }
 }
 
 /// <summary>
@@ -68,26 +78,40 @@ public sealed class EvaluationService(AppDbContext db)
             .ToDictionary(g => g.Key, g => g.Select(x => x.AttackType).ToHashSet());
         var byRules = evidence.Where(x => !x.IsAnomaly).Select(x => x.LineNumber).ToHashSet();
         var byAnomaly = evidence.Where(x => x.IsAnomaly).Select(x => x.LineNumber).ToHashSet();
-        var comparison = new[] { new int[4], new int[4], new int[4] }; // rules, anomaly, both
-
         var eventLines = (await db.LogEvents.AsNoTracking()
                 .Where(e => e.LogFileId == logFileId)
                 .Select(e => e.LineNumber)
                 .ToListAsync(ct))
             .ToHashSet();
 
-        int tp = 0, fp = 0, fn = 0, tn = 0, ignored = 0;
+        return Compute(labels, eventLines, flagged, byRules, byAnomaly);
+    }
+
+    /// <summary>The metric computation itself (pure, unit-tested).</summary>
+    public static EvaluationResult Compute(Dictionary<int, string> labels, HashSet<int> eventLines,
+        Dictionary<int, HashSet<AttackType>> flagged, HashSet<int> byRules, HashSet<int> byAnomaly)
+    {
+        var comparison = new[] { new int[4], new int[4], new int[4] }; // rules, anomaly, both
+        int tp = 0, fp = 0, fn = 0, tn = 0, ignored = 0, unparsedMalicious = 0, unparsedNormal = 0;
         var perType = LabelMap.Values.Distinct().ToDictionary(t => t, _ => new int[4]); // TP, FP, FN, TN
 
         foreach (var (lineNo, label) in labels)
         {
-            if (!eventLines.Contains(lineNo) || label.Equals("malformed", StringComparison.OrdinalIgnoreCase))
+            if (label.Equals("malformed", StringComparison.OrdinalIgnoreCase))
             {
                 ignored++;
                 continue;
             }
-
             var isMalicious = !label.Equals("normal", StringComparison.OrdinalIgnoreCase);
+            if (!eventLines.Contains(lineNo))
+            {
+                // Not an event (parse failure or line outside the file): invisible to every detector.
+                ignored++;
+                if (isMalicious) unparsedMalicious++;
+                else unparsedNormal++;
+                continue;
+            }
+
             var types = flagged.GetValueOrDefault(lineNo);
             var isFlagged = types is { Count: > 0 };
 
@@ -125,7 +149,10 @@ public sealed class EvaluationService(AppDbContext db)
                 new Metrics("Rules + anomaly detection", comparison[2][0], comparison[2][1], comparison[2][2], comparison[2][3])
             ],
             LabelledLines = labels.Count - ignored,
-            IgnoredLines = ignored
+            IgnoredLines = ignored,
+            UnparsedMalicious = unparsedMalicious,
+            UnparsedNormal = unparsedNormal,
+            EndToEnd = new Metrics("End to end (unparsed attacks count as missed)", tp, fp, fn + unparsedMalicious, tn + unparsedNormal)
         };
     }
 

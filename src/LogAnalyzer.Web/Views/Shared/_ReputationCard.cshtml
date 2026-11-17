@@ -23,6 +23,10 @@
                 @if (r is not null)
                 {
                     <div class="small text-body-secondary" title="@r.CheckedAt.ToString("u")">Checked @Format.TimeAgo(r.CheckedAt)</div>
+                    @if (r.LastAttemptError is not null && r.LastAttemptAt is { } attempt)
+                    {
+                        <div class="small text-warning" title="@attempt.ToString("u")">Last refresh failed: @r.LastAttemptError</div>
+                    }
                 }
             </div>
             @if (r is not null)

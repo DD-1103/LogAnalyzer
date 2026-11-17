@@ -399,6 +399,13 @@ namespace LogAnalyzer.Web.Migrations
                         .HasMaxLength(45)
                         .HasColumnType("nvarchar(45)");
 
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastAttemptError")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -501,6 +508,10 @@ namespace LogAnalyzer.Web.Migrations
 
                     b.Property<long?>("DetectionMilliseconds")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("DetectionWarnings")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<string>("ErrorMessage")
                         .HasMaxLength(2000)

@@ -6,7 +6,7 @@
 | **Kind** | Vulnerability (privacy) |
 | **Area** | Threat intel / privacy |
 | **CWE** | CWE-359 Exposure of private information / CWE-184 Incomplete list of disallowed inputs |
-| **Status** | Confirmed live (Lookup page) and by unit probe |
+| **Status** | Fixed (branch `security-fixes`): `IpAddressPolicy` (mapped IPv6 → IPv4, special/documentation/CGNAT/6to4 ranges blocked, IPv6 only 2000::/3), canonical address sent; verified live |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

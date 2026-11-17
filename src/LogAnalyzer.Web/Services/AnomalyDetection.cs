@@ -131,7 +131,8 @@ public sealed class IsolationForest
 /// <summary>Behaviour of one client IP within a log file, collected while detection streams the events.</summary>
 public sealed class IpProfile(string ip)
 {
-    private const int MaxTrackedPaths = 5_000;
+    /// <summary>Distinct paths are tracked up to this many; the unique-path ratio divides by min(requests, this).</summary>
+    public const int MaxTrackedPaths = 5_000;
     private const int MaxTrackedAgents = 100;
 
     public string Ip { get; } = ip;
@@ -215,7 +216,7 @@ public sealed class IpFeatureAccumulator
             Math.Log(1 + n / p.Minutes),
             p.ClientErrors / n,
             p.ServerErrors / n,
-            p.Paths.Count / n,
+            p.Paths.Count / Math.Min(n, IpProfile.MaxTrackedPaths),
             Math.Log(1 + p.UrlLengthSum / n),
             p.Posts / n,
             p.SpecialChars / n,
@@ -235,7 +236,7 @@ public sealed class IpFeatureAccumulator
             n / p.Minutes,
             p.ClientErrors / n,
             p.ServerErrors / n,
-            p.Paths.Count / n,
+            p.Paths.Count / Math.Min(n, IpProfile.MaxTrackedPaths),
             p.UrlLengthSum / n,
             p.Posts / n,
             p.SpecialChars / n,

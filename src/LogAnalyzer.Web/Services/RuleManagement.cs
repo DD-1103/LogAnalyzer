@@ -19,7 +19,10 @@ public static class RuleValidator
         new string('/', 30_000) + "\u0000",
         "<" + new string(' ', 30_000) + "\u0000",
         string.Concat(Enumerable.Repeat("a=1&", 5_000)) + "\u0000",
-        new string('1', 30_000) + "x"
+        new string('1', 30_000) + "x",
+        "<" + new string('a', 40) + "!",
+        string.Concat(Enumerable.Repeat("a ", 5_000)) + "!",
+        new string('<', 30_000)
     ];
 
     public static List<string> Validate(DetectionRule rule)
@@ -51,6 +54,9 @@ public static class RuleValidator
         Regex regex;
         try
         {
+            // Patterns the linear-time engine supports cannot backtrack catastrophically: nothing to probe.
+            if (DetectionCore.Build(pattern, out var backtracking) is not null && !backtracking)
+                return;
             regex = new Regex(pattern, RegexOptions.CultureInvariant, ProbeTimeout);
         }
         catch (ArgumentException)
@@ -66,7 +72,8 @@ public static class RuleValidator
             }
             catch (RegexMatchTimeoutException)
             {
-                errors.Add($"{label} is too slow on long input (possible catastrophic backtracking, e.g. nested quantifiers like (a+)+). Simplify it.");
+                errors.Add($"{label} is too slow on long input (catastrophic backtracking). It uses a construct the " +
+                           "linear-time engine does not support (backreference, lookaround or atomic group) - remove it or simplify the pattern.");
                 return;
             }
         }
@@ -83,6 +90,7 @@ public sealed class RuleTestResult
     public List<(string Ip, int Events)> TopIps { get; set; } = [];
     public List<LogEvent> Samples { get; set; } = [];
     public List<string> Errors { get; set; } = [];
+    public List<string> Warnings { get; set; } = [];
 }
 
 /// <summary>Runs one (possibly unsaved) rule over a stored log file without creating alerts.</summary>
@@ -124,6 +132,7 @@ public sealed class RuleTester(AppDbContext db, AnomalyDetector anomaly)
             await foreach (var e in events.WithCancellation(ct))
                 core.Process(e);
             result.EventsScanned = core.EventsProcessed;
+            result.Warnings = core.Warnings(_ => testRule.Name);
             hits = core.Hits;
         }
         sw.Stop();

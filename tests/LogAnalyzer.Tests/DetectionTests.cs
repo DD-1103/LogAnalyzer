@@ -140,7 +140,10 @@ public class RuleValidatorTests
     [Fact]
     public void Rejects_catastrophic_backtracking()
     {
-        var errors = RuleValidator.Validate(new DetectionRule { Kind = RuleKind.Signature, Pattern = "(a+)+$" });
+        // Nested quantifiers alone are safe since audit fix 04 (linear NonBacktracking engine) ...
+        Assert.Empty(RuleValidator.Validate(new DetectionRule { Kind = RuleKind.Signature, Pattern = "(a+)+$" }));
+        // ... but with a backreference the pattern needs the backtracking engine and is rejected.
+        var errors = RuleValidator.Validate(new DetectionRule { Kind = RuleKind.Signature, Pattern = @"^(a+)+\1$" });
         Assert.Contains(errors, e => e.Contains("too slow"));
     }
 

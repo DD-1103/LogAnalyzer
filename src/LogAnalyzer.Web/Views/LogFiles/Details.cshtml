@@ -69,6 +69,13 @@
         }
     </div>
 }
+@if (f.Status == LogFileStatus.Completed && f.DetectionWarnings is not null)
+{
+    <div class="alert alert-warning lg-flash" role="status">
+        <i class="bi bi-hourglass-bottom" aria-hidden="true"></i>
+        <div>@f.DetectionWarnings</div>
+    </div>
+}
 @if (f.Status == LogFileStatus.Deleting)
 {
     <div class="alert alert-secondary lg-flash" role="status">

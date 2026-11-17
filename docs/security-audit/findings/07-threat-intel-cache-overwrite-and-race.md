@@ -6,7 +6,7 @@
 | **Kind** | Broken |
 | **Area** | Threat intel |
 | **CWE** | CWE-841 Improper enforcement of behavioral workflow / CWE-362 Race condition |
-| **Status** | Confirmed (overwrite); Likely (race) |
+| **Status** | Fixed (branch `security-fixes`): failed/throttled lookups keep the earlier verdict (LastAttemptAt/LastAttemptError), unique-key race retried; verified live |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

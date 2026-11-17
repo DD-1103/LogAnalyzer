@@ -153,7 +153,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - `docs/evaluation-guide.md` = full protocol (datasets, DVWA VirtualBox lab, attack commands, labelling, thesis tables, threats to validity).
 
 ### Step 9 — Quality
-- 74 xUnit tests at step 9, 108 after the audit fixes (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
+- 74 xUnit tests at step 9, 150 after the audit fixes (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
 - `SecurityHeadersMiddleware`: CSP `script-src 'self'` (since the audit fixes all libraries are self-hosted; no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
 - Login rate limiter: 10 POSTs/min per IP → 429 (verified).
 - Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
@@ -192,7 +192,12 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - **Threshold rules** linear (`SlidingWindow` with pending counter); evidence identical to the old algorithm (property test).
 - **DB:** LogEvents indexes `(LogFileId, LineNumber)`, `(LogFileId, Timestamp, LineNumber)`, `ClientIp`; `LogFileHourStats` (per file/hour Total + Flagged, rebuilt after detection, backfilled by migration `ProcessingLimitsAndIndexes`) feeds the dashboard chart. Database in SIMPLE recovery.
 - **Auth/config:** `AppUser.MustChangePassword` + `AppUserClaimsPrincipalFactory` claim + `RequirePasswordChangeFilter` (JSON requests get 403); `ClientNetwork.RateLimitKey` (IPv4-mapped → IPv4, IPv6 per /64); `ForwardedHeaders:KnownProxies`; `Database:MigrateOnStartup`; `AllowedHosts` = localhost; `appsettings.Development.json` not published; no-store on signed-in responses.
-- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs` (108 total).
+- **Regex (04):** `DetectionCore.Build` compiles every pattern with `RegexOptions.NonBacktracking` (linear, no ReDoS); only patterns with backreferences/lookarounds/atomic groups fall back to the backtracking engine (`CompiledRule.Backtracking`, validator probes only those). A timeout counts as a match (fail-closed, `RuleHit.TimedOutEvents`, alert Details), after 50 timeouts the rule is skipped for the rest of the file; notes go to `LogFile.DetectionWarnings` (file page) and the rule tester.
+- **IP policy (03):** `IpAddressPolicy.TryGetPublic` (used by `IpEnrichmentService.IsPublic` and the providers): IPv4-mapped → IPv4, blocks private/CGNAT/documentation/benchmark/6to4/multicast, IPv6 only 2000::/3; providers get the canonical string.
+- **Threat-intel cache (07):** a failed/throttled/skipped lookup never replaces a real verdict → `IpReputation.LastAttemptAt/LastAttemptError` (card shows "Last refresh failed"); unique-key race (SQL 2601/2627) → reload and retry, also for IpInfos.
+- **Fan-out (10):** max `DetectionEngine.MaxAlertsPerRule` = 1000 alerts per rule and file, the long tail merged into one alert "N other IPs" (`DetectionCore.CapPerRule`, evidence kept → metrics exact); PDF shows top 200 alerts, samples in one query; CSV streamed.
+- **Evaluation (29):** `EvaluationService.Compute` (pure) reports unparsed attack/normal lines and an end-to-end row (unparsed attacks = FN); unique-path ratio divides by min(n, 5000).
+- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs` (150 total; tests use EF InMemory for the threat-intel cache).
 
 ## 9. Decisions & advice already given
 - **Zimmerman tools / Chainsaw:** out of scope → possible future "Windows event log module" (needs supervisor approval).
@@ -202,7 +207,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Rules with alerts are disabled, not deleted (traceability); users are disabled, not deleted.
 
 ## 10. Roadmap (what's left)
-- **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High, 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed. **Fixed on branch `security-fixes`:** 01, 02, 05, 06, 08, 09, 12, 15, 18, 21, 26, 29c. **Next (before the evaluation chapter):** 04, 03, 29a, 07, 10; then the remaining Low/Info.
+- **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High, 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed. **Fixed on branch `security-fixes`:** 01–10, 12, 15, 18, 21, 26, 29. **Next:** the remaining Low/Info (11, 13, 14, 16, 17, 19, 20, 22–25, 27, 28, 30).
 0. **Review the `ui-liquid-glass` branch in the browser (both themes), then merge into `main` and push.**
 1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
 2. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).

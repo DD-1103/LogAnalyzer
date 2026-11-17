@@ -37,6 +37,9 @@ public class LogFile
     public string? ErrorMessage { get; set; }
     public DateTime? ProcessedAt { get; set; }
 
+    /// <summary>Notes from the last detection run, e.g. rules whose regex timed out.</summary>
+    public string? DetectionWarnings { get; set; }
+
     // Performance measurements for RQ3 (parse + bulk insert, and detection incl. anomaly model).
     public long? ParseMilliseconds { get; set; }
     public long? DetectionMilliseconds { get; set; }
@@ -192,6 +195,16 @@ public class IpReputation
 
     public string? Error { get; set; }
     public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Set when the last refresh failed (rate limit, key rejected, timeout) but an earlier good answer was kept:
+    /// the verdict above is still the one from <see cref="CheckedAt"/>.
+    /// </summary>
+    public DateTime? LastAttemptAt { get; set; }
+    public string? LastAttemptError { get; set; }
+
+    /// <summary>A real answer from the provider (not an error or a skipped lookup).</summary>
+    public bool HasVerdict => Verdict is not (ThreatVerdict.Error or ThreatVerdict.Skipped);
 
     public Dictionary<string, string> GetAttributes()
     {

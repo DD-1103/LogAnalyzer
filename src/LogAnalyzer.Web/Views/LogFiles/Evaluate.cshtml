@@ -60,6 +60,19 @@
         <span class="lg-count">@Model.LabelsFileName, @r.LabelledLines.ToString("N0") labelled events, @r.IgnoredLines ignored</span>
     </h2>
 
+    @if (r.UnparsedMalicious > 0 || r.UnparsedNormal > 0)
+    {
+        <div class="alert alert-warning lg-flash" role="status">
+            <i class="bi bi-file-earmark-break" aria-hidden="true"></i>
+            <div>
+                @r.UnparsedMalicious.ToString("N0") line(s) labelled as attacks and @r.UnparsedNormal.ToString("N0") normal line(s)
+                could not be parsed, so no detector saw them. The figures below cover parsed events only.
+                <strong>End to end</strong> (unparsed attacks counted as missed): recall @Format.Percent(r.EndToEnd.Recall),
+                precision @Format.Percent(r.EndToEnd.Precision), F1 @Format.Percent(r.EndToEnd.F1).
+            </div>
+        </div>
+    }
+
     <div class="row g-3 mb-4">
         <div class="col-6 col-lg-3">
             <div class="card lg-stat lg-metric"><div class="card-body">

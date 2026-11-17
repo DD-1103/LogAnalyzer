@@ -27,6 +27,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.FileName).HasMaxLength(260).IsRequired();
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
+            e.Property(x => x.DetectionWarnings).HasMaxLength(2000);
             e.HasOne(x => x.UploadedBy).WithMany()
                 .HasForeignKey(x => x.UploadedById)
                 .OnDelete(DeleteBehavior.Restrict);
@@ -128,6 +129,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Summary).HasMaxLength(500);
             e.Property(x => x.AttributesJson).HasMaxLength(4000);
             e.Property(x => x.Error).HasMaxLength(500);
+            e.Property(x => x.LastAttemptError).HasMaxLength(500);
+            e.Ignore(x => x.HasVerdict);
             e.HasIndex(x => new { x.Ip, x.Provider }).IsUnique();
             e.HasIndex(x => x.Provider);
         });

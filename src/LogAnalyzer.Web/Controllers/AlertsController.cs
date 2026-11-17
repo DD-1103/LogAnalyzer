@@ -114,20 +114,27 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
     public async Task<IActionResult> Export(AlertStatus? status, Severity? severity, AttackType? attackType,
         string? ip, int? logFileId, CancellationToken ct)
     {
-        var alerts = await Sort(Filter(status, severity, attackType, ip, logFileId))
-            .Include(a => a.Rule)
-            .ToListAsync(ct);
-
-        var ips = alerts.Select(a => a.SourceIp).Distinct().ToList();
+        var filtered = Filter(status, severity, attackType, ip, logFileId);
+        var count = await filtered.CountAsync(ct);
+        var ips = await filtered.Select(a => a.SourceIp).Distinct().ToListAsync(ct);
         var ipInfo = await db.IpInfos.AsNoTracking()
             .Where(i => ips.Contains(i.Ip))
             .ToDictionaryAsync(i => i.Ip, ct);
 
+        logger.LogInformation("User {User} exported {Count} alerts to CSV", User.Identity?.Name, count);
+        await audit.WriteAsync("Alerts.ExportCsv", $"{count} alerts",
+            $"status={status} severity={severity} type={attackType} ip={ip} file={logFileId}", ct);
+
+        // Streamed row by row (no whole file in memory). UTF-8 with BOM so Excel shows non-ASCII characters correctly.
+        Response.ContentType = "text/csv; charset=utf-8";
+        Response.Headers.ContentDisposition = $"attachment; filename=\"alerts-{DateTime.Now:yyyyMMdd-HHmm}.csv\"";
+        await using var writer = new StreamWriter(Response.Body, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), 64 * 1024);
+        await writer.WriteAsync("Id,Severity,Status,AttackType,Rule,SourceIp,Country,City,AbuseScore,Events,FirstSeen,LastSeen,LogFile,AssignedTo,Notes\r\n");
         var csv = new StringBuilder();
-        csv.AppendLine("Id,Severity,Status,AttackType,Rule,SourceIp,Country,City,AbuseScore,Events,FirstSeen,LastSeen,LogFile,AssignedTo,Notes");
-        foreach (var a in alerts)
+        await foreach (var a in Sort(filtered).Include(a => a.Rule).AsAsyncEnumerable().WithCancellation(ct))
         {
             ipInfo.TryGetValue(a.SourceIp, out var info);
+            csv.Clear();
             csv.AppendJoin(',',
                 a.Id.ToString(),
                 Format.Csv(a.Severity.ToString()),
@@ -144,16 +151,11 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
                 Format.Csv(a.LogFile?.FileName),
                 Format.Csv(a.AssignedTo?.Email),
                 Format.Csv(a.Notes));
-            csv.AppendLine();
+            csv.Append("\r\n");
+            await writer.WriteAsync(csv, ct);
         }
-
-        logger.LogInformation("User {User} exported {Count} alerts to CSV", User.Identity?.Name, alerts.Count);
-        await audit.WriteAsync("Alerts.ExportCsv", $"{alerts.Count} alerts",
-            $"status={status} severity={severity} type={attackType} ip={ip} file={logFileId}", ct);
-
-        // UTF-8 with BOM so Excel shows non-ASCII characters correctly
-        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray();
-        return File(bytes, "text/csv", $"alerts-{DateTime.Now:yyyyMMdd-HHmm}.csv");
+        await writer.FlushAsync(ct);
+        return new EmptyResult();
     }
 
     private IQueryable<Alert> Filter(AlertStatus? status, Severity? severity, AttackType? attackType, string? ip, int? logFileId)

@@ -133,7 +133,9 @@ public class ThreatIntelController(
             foreach (var p in targets)
             {
                 var r = await threatIntel.RefreshAsync(address, p, waitForSlot: false, ct);
-                messages.Add($"{p.Name}: {r.Verdict}{(r.Error is null ? "" : " – " + r.Error)}");
+                messages.Add(r.LastAttemptError is not null
+                    ? $"{p.Name}: {r.Verdict} kept (refresh failed – {r.LastAttemptError})"
+                    : $"{p.Name}: {r.Verdict}{(r.Error is null ? "" : " – " + r.Error)}");
             }
             await audit.WriteAsync("ThreatIntel.Lookup", address, string.Join("; ", messages), ct);
             logger.LogInformation("User {User} refreshed threat intel for {Ip}: {Result}",

@@ -12,6 +12,9 @@ namespace LogAnalyzer.Web.Services;
 public sealed class ReportService(AppDbContext db)
 {
     private const int EvidenceSamplesPerAlert = 3;
+
+    /// <summary>Alerts listed in the table and in detail; the rest is summarised (use the CSV export for all).</summary>
+    public const int MaxDetailedAlerts = 200;
     private const int MaxUrlLength = 140;
 
     public async Task<byte[]?> BuildLogFileReportAsync(int logFileId, string generatedBy, CancellationToken ct)
@@ -30,7 +33,12 @@ public sealed class ReportService(AppDbContext db)
             .ThenByDescending(a => a.EventCount)
             .ToList();
 
-        var ips = alerts.Select(a => a.SourceIp).Distinct().ToList();
+        var attackingIps = alerts.Select(a => a.SourceIp).Distinct().Count();
+        var hiddenAlerts = Math.Max(0, alerts.Count - MaxDetailedAlerts);
+        var shown = alerts.Take(MaxDetailedAlerts).ToList();
+        var shownIds = shown.Select(a => a.Id).ToList();
+
+        var ips = shown.Select(a => a.SourceIp).Distinct().ToList();
         var ipInfo = await db.IpInfos.AsNoTracking()
             .Where(i => ips.Contains(i.Ip))
             .ToDictionaryAsync(i => i.Ip, ct);
@@ -41,16 +49,16 @@ public sealed class ReportService(AppDbContext db)
             .GroupBy(r => r.Ip)
             .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Provider).ToList());
 
-        var samples = new Dictionary<long, List<LogEvent>>();
-        foreach (var alert in alerts)
-        {
-            samples[alert.Id] = await db.AlertEvidence.AsNoTracking()
-                .Where(e => e.AlertId == alert.Id)
-                .Select(e => e.LogEvent!)
-                .OrderBy(e => e.Timestamp).ThenBy(e => e.LineNumber)
-                .Take(EvidenceSamplesPerAlert)
-                .ToListAsync(ct);
-        }
+        // First evidence lines of every shown alert in ONE query (CROSS APPLY ... TOP 3), not one query per alert.
+        var samples = (await (
+                from a in db.Alerts.AsNoTracking().Where(a => shownIds.Contains(a.Id))
+                from e in db.AlertEvidence.Where(x => x.AlertId == a.Id)
+                    .Select(x => x.LogEvent!)
+                    .OrderBy(x => x.Timestamp).ThenBy(x => x.LineNumber)
+                    .Take(EvidenceSamplesPerAlert)
+                select new { AlertId = a.Id, Event = e }).ToListAsync(ct))
+            .GroupBy(x => x.AlertId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Event).OrderBy(x => x.Timestamp).ThenBy(x => x.LineNumber).ToList());
 
         var maliciousEvents = await db.AlertEvidence.AsNoTracking()
             .Where(e => e.Alert!.LogFileId == logFileId)
@@ -89,7 +97,7 @@ public sealed class ReportService(AppDbContext db)
                         SummaryRow(t, "Lines parsed / failed", $"{file.ParsedLines:N0} / {file.FailedLines:N0}");
                         SummaryRow(t, "Malicious requests", $"{maliciousEvents:N0}");
                         SummaryRow(t, "Alerts", $"{alerts.Count} ({alerts.Count(a => a.Severity >= Severity.High)} high or critical)");
-                        SummaryRow(t, "Attacking IPs", $"{ips.Count}");
+                        SummaryRow(t, "Attacking IPs", $"{attackingIps}");
                     });
 
                     // 2. Alerts overview
@@ -117,7 +125,7 @@ public sealed class ReportService(AppDbContext db)
                                 foreach (var title in new[] { "Severity", "Attack type", "Source IP", "Ctry", "Events", "First - last seen", "Status" })
                                     HeaderCell(h.Cell(), title);
                             });
-                            foreach (var a in alerts)
+                            foreach (var a in shown)
                             {
                                 ipInfo.TryGetValue(a.SourceIp, out var info);
                                 BodyCell(t.Cell(), a.Severity.ToString());
@@ -129,13 +137,16 @@ public sealed class ReportService(AppDbContext db)
                                 BodyCell(t.Cell(), a.Status.ToString());
                             }
                         });
+                        if (hiddenAlerts > 0)
+                            col.Item().Text($"{hiddenAlerts:N0} more alert(s) with fewer events are not listed. " +
+                                            "Use Alerts > Export CSV for the complete list.").Italic();
                     }
 
                     // 3. Details per alert
                     if (alerts.Count > 0)
                         col.Item().Text("3. Alert details and evidence").FontSize(13).Bold();
 
-                    foreach (var a in alerts)
+                    foreach (var a in shown)
                     {
                         ipInfo.TryGetValue(a.SourceIp, out var info);
                         col.Item().Border(0.5f).BorderColor(Colors.Grey.Lighten1).Padding(8).Column(box =>
@@ -160,7 +171,7 @@ public sealed class ReportService(AppDbContext db)
                                 box.Item().Text($"Analyst notes: {a.Notes}").Italic();
 
                             box.Item().PaddingTop(3).Text("Sample evidence:").SemiBold();
-                            foreach (var e in samples[a.Id])
+                            foreach (var e in samples.GetValueOrDefault(a.Id) ?? [])
                             {
                                 var url = UrlDecoder.Decode(e.Url);
                                 if (url.Length > MaxUrlLength)

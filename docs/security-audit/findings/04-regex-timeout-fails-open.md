@@ -6,7 +6,7 @@
 | **Kind** | Vulnerability (detection evasion) |
 | **Area** | Detection engine |
 | **CWE** | CWE-1333 Inefficient regular expression / CWE-636 Not failing securely |
-| **Status** | Confirmed (experiment); the 6 default rules are NOT affected (worst 0.25 ms/event) |
+| **Status** | Fixed (branch `security-fixes`): NonBacktracking engine for all supported patterns, timeouts fail closed and are reported, circuit breaker after 50, more validator probes |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

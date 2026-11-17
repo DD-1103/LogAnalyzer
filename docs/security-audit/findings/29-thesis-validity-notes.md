@@ -6,7 +6,7 @@
 | **Kind** | Hardening (thesis validity / performance) |
 | **Area** | Evaluation / anomaly detection |
 | **CWE** | - |
-| **Status** | Partly fixed: (c) LogAnalyzerDb set to SIMPLE recovery on 2026-11-17 and noted in the RQ3 protocol; (a) and (b) open |
+| **Status** | Fixed (branch `security-fixes`): (a) unparsed labelled lines reported + end-to-end metrics, (b) path ratio divides by min(n, 5000), (c) SIMPLE recovery |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where
