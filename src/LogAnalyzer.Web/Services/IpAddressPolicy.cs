@@ -73,6 +73,24 @@ public static class IpAddressPolicy
 
     public static bool IsPublic(string? ip) => TryGetPublic(ip, out _);
 
+    /// <summary>
+    /// Canonical text of an IP address as written in a log (lower-case, compressed IPv6; IPv4-mapped IPv6 as IPv4;
+    /// no zone id). Anything that is not an IP address (e.g. a host name) is returned unchanged.
+    /// </summary>
+    public static string Canonical(string raw)
+    {
+        if (raw.Length is 0 or > 64 || !(raw.Contains('.') || raw.Contains(':')) || !IPAddress.TryParse(raw, out var address))
+            return raw;
+        // TryParse also reads "1.2" as 1.0.0.2: only full dotted quads count as IPv4.
+        if (address.AddressFamily == AddressFamily.InterNetwork && raw.Count(c => c == '.') != 3)
+            return raw;
+        if (address.IsIPv4MappedToIPv6)
+            address = address.MapToIPv4();
+        else if (address.AddressFamily == AddressFamily.InterNetworkV6)
+            address.ScopeId = 0;
+        return address.ToString();
+    }
+
     private static bool InRange(IPAddress address, IPAddress network, int prefix)
     {
         var a = address.GetAddressBytes();

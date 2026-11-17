@@ -153,9 +153,12 @@
         const text = el.textContent.trim();
         const match = text.match(/^([^\d-]*)(-?[\d.,\s  ]*\d)(.*)$/);
         if (!match) return;
-        const digits = match[2].replace(/[^\d-]/g, '');
-        const target = Number(digits);
-        if (!Number.isFinite(target) || target === 0 || match[2].replace(/[\s  ,]/g, '').includes('.')) return;
+        // "2,930", "2.930" and "2 930" are thousands; "0.62" or "1,5" are decimals and are left alone.
+        const num = match[2].trim();
+        const grouped = /^-?\d{1,3}([.,\s\u00a0\u202f])\d{3}(?:\1\d{3})*$/.test(num);
+        if (!grouped && /[.,]/.test(num)) return;
+        const target = Number(num.replace(/[^\d-]/g, ''));
+        if (!Number.isFinite(target) || target === 0) return;
         const start = performance.now();
         const duration = Math.min(1600, 600 + Math.log10(Math.abs(target) + 1) * 250);
         // Animation frames pause in background tabs: always end on the exact server value
@@ -293,7 +296,7 @@
     // <select class="js-autosubmit"> submits its form when the value changes.
     document.addEventListener('change', e => {
         if (e.target.matches('select.js-autosubmit')) {
-            e.target.form.submit();
+            e.target.form?.requestSubmit();
         }
     });
 
@@ -306,8 +309,8 @@
         if (tables.length === 0) return;
 
         tables.forEach(table => {
-            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
-            table.querySelectorAll('tbody tr').forEach(tr => {
+            const headers = Array.from(table.querySelectorAll(':scope > thead > tr > th')).map(th => th.textContent.trim());
+            table.querySelectorAll(':scope > tbody > tr').forEach(tr => {
                 let col = 0;
                 Array.from(tr.children).forEach(td => {
                     const span = parseInt(td.getAttribute('colspan') || '1', 10);

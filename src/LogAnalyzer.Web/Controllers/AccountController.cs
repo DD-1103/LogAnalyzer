@@ -14,6 +14,10 @@ public class AccountController(
     IAuditLog audit,
     ILogger<AccountController> logger) : Controller
 {
+    // Verified for unknown e-mail addresses so that they take as long as real ones (no account discovery by timing).
+    private static readonly Lazy<string> DummyHash =
+        new(() => new PasswordHasher<AppUser>().HashPassword(new AppUser(), Guid.NewGuid().ToString()));
+
     [AllowAnonymous]
     [HttpGet]
     public IActionResult Login(string? returnUrl = null) =>
@@ -28,36 +32,34 @@ public class AccountController(
         if (!ModelState.IsValid)
             return View(model);
 
-        var result = await signInManager.PasswordSignInAsync(
-            model.Email, model.Password, model.RememberMe, lockoutOnFailure: true);
-
-        if (result.Succeeded)
+        var email = AuditLog.Clean(model.Email);
+        var user = await userManager.FindByEmailAsync(model.Email);
+        Microsoft.AspNetCore.Identity.SignInResult result;
+        if (user is null)
         {
-            var user = await userManager.FindByEmailAsync(model.Email);
-            if (user is not null)
-            {
-                user.LastLoginAt = DateTime.UtcNow;
-                await userManager.UpdateAsync(user);
-            }
-            logger.LogInformation("User {Email} logged in", model.Email);
-            await audit.WriteAsync("Login.Success", model.Email, null, model.Email);
-            return LocalRedirect(Url.IsLocalUrl(model.ReturnUrl) ? model.ReturnUrl! : "/");
-        }
-
-        if (result.IsLockedOut)
-        {
-            logger.LogWarning("Account locked out: {Email}", model.Email);
-            await audit.WriteAsync("Login.LockedOut", model.Email, null, null);
-            ModelState.AddModelError(string.Empty, "Account locked after too many failed attempts. Try again later.");
+            userManager.PasswordHasher.VerifyHashedPassword(new AppUser(), DummyHash.Value, model.Password);
+            result = Microsoft.AspNetCore.Identity.SignInResult.Failed;
         }
         else
         {
-            // Disabled accounts (IsNotAllowed) get the same message, so the page does not reveal which accounts exist.
-            logger.LogWarning("Failed login for {Email}{Disabled}", model.Email, result.IsNotAllowed ? " (account disabled)" : "");
-            await audit.WriteAsync("Login.Failed", model.Email, result.IsNotAllowed ? "account disabled" : null, null);
-            ModelState.AddModelError(string.Empty, "Invalid email or password.");
+            result = await signInManager.PasswordSignInAsync(user, model.Password, model.RememberMe, lockoutOnFailure: true);
         }
 
+        if (result.Succeeded)
+        {
+            user!.LastLoginAt = DateTime.UtcNow;
+            await userManager.UpdateAsync(user);
+            logger.LogInformation("User {Email} logged in", email);
+            await audit.WriteAsync("Login.Success", email, null, email);
+            return LocalRedirect(Url.IsLocalUrl(model.ReturnUrl) ? model.ReturnUrl! : "/");
+        }
+
+        // Unknown, wrong password, disabled and locked-out accounts all get the same message, so the page does not
+        // reveal which accounts exist or that one is locked. The reason is only in the log and the audit trail.
+        var reason = result.IsLockedOut ? "locked out" : result.IsNotAllowed ? "account disabled" : user is null ? "unknown account" : null;
+        logger.LogWarning("Failed login for {Email} ({Reason})", email, reason ?? "wrong password");
+        await audit.WriteAsync(result.IsLockedOut ? "Login.LockedOut" : "Login.Failed", email, reason, null);
+        ModelState.AddModelError(string.Empty, "Invalid email or password.");
         return View(model);
     }
 
@@ -66,6 +68,9 @@ public class AccountController(
     public async Task<IActionResult> Logout()
     {
         await audit.WriteAsync("Logout", User.Identity?.Name);
+        // New security stamp: copies of this sign-in cookie (and other sessions of the user) stop working too.
+        if (await userManager.GetUserAsync(User) is { } user)
+            await userManager.UpdateSecurityStampAsync(user);
         await signInManager.SignOutAsync();
         return RedirectToAction(nameof(Login));
     }
@@ -75,6 +80,7 @@ public class AccountController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [EnableRateLimiting("login")]
     public async Task<IActionResult> ChangePassword(ChangePasswordModel model)
     {
         if (!ModelState.IsValid)
@@ -83,6 +89,21 @@ public class AccountController(
         var user = await userManager.GetUserAsync(User);
         if (user is null)
             return Challenge();
+
+        // Wrong current passwords count towards the account lockout, like failed logins (no guessing with a stolen cookie).
+        var check = await signInManager.CheckPasswordSignInAsync(user, model.CurrentPassword, lockoutOnFailure: true);
+        if (check.IsLockedOut)
+        {
+            logger.LogWarning("Account {Email} locked after wrong current passwords on Change password", user.Email);
+            await audit.WriteAsync("User.ChangeOwnPassword.LockedOut", user.Email);
+            await signInManager.SignOutAsync();
+            return RedirectToAction(nameof(Login));
+        }
+        if (!check.Succeeded)
+        {
+            ModelState.AddModelError(nameof(model.CurrentPassword), "The current password is not correct.");
+            return View(model);
+        }
 
         var result = await userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
         if (!result.Succeeded)
@@ -104,5 +125,6 @@ public class AccountController(
     }
 
     [AllowAnonymous]
+    [HttpGet]
     public IActionResult AccessDenied() => View();
 }

@@ -6,7 +6,7 @@
 | **Kind** | Broken |
 | **Area** | Rules / detection |
 | **CWE** | CWE-367 |
-| **Status** | Confirmed (code path) |
+| **Status** | Fixed (branch `security-fixes`): rules cannot be deleted while a file is processed; findings of a rule deleted meanwhile are dropped instead of failing the file |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

@@ -22,6 +22,7 @@ public class UsersController(
 {
     private static readonly string[] AllRoles = [Roles.Admin, Roles.Analyst];
 
+    [HttpGet]
     public async Task<IActionResult> Index()
     {
         var users = await db.Users.AsNoTracking().OrderBy(u => u.Email).ToListAsync();
@@ -84,6 +85,13 @@ public class UsersController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ChangeRole(string id, string role)
     {
+        await AdminStateLock.WaitAsync();
+        try { return await ChangeRoleLockedAsync(id, role); }
+        finally { AdminStateLock.Release(); }
+    }
+
+    private async Task<IActionResult> ChangeRoleLockedAsync(string id, string role)
+    {
         if (!AllRoles.Contains(role))
             return BadRequest();
         var user = await userManager.FindByIdAsync(id);
@@ -107,6 +115,13 @@ public class UsersController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ToggleDisabled(string id)
+    {
+        await AdminStateLock.WaitAsync();
+        try { return await ToggleDisabledLockedAsync(id); }
+        finally { AdminStateLock.Release(); }
+    }
+
+    private async Task<IActionResult> ToggleDisabledLockedAsync(string id)
     {
         var user = await userManager.FindByIdAsync(id);
         if (user is null)
@@ -168,13 +183,22 @@ public class UsersController(
         return RedirectToAction(nameof(Index));
     }
 
-    private async Task<bool> IsLastActiveAdminAsync(AppUser user)
-    {
-        if (!await userManager.IsInRoleAsync(user, Roles.Admin))
-            return false;
-        var admins = await userManager.GetUsersInRoleAsync(Roles.Admin);
-        return admins.Count(a => !a.IsDisabled) <= 1;
-    }
+    /// <summary>
+    /// Role and enable/disable changes run one at a time, so two administrators cannot disable or demote each other
+    /// at the same moment and leave the application without an active administrator.
+    /// </summary>
+    private static readonly SemaphoreSlim AdminStateLock = new(1, 1);
+
+    private async Task<bool> IsLastActiveAdminAsync(AppUser user) =>
+        IsLastActiveAdmin(user, await userManager.IsInRoleAsync(user, Roles.Admin),
+            await userManager.GetUsersInRoleAsync(Roles.Admin));
+
+    /// <summary>
+    /// True when demoting or disabling <paramref name="target"/> would leave no active administrator.
+    /// A disabled admin is not active, so changing it never counts (it could not be demoted before the fix).
+    /// </summary>
+    public static bool IsLastActiveAdmin(AppUser target, bool targetIsAdmin, IEnumerable<AppUser> admins) =>
+        targetIsAdmin && !target.IsDisabled && admins.Count(a => !a.IsDisabled && a.Id != target.Id) == 0;
 
     private RedirectToActionResult Fail(string message)
     {

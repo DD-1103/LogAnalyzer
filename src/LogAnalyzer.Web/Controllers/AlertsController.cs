@@ -15,6 +15,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
     private const int PageSize = 25;
     private const int MaxEvidenceShown = 200;
 
+    [HttpGet]
     public async Task<IActionResult> Index(AlertStatus? status, Severity? severity, AttackType? attackType,
         string? ip, int? logFileId, int page = 1)
     {
@@ -51,6 +52,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         });
     }
 
+    [HttpGet]
     public async Task<IActionResult> Details(long id, [FromServices] ThreatIntelService threatIntel)
     {
         var alert = await db.Alerts.AsNoTracking()
@@ -89,7 +91,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
 
         if (!ModelState.IsValid)
         {
-            TempData["Error"] = "Notes are too long (max 4000 characters).";
+            TempData["Error"] = string.Join(" ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).Distinct());
             return RedirectToAction(nameof(Details), new { id });
         }
 
@@ -111,6 +113,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
     }
 
     /// <summary>Exports the alerts matching the current filters as CSV (opens in Excel).</summary>
+    [HttpGet]
     public async Task<IActionResult> Export(AlertStatus? status, Severity? severity, AttackType? attackType,
         string? ip, int? logFileId, CancellationToken ct)
     {
@@ -173,5 +176,6 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
     private static IQueryable<Alert> Sort(IQueryable<Alert> query) => query
         .OrderBy(a => a.Status == AlertStatus.New ? 0 : a.Status == AlertStatus.Investigating ? 1 : 2)
         .ThenByDescending(a => a.Severity == Severity.Critical ? 3 : a.Severity == Severity.High ? 2 : a.Severity == Severity.Medium ? 1 : 0)
-        .ThenByDescending(a => a.LastSeen);
+        .ThenByDescending(a => a.LastSeen)
+        .ThenByDescending(a => a.Id);   // unique tie-breaker: stable pages
 }

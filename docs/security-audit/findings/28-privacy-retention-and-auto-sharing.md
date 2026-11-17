@@ -6,7 +6,7 @@
 | **Kind** | Hardening (privacy) |
 | **Area** | Threat intel / privacy |
 | **CWE** | CWE-359 |
-| **Status** | Confirmed |
+| **Status** | Fixed (branch `security-fixes`): `Enrichment:AutoLookup` (default off), `DataRetentionWorker` deletes answers after 90 days and orphaned rows; verified live |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

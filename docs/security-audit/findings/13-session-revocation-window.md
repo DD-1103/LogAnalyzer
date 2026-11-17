@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Authentication / sessions |
 | **CWE** | CWE-613 Insufficient session expiration / CWE-269 |
-| **Status** | Confirmed (framework behaviour) |
+| **Status** | Fixed (branch `security-fixes`): `RevalidateSessionFilter` checks enabled + security stamp (+ Admin role) on every POST and admin page; Logout rotates the security stamp |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

@@ -31,26 +31,26 @@
 | [08](findings/08-threat-intel-blocks-queue.md) | Medium | Will break | Threat-intel lookups block the upload queue (up to ~30 min) | **Fixed** |
 | [09](findings/09-query-scaling-and-indexes.md) | Medium | Will break | Dashboard/events/detection queries scan all events; missing composite indexes | **Fixed** |
 | [10](findings/10-report-and-alert-fanout.md) | Medium | Will break | PDF report N+1 queries; unlimited alerts from fake IP fields | **Fixed** |
-| [11](findings/11-login-enumeration-and-admin-lockout.md) | Low | Vulnerability | Login reveals existing accounts; anyone can keep the admin locked out | Confirmed (code) |
+| [11](findings/11-login-enumeration-and-admin-lockout.md) | Low | Vulnerability | Login reveals existing accounts; anyone can keep the admin locked out | **Fixed** |
 | [12](findings/12-dev-seed-credentials.md) | Low | Hardening | Seed passwords committed/documented; fresh Production has no admin | **Fixed** |
-| [13](findings/13-session-revocation-window.md) | Low | Hardening | Disabled admin keeps rights 60 s; logout doesn't revoke copied cookies | Confirmed |
-| [14](findings/14-last-admin-guard-bugs.md) | Low | Broken | Last-admin guard: race to zero admins; can't demote a disabled admin | Confirmed (code) |
+| [13](findings/13-session-revocation-window.md) | Low | Hardening | Disabled admin keeps rights 60 s; logout doesn't revoke copied cookies | **Fixed** |
+| [14](findings/14-last-admin-guard-bugs.md) | Low | Broken | Last-admin guard: race to zero admins; can't demote a disabled admin | **Fixed** |
 | [15](findings/15-rule-save-empty-name-500.md) | Low | Broken | Empty rule name → HTTP 500 NullReferenceException | **Fixed** |
-| [16](findings/16-change-password-no-throttle.md) | Low | Hardening | Change password has no rate limit/lockout | Confirmed |
-| [17](findings/17-threat-intel-quota-and-http-hardening.md) | Low | Hardening | Analysts can burn API quotas; HttpClient follows redirects, unbounded bodies | Confirmed / Likely |
+| [16](findings/16-change-password-no-throttle.md) | Low | Hardening | Change password has no rate limit/lockout | **Fixed** |
+| [17](findings/17-threat-intel-quota-and-http-hardening.md) | Low | Hardening | Analysts can burn API quotas; HttpClient follows redirects, unbounded bodies | **Fixed** |
 | [18](findings/18-exception-details-in-ui.md) | Low | Hardening | Raw exception text (paths, SQL, account) shown in the UI | **Fixed** |
-| [19](findings/19-log-and-audit-forging.md) | Low | Hardening | CR/LF from the login form forged into logs/audit | Confirmed (code) |
-| [20](findings/20-evaluate-memory.md) | Low | Hardening | Evaluate loads 100 MB labels + all line numbers per request | Confirmed (code) |
+| [19](findings/19-log-and-audit-forging.md) | Low | Hardening | CR/LF from the login form forged into logs/audit | **Fixed** |
+| [20](findings/20-evaluate-memory.md) | Low | Hardening | Evaluate loads 100 MB labels + all line numbers per request | **Fixed** |
 | [21](findings/21-deployment-config-defaults.md) | Low | Hardening | Demo runs in Development (stack traces), TrustServerCertificate, no forwarded headers | **Fixed** |
-| [22](findings/22-floating-package-versions.md) | Low | Hardening | Floating NuGet versions, no lock file (no vulnerable packages today) | Confirmed |
-| [23](findings/23-rule-delete-during-detection.md) | Low | Broken | Deleting a rule during detection fails the file (FK) | Confirmed (code) |
-| [24](findings/24-ip-normalisation-mismatch.md) | Low | Broken | IP lookup canonicalises, stored IPs don't → 0 counts, duplicate lookups | Confirmed (logic) |
-| [25](findings/25-alerts-paging-and-triage-validation.md) | Low | Broken | Alert paging without tie-breaker; invalid status → misleading message | Confirmed (live for status) |
+| [22](findings/22-floating-package-versions.md) | Low | Hardening | Floating NuGet versions, no lock file (no vulnerable packages today) | **Fixed** |
+| [23](findings/23-rule-delete-during-detection.md) | Low | Broken | Deleting a rule during detection fails the file (FK) | **Fixed** |
+| [24](findings/24-ip-normalisation-mismatch.md) | Low | Broken | IP lookup canonicalises, stored IPs don't → 0 counts, duplicate lookups | **Fixed** |
+| [25](findings/25-alerts-paging-and-triage-validation.md) | Low | Broken | Alert paging without tie-breaker; invalid status → misleading message | **Fixed** |
 | [26](findings/26-browser-hardening.md) | Low | Hardening | CDN scripts without SRI; no `Cache-Control: no-store` on signed-in pages | **Fixed** |
-| [27](findings/27-csrf-defense-in-depth.md) | Info | Hardening | No global antiforgery filter / verb-less actions (not exploitable today) | Confirmed |
-| [28](findings/28-privacy-retention-and-auto-sharing.md) | Info | Hardening | No switch for automatic lookups, no retention limit | Confirmed |
+| [27](findings/27-csrf-defense-in-depth.md) | Info | Hardening | No global antiforgery filter / verb-less actions (not exploitable today) | **Fixed** |
+| [28](findings/28-privacy-retention-and-auto-sharing.md) | Info | Hardening | No switch for automatic lookups, no retention limit | **Fixed** |
 | [29](findings/29-thesis-validity-notes.md) | Info | Hardening | Evaluation ignores unparsed attacks; anomaly feature skew; DB FULL recovery | **Fixed** |
-| [30](findings/30-frontend-edge-cases.md) | Info | Will break | CSV full-width signs, count-up locale, nested tables, autosubmit | Confirmed (code) |
+| [30](findings/30-frontend-edge-cases.md) | Info | Will break | CSV full-width signs, count-up locale, nested tables, autosubmit | **Fixed** |
 
 **Kinds:** *Vulnerability* = can be abused · *Broken* = wrong today · *Will break* = fails at scale / under failure · *Hardening* = defence in depth.
 
@@ -73,6 +73,7 @@ Fix docs/security-audit/findings/01-threshold-evidence-quadratic.md: implement t
 |---|---|---|
 | 2026-11-17 | `security-fixes` | Before the jury demo: 15, 21, 12, 06, 26 · Before RQ3: 01, 02, 05, 09, 29c, 08 · also 18 (same code). 108 tests (was 74). |
 | 2026-11-17 | `security-fixes` | Before the evaluation chapter: 04, 03, 29a, 29b, 07, 10. 150 tests. Benchmark (1M synthetic lines) unchanged: rules P 99.7% / R 96.1%, rules + IF R 100%; rules 0.6–0.8 s. |
+| 2026-11-17 | `security-fixes` | Remaining Low/Info: 11, 13, 14, 16, 17, 19, 20, 22, 23, 24, 25, 27, 28, 30. **All 30 findings fixed.** 180 tests, 0 warnings, no vulnerable packages. |
 
 ## 4. Scope and method
 

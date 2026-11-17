@@ -78,10 +78,14 @@ public static class Format
     {
         if (string.IsNullOrEmpty(value))
             return "\"\"";
-        if ("=+-@\t\r".Contains(value[0]))
+        // Spreadsheets skip leading spaces / line breaks and also accept full-width signs as formula starters.
+        var first = value.TrimStart(' ', '\u00A0', '\u3000');
+        if (value[0] is '\t' or '\r' or '\n' || (first.Length > 0 && FormulaStart.Contains(first[0])))
             value = "'" + value;
         return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
+
+    private const string FormulaStart = "=+-@\t\r\n\uFF1D\uFF0B\uFF0D\uFF20";
 
     public static string HttpStatusClass(int code) => code switch
     {

@@ -5,10 +5,11 @@ namespace LogAnalyzer.Web.ViewModels;
 
 public class LoginViewModel
 {
-    [Required, EmailAddress]
+    [Required, EmailAddress, StringLength(256)]
+    [RegularExpression(@"^[^\x00-\x1F\x7F]*$", ErrorMessage = "The e-mail address contains invalid characters.")]
     public string Email { get; set; } = string.Empty;
 
-    [Required, DataType(DataType.Password)]
+    [Required, DataType(DataType.Password), StringLength(200)]
     public string Password { get; set; } = string.Empty;
 
     [Display(Name = "Remember me")]
@@ -97,9 +98,10 @@ public class AlertDetailsViewModel
 
 public class AlertUpdateModel
 {
+    [EnumDataType(typeof(AlertStatus), ErrorMessage = "Invalid status.")]
     public AlertStatus Status { get; set; }
 
-    [StringLength(4000)]
+    [StringLength(4000, ErrorMessage = "Notes are too long (max 4000 characters).")]
     public string? Notes { get; set; }
 }
 

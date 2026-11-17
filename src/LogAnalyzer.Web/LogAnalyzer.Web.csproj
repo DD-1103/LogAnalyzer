@@ -9,19 +9,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.15" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.15" />
     <!-- Overrides the vulnerable 9.0.11 version pulled in by the SQL Server driver -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.*" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
     <!-- Offline IP geolocation (GeoLite2 .mmdb files) -->
-    <PackageReference Include="MaxMind.GeoIP2" Version="5.*" />
+    <PackageReference Include="MaxMind.GeoIP2" Version="5.4.1" />
     <!-- PDF report generation (Community license: free for students / small revenue) -->
-    <PackageReference Include="QuestPDF" Version="2025.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.*">
+    <PackageReference Include="QuestPDF" Version="2025.12.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.15">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.*">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

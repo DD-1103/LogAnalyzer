@@ -6,7 +6,7 @@
 | **Kind** | Broken |
 | **Area** | Alerts |
 | **CWE** | - |
-| **Status** | Confirmed (paging: code; status: live) |
+| **Status** | Fixed (branch `security-fixes`): paging tie-breaker on Id; `[EnumDataType]` on Status and the real validation message is shown |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

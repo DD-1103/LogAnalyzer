@@ -51,7 +51,7 @@ public sealed partial class CombinedLogParser : ILogParser
         long? size = long.TryParse(m.Groups["size"].Value, out var s) ? s : null;
 
         result = new ParsedLine(
-            ClientIp: m.Groups["ip"].Value,
+            ClientIp: IpAddressPolicy.Canonical(m.Groups["ip"].Value),
             Timestamp: timestamp,
             Method: method,
             Url: url,

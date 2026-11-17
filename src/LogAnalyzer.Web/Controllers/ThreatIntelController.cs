@@ -5,6 +5,7 @@ using LogAnalyzer.Web.Services;
 using LogAnalyzer.Web.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace LogAnalyzer.Web.Controllers;
@@ -28,6 +29,7 @@ public class ThreatIntelController(
     private const string TestIp = "8.8.8.8";
     private const int PageSize = 50;
 
+    [HttpGet]
     public async Task<IActionResult> Index(CancellationToken ct)
     {
         var verdicts = await db.IpReputations.AsNoTracking()
@@ -58,6 +60,7 @@ public class ThreatIntelController(
         return View(model);
     }
 
+    [HttpGet]
     public async Task<IActionResult> Provider(string id, int page = 1, CancellationToken ct = default)
     {
         var provider = threatIntel.Find(id);
@@ -84,6 +87,7 @@ public class ThreatIntelController(
         });
     }
 
+    [HttpGet]
     public async Task<IActionResult> Lookup(string? ip, CancellationToken ct)
     {
         var model = new ThreatIntelLookupViewModel { Providers = threatIntel.Providers };
@@ -109,6 +113,7 @@ public class ThreatIntelController(
     /// <summary>Live lookup. provider = slug, or empty for all configured providers.</summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [EnableRateLimiting("ti-lookup")]
     public async Task<IActionResult> Refresh(string ip, string? provider, string? returnUrl, CancellationToken ct)
     {
         if (!TryNormalize(ip, out var address))
@@ -152,6 +157,7 @@ public class ThreatIntelController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [Authorize(Roles = Roles.Admin)]
+    [EnableRateLimiting("ti-lookup")]
     public async Task<IActionResult> Test(string id, CancellationToken ct)
     {
         var provider = threatIntel.Find(id);
@@ -207,9 +213,10 @@ public class ThreatIntelController(
         // Only accept dotted / colon notation (IPAddress.TryParse also accepts "1" as 0.0.0.1).
         if (string.IsNullOrWhiteSpace(value) || value.Length > 45 || !(value.Contains('.') || value.Contains(':')))
             return false;
-        if (!IPAddress.TryParse(value.Trim(), out var parsed))
+        if (!IPAddress.TryParse(value.Trim(), out _))
             return false;
-        address = parsed.ToString();
+        // Same canonical form the parser stores (finding 24), so counts and cache rows match.
+        address = IpAddressPolicy.Canonical(value.Trim());
         return true;
     }
 }

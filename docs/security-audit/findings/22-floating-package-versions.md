@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Dependencies |
 | **CWE** | CWE-1104 Use of unmaintained/unpinned components |
-| **Status** | Confirmed; `dotnet list package --vulnerable`: no vulnerable packages |
+| **Status** | Fixed (branch `security-fixes`): exact versions, `Directory.Build.props` with lock files (packages.lock.json committed), locked mode in CI; no vulnerable packages. MaxMind 6 / QuestPDF 2026 upgrades left for a separate, tested change |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

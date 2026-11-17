@@ -6,7 +6,7 @@
 | **Kind** | Vulnerability |
 | **Area** | Authentication |
 | **CWE** | CWE-204 / CWE-208 / CWE-645 |
-| **Status** | Confirmed (message); Likely (timing, framework behaviour). Not executed live to avoid locking the account. |
+| **Status** | Fixed (branch `security-fixes`): one message for unknown/wrong/disabled/locked accounts, dummy hash for unknown e-mails (same timing); lockout reason only in log/audit; verified live |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

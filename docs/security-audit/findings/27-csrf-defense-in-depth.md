@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Authorization |
 | **CWE** | CWE-352 |
-| **Status** | Confirmed; not exploitable today (all POSTs validated, SameSite=Strict) |
+| **Status** | Fixed (branch `security-fixes`): global `AutoValidateAntiforgeryToken`, explicit [HttpGet]/[HttpPost] on every action (reflection test) |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

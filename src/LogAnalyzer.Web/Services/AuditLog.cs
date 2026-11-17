@@ -29,10 +29,10 @@ public sealed class AuditLog(
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             db.AuditEntries.Add(new AuditEntry
             {
-                UserName = Cut(userName, 256),
-                Action = Cut(action, 100)!,
-                Target = Cut(target, 300),
-                Details = Cut(details, 2000),
+                UserName = Cut(Clean(userName), 256),
+                Action = Cut(Clean(action), 100)!,
+                Target = Cut(Clean(target), 300),
+                Details = Cut(Clean(details), 2000),
                 IpAddress = Cut(httpContext.HttpContext?.Connection.RemoteIpAddress?.ToString(), 45)
             });
             await db.SaveChangesAsync(CancellationToken.None);
@@ -46,4 +46,19 @@ public sealed class AuditLog(
 
     private static string? Cut(string? value, int max) =>
         value is null || value.Length <= max ? value : value[..max];
+
+    /// <summary>
+    /// Replaces control characters (CR, LF, ESC, NUL ...) with spaces, so text typed by users or taken from logs cannot
+    /// forge extra lines in the console log or the audit trail. Use it for user input passed to ILogger as well.
+    /// </summary>
+    public static string? Clean(string? value)
+    {
+        if (value is null || !value.Any(char.IsControl))
+            return value;
+        return string.Create(value.Length, value, (span, v) =>
+        {
+            for (var i = 0; i < v.Length; i++)
+                span[i] = char.IsControl(v[i]) ? ' ' : v[i];
+        });
+    }
 }

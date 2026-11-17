@@ -4,6 +4,7 @@ using LogAnalyzer.Web.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
@@ -56,6 +57,9 @@ builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.Add(new AuthorizeFilter(requireAuth));
     options.Filters.Add(new RequirePasswordChangeFilter());
+    options.Filters.Add<RevalidateSessionFilter>();
+    // Every POST/PUT/DELETE needs a valid antiforgery token, also on actions that forget the attribute.
+    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
 });
 
 // Behind a reverse proxy: trust X-Forwarded-For/-Proto only from the proxies listed in configuration
@@ -80,6 +84,10 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("login", ctx => RateLimitPartition.GetFixedWindowLimiter(
         ClientNetwork.RateLimitKey(ctx.Connection.RemoteIpAddress),
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    // Live threat-intel lookups per signed-in user, so nobody can burn the free API quotas in a loop.
+    options.AddPolicy("ti-lookup", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.User.Identity?.Name ?? ClientNetwork.RateLimitKey(ctx.Connection.RemoteIpAddress),
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
 
 // Audit trail of user actions
@@ -104,9 +112,14 @@ builder.Services.Configure<EnrichmentOptions>(builder.Configuration.GetSection(E
 builder.Services.AddSingleton<GeoIpLookup>();
 builder.Services.AddScoped<IpEnrichmentService>();
 builder.Services.AddSingleton<ProviderThrottle>();
-builder.Services.AddHttpClient<AbuseIpDbProvider>(c => c.Timeout = TimeSpan.FromSeconds(10));
-builder.Services.AddHttpClient<GreyNoiseProvider>(c => c.Timeout = TimeSpan.FromSeconds(10));
-builder.Services.AddHttpClient<VirusTotalProvider>(c => c.Timeout = TimeSpan.FromSeconds(15));
+// No redirects (the API key headers would be sent to the new host) and at most 1 MB per answer.
+static SocketsHttpHandler ProviderHandler() => new() { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) };
+builder.Services.AddHttpClient<AbuseIpDbProvider>(c => { c.Timeout = TimeSpan.FromSeconds(10); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddHttpClient<GreyNoiseProvider>(c => { c.Timeout = TimeSpan.FromSeconds(10); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddHttpClient<VirusTotalProvider>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<AbuseIpDbProvider>());
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<GreyNoiseProvider>());
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<VirusTotalProvider>());
@@ -114,6 +127,7 @@ builder.Services.AddScoped<ThreatIntelService>();
 builder.Services.AddScoped<ILogFileThreatIntel>(sp => sp.GetRequiredService<ThreatIntelService>());
 builder.Services.AddSingleton<ThreatIntelQueue>();
 builder.Services.AddHostedService<ThreatIntelWorker>();
+builder.Services.AddHostedService<DataRetentionWorker>();
 
 // Dashboard and reports
 builder.Services.AddScoped<DashboardService>();

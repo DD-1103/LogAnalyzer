@@ -6,7 +6,7 @@
 | **Kind** | Broken |
 | **Area** | User management |
 | **CWE** | CWE-367 TOCTOU / CWE-697 Incorrect comparison |
-| **Status** | Confirmed in code |
+| **Status** | Fixed (branch `security-fixes`): disabled admins do not count as "last active admin"; role/disable changes serialised by a lock |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

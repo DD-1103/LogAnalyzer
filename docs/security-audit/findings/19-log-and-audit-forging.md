@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Logging / audit |
 | **CWE** | CWE-117 Improper output neutralization for logs |
-| **Status** | Confirmed (code) |
+| **Status** | Fixed (branch `security-fixes`): `AuditLog.Clean` removes control characters (audit + login logs), login e-mail rejects control characters |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

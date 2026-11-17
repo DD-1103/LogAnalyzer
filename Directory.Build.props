@@ -1,0 +1,14 @@
+<Project>
+  <!--
+    Reproducible builds (security audit finding 22): exact package versions in the .csproj files plus a
+    packages.lock.json per project (committed). In CI (ContinuousIntegrationBuild=true) or with the restore
+    option "locked-mode" the restore fails instead of silently picking up a different package.
+    Update a package on purpose with "dotnet add <project> package <Name> (version option) <x.y.z>",
+    which refreshes the lock file. Known vulnerabilities: "dotnet list package (vulnerable option)".
+    (Double hyphens are not allowed inside XML comments, hence the wording.)
+  -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+</Project>

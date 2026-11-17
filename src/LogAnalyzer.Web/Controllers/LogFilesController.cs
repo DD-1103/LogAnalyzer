@@ -21,6 +21,7 @@ public class LogFilesController(
     private const int PageSize = 50;
     private static readonly string[] AllowedExtensions = [".log", ".txt", ".gz"];
 
+    [HttpGet]
     public async Task<IActionResult> Index()
     {
         var files = await db.LogFiles
@@ -86,6 +87,7 @@ public class LogFilesController(
         return RedirectToAction(nameof(Index));
     }
 
+    [HttpGet]
     public async Task<IActionResult> Details(int id, int page = 1, string? ip = null, int? status = null)
     {
         var file = await db.LogFiles.AsNoTracking()
@@ -162,8 +164,8 @@ public class LogFilesController(
     /// <summary>Compares the alerts of a log file with a ground-truth labels CSV (line,label).</summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    [RequestSizeLimit(100L * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 100L * 1024 * 1024)]
+    [RequestSizeLimit(20L * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 20L * 1024 * 1024)]
     public async Task<IActionResult> Evaluate(int id, IFormFile? labels,
         [FromServices] EvaluationService evaluation, CancellationToken ct)
     {
@@ -179,7 +181,7 @@ public class LogFilesController(
         }
 
         await using var stream = labels.OpenReadStream();
-        var parsed = EvaluationService.ParseLabels(stream);
+        var parsed = EvaluationService.ParseLabels(stream, maxLine: Math.Max(1, file.TotalLines));
         if (parsed.Count == 0)
         {
             ModelState.AddModelError(string.Empty, "No labels found. Expected lines like: 15,sqli");
@@ -253,6 +255,7 @@ public class LogFilesController(
     }
 
     /// <summary>Downloads a PDF incident report for one log file.</summary>
+    [HttpGet]
     public async Task<IActionResult> Report(int id, [FromServices] ReportService reports, CancellationToken ct)
     {
         var pdf = await reports.BuildLogFileReportAsync(id, User.Identity?.Name ?? "unknown", ct);

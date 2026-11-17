@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Authentication |
 | **CWE** | CWE-307 |
-| **Status** | Confirmed (framework behaviour) |
+| **Status** | Fixed (branch `security-fixes`): rate limit "login" on Change password, wrong current passwords count towards the lockout |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

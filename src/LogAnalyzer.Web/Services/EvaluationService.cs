@@ -52,16 +52,30 @@ public sealed class EvaluationService(AppDbContext db)
         ["scanner"] = AttackType.Scanner
     };
 
-    public static Dictionary<int, string> ParseLabels(Stream csv)
+    /// <summary>Longer labels are ignored (real labels are short words like "sqli").</summary>
+    public const int MaxLabelLength = 64;
+
+    /// <summary>
+    /// Reads "line,label" rows. Labels longer than <see cref="MaxLabelLength"/>, line numbers outside 1..maxLine and
+    /// anything after <paramref name="maxLine"/> labels are ignored, so a crafted file cannot use much memory.
+    /// </summary>
+    public static Dictionary<int, string> ParseLabels(Stream csv, int maxLine = int.MaxValue)
     {
         var labels = new Dictionary<int, string>();
-        using var reader = new StreamReader(csv);
-        string? line;
-        while ((line = reader.ReadLine()) is not null)
+        using var reader = new BoundedLineReader(new StreamReader(csv), 256);
+        while (reader.ReadLineAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult() is { } read)
         {
-            var parts = line.Split(',', 2);
-            if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out var n))
-                labels[n] = parts[1].Trim().Trim('"');
+            if (read.TooLong)
+                continue;
+            var parts = read.Text.Split(',', 2);
+            if (parts.Length != 2 || !int.TryParse(parts[0].Trim(), out var n) || n < 1 || n > maxLine)
+                continue;
+            var label = parts[1].Trim().Trim('"');
+            if (label.Length is 0 or > MaxLabelLength)
+                continue;
+            labels[n] = label;
+            if (labels.Count >= maxLine)
+                break;
         }
         return labels;
     }

@@ -12,6 +12,7 @@ public class AuditController(AppDbContext db) : Controller
 {
     private const int PageSize = 50;
 
+    [HttpGet]
     public async Task<IActionResult> Index(string? user, string? type, int page = 1, CancellationToken ct = default)
     {
         var query = db.AuditEntries.AsNoTracking().AsQueryable();

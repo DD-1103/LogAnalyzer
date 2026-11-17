@@ -6,7 +6,7 @@
 | **Kind** | Broken |
 | **Area** | Parsing / threat intel |
 | **CWE** | - |
-| **Status** | Confirmed (logic) |
+| **Status** | Fixed (branch `security-fixes`): parser and lookup page store/use `IpAddressPolicy.Canonical` (lower-case compressed IPv6, mapped IPv4 as IPv4) |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

@@ -6,7 +6,7 @@
 | **Kind** | Will break |
 | **Area** | Frontend / export |
 | **CWE** | CWE-1236 (CSV part) |
-| **Status** | Confirmed in code; none triggered by current views |
+| **Status** | Fixed (branch `security-fixes`): CSV checks first non-blank char incl. full-width signs, count-up handles "." thousands, stacked tables use :scope, autosubmit uses form?.requestSubmit() |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

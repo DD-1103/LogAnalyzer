@@ -14,6 +14,7 @@ namespace LogAnalyzer.Web.Controllers;
 /// </summary>
 public class RulesController(AppDbContext db, IAuditLog audit, ILogger<RulesController> logger) : Controller
 {
+    [HttpGet]
     public async Task<IActionResult> Index()
     {
         // Clears the Rules nav badge for this user.
@@ -142,6 +143,14 @@ public class RulesController(AppDbContext db, IAuditLog audit, ILogger<RulesCont
         var rule = await db.DetectionRules.FirstOrDefaultAsync(r => r.Id == id);
         if (rule is null)
             return NotFound();
+
+        // While a file is analysed its old alerts are temporarily gone: a rule could look unused although it is not.
+        if (await db.LogFiles.AnyAsync(f => f.Status == LogFileStatus.Processing || f.Status == LogFileStatus.Analyzing
+                                            || f.Status == LogFileStatus.Pending))
+        {
+            TempData["Error"] = "A log file is being processed. Delete the rule when it has finished (or disable it now).";
+            return RedirectToAction(nameof(Index));
+        }
 
         var alerts = await db.Alerts.CountAsync(a => a.RuleId == id);
         if (alerts > 0)

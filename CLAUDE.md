@@ -43,7 +43,7 @@ Non-functional: 1M lines < 2 min (CPU part measured ≈ 10 s; end-to-end with SQ
 ## 3. Tech stack
 ASP.NET Core 10 MVC (C#, nullable, primary constructors) · EF Core 10 + SQL Server · ASP.NET Identity (custom login, no Identity UI) · BackgroundService + `Channel<ProcessingJob>` queue (instead of Hangfire) · SqlBulkCopy (TableLock) for bulk inserts · Bootstrap 5.3.3 + Bootstrap Icons 1.11.3 (self-hosted in `wwwroot/lib`, no CDN) re-skinned by the **Liquid Glass** design system (`wwwroot/css/glass.css`, light + dark) · Chart.js 4.4.4 · Leaflet 1.9.4 (both in `wwwroot/lib`) + OpenStreetMap tiles (CSS-darkened) · MaxMind.GeoIP2 5.x (reads DB-IP or GeoLite2 .mmdb) · QuestPDF 2025.x (Community license) · System.Security.Cryptography.Pkcs 10.0.* pinned (NU1902/NU1903 fix) · ASP.NET Core rate limiter · xUnit (tests) · Isolation Forest implemented in C# (no Python/ML.NET dependency).
 
-csproj uses floating versions `10.0.*`, `5.*`, `2025.*`. `UserSecretsId = loganalyzer-web-2026`.
+Exact package versions (10.0.15, MaxMind 5.4.1, QuestPDF 2025.12.4) + `packages.lock.json` (since audit fix 22). `UserSecretsId = loganalyzer-web-2026`.
 
 ## 4. Solution structure
 ```
@@ -153,7 +153,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - `docs/evaluation-guide.md` = full protocol (datasets, DVWA VirtualBox lab, attack commands, labelling, thesis tables, threats to validity).
 
 ### Step 9 — Quality
-- 74 xUnit tests at step 9, 150 after the audit fixes (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
+- 74 xUnit tests at step 9, 180 after the audit fixes (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
 - `SecurityHeadersMiddleware`: CSP `script-src 'self'` (since the audit fixes all libraries are self-hosted; no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
 - Login rate limiter: 10 POSTs/min per IP → 429 (verified).
 - Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
@@ -179,6 +179,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - MaxMind GeoLite2 sign-up form was broken → DB-IP Lite used.
 - Screenshots of the hidden Claude browser pane freeze CSS transitions mid-way (content looks faded); remove `lg-motion` from `<html>` before screenshots. The app also refuses to load in an iframe (frame-ancestors 'none').
 - `git add -A` while agents run would add `.claude/worktrees/` — it is now in .gitignore.
+- New controller actions need `[HttpGet]` or `[HttpPost]` (test `EveryControllerAction_HasAnExplicitHttpVerb`); XML comments in .props/.csproj must not contain `--`.
 - Don't name action parameters / query params `action` (clashes with MVC route value) — use e.g. `intent`, `type`.
 - Stop the running app before `dotnet build` from the CLI (bin files are locked while it runs).
 - Duplicate sample uploads were cleaned on 2026-11-13: only log file **#4** (sample-access.log) remains.
@@ -197,7 +198,11 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - **Threat-intel cache (07):** a failed/throttled/skipped lookup never replaces a real verdict → `IpReputation.LastAttemptAt/LastAttemptError` (card shows "Last refresh failed"); unique-key race (SQL 2601/2627) → reload and retry, also for IpInfos.
 - **Fan-out (10):** max `DetectionEngine.MaxAlertsPerRule` = 1000 alerts per rule and file, the long tail merged into one alert "N other IPs" (`DetectionCore.CapPerRule`, evidence kept → metrics exact); PDF shows top 200 alerts, samples in one query; CSV streamed.
 - **Evaluation (29):** `EvaluationService.Compute` (pure) reports unparsed attack/normal lines and an end-to-end row (unparsed attacks = FN); unique-path ratio divides by min(n, 5000).
-- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs` (150 total; tests use EF InMemory for the threat-intel cache).
+- **Sessions/auth (11, 13, 14, 16, 19):** one login error message for every failure + dummy hash for unknown e-mails; `RevalidateSessionFilter` re-checks the user (enabled, security stamp, Admin role) on every POST and admin page; Logout rotates the stamp; Change password is rate-limited and counts towards lockout; last-admin guard ignores disabled admins and runs under a lock; `AuditLog.Clean` strips control characters (use it for user text in ILogger calls too).
+- **Threat intel (17, 24, 28):** rate-limit policy `ti-lookup` (30/min per user); daily budgets `Enrichment:*DailyBudget` (in memory, reset on restart); provider HttpClients without redirects, 1 MB max body. **`Enrichment:AutoLookup` is false by default** – set it to true (appsettings or user-secrets) for automatic lookups after each file (roadmap step 1); `RetentionDays` 90 + `DataRetentionWorker` (daily). Client IPs are stored canonically (`IpAddressPolicy.Canonical`).
+- **Framework (27, 22):** global `AutoValidateAntiforgeryToken`; every action needs an explicit `[HttpGet]`/`[HttpPost]` (a reflection test fails otherwise). Package versions are exact, `Directory.Build.props` enables lock files – add packages with `dotnet add package X --version x.y.z` and commit the updated `packages.lock.json`.
+- Others: labels CSV ≤ 20 MB, label ≤ 64 chars (20); rule delete blocked while a file is busy (23); alerts paging tie-breaker + `[EnumDataType]` (25); CSV/JS edge cases (30).
+- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs`, `HardeningFixTests.cs` (180 total; EF InMemory for threat-intel tests).
 
 ## 9. Decisions & advice already given
 - **Zimmerman tools / Chainsaw:** out of scope → possible future "Windows event log module" (needs supervisor approval).
@@ -207,9 +212,9 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - Rules with alerts are disabled, not deleted (traceability); users are disabled, not deleted.
 
 ## 10. Roadmap (what's left)
-- **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High, 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed. **Fixed on branch `security-fixes`:** 01–10, 12, 15, 18, 21, 26, 29. **Next:** the remaining Low/Info (11, 13, 14, 16, 17, 19, 20, 22–25, 27, 28, 30).
+- **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High, 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed. **All 30 findings fixed on branch `security-fixes`** (not merged yet).
 0. **Review the `ui-liquid-glass` branch in the browser (both themes), then merge into `main` and push.**
-1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
+1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` (+ `dotnet user-secrets set "Enrichment:AutoLookup" "true"` for automatic lookups) → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
 2. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).
 3. **RQ1/RQ2 real data:** CSIC 2010 (download, `csic` command, both variants) and DVWA lab (VirtualBox: Ubuntu+Apache+DVWA, Kali, normal-traffic VM; nikto/gobuster/sqlmap/hydra + manual XSS/LFI; `label-by-ip`) → Evaluate page tables.
 4. Screenshots for the thesis (dashboard, alerts, alert details with threat intel, rule tester, evaluation, users, audit).

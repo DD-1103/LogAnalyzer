@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Evaluation |
 | **CWE** | CWE-770 |
-| **Status** | Confirmed (code) |
+| **Status** | Fixed (branch `security-fixes`): labels max 64 chars, line numbers 1..TotalLines, 256-char line reader, upload limit 20 MB |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where

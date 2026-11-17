@@ -10,6 +10,7 @@ namespace LogAnalyzer.Web.Controllers;
 
 public class HomeController(AppDbContext db) : Controller
 {
+    [HttpGet]
     public async Task<IActionResult> Index(int? logFileId, [FromServices] DashboardService dashboard, CancellationToken ct)
     {
         var model = await dashboard.BuildAsync(logFileId, ct);
@@ -46,5 +47,8 @@ public class HomeController(AppDbContext db) : Controller
     }
 
     [AllowAnonymous]
+    // Re-executed by the exception handler with the original verb (GET or POST).
+    [AcceptVerbs("GET", "HEAD", "POST")]
+    [IgnoreAntiforgeryToken]
     public IActionResult Error() => View();
 }

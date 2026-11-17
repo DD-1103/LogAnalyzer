@@ -120,10 +120,17 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
         if (hits.Count == 0)
             return 0;
 
+        // A rule may have been deleted while detection was running: drop its findings instead of failing the file.
+        var ruleIds = hits.Select(h => h.Hit.RuleId).Distinct().ToList();
+        var stillThere = (await db.DetectionRules.AsNoTracking().Where(r => ruleIds.Contains(r.Id)).Select(r => r.Id)
+            .ToListAsync(ct)).ToHashSet();
+        foreach (var gone in ruleIds.Where(id => !stillThere.Contains(id)))
+            logger.LogWarning("Rule {RuleId} was deleted during detection on log file {Id}; its findings are dropped", gone, logFileId);
+
         var ruleById = rules.ToDictionary(r => r.Id);
         var created = new List<(Alert Alert, RuleHit Hit)>();
 
-        foreach (var (hit, score, details) in hits)
+        foreach (var (hit, score, details) in hits.Where(h => stillThere.Contains(h.Hit.RuleId)))
         {
             var rule = ruleById[hit.RuleId];
             var isAnomaly = !double.IsNaN(score);

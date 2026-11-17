@@ -32,6 +32,28 @@ public sealed class EnrichmentOptions
 
     /// <summary>Lower the severity of alerts whose source IP GreyNoise classifies as benign (RQ: alert fatigue).</summary>
     public bool GreyNoiseDowngradeBenign { get; set; } = true;
+
+    /// <summary>
+    /// Look up the attacker IPs of every processed file automatically. Off by default (privacy: client addresses
+    /// only leave the machine when an analyst asks for it); turn on for the threat-intel evaluation.
+    /// </summary>
+    public bool AutoLookup { get; set; }
+
+    /// <summary>Threat-intel answers and GeoIP rows of IPs without alerts are deleted after this many days.</summary>
+    public int RetentionDays { get; set; } = 90;
+
+    // Lookups per provider and UTC day (automatic + manual), below the free quotas. 0 = no limit.
+    public int AbuseIpDbDailyBudget { get; set; } = 900;   // free: 1,000/day
+    public int GreyNoiseDailyBudget { get; set; } = 50;    // community: small quota
+    public int VirusTotalDailyBudget { get; set; } = 450;  // public API: 500/day
+
+    public int DailyBudget(string provider) => provider switch
+    {
+        AbuseIpDbProvider.ProviderName => AbuseIpDbDailyBudget,
+        GreyNoiseProvider.ProviderName => GreyNoiseDailyBudget,
+        VirusTotalProvider.ProviderName => VirusTotalDailyBudget,
+        _ => 0
+    };
 }
 
 /// <summary>What a provider says about one IP, already mapped to the common verdict scale.</summary>
@@ -112,7 +134,11 @@ public abstract class ThreatIntelProviderBase(HttpClient http, ILogger logger) :
                 JsonElement? root = null;
                 if (!string.IsNullOrWhiteSpace(body))
                 {
-                    try { root = JsonDocument.Parse(body).RootElement.Clone(); }
+                    try
+                    {
+                        using var notFoundDoc = JsonDocument.Parse(body);
+                        root = notFoundDoc.RootElement.Clone();
+                    }
                     catch (JsonException) { /* not JSON */ }
                 }
                 if (OnNotFound(root) is { } notFound)
@@ -400,6 +426,26 @@ public sealed class ProviderThrottle
         }
     }
 
+    private readonly Dictionary<string, (DateOnly Day, int Count)> _daily = [];
+
+    /// <summary>Counts one lookup against the provider's daily budget; false when today's budget is used up.</summary>
+    public bool TryConsumeDaily(string provider, int budget)
+    {
+        if (budget <= 0)
+            return true;
+        lock (_daily)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var (day, count) = _daily.GetValueOrDefault(provider);
+            if (day != today)
+                count = 0;
+            if (count >= budget)
+                return false;
+            _daily[provider] = (today, count + 1);
+            return true;
+        }
+    }
+
     public TimeSpan RetryAfter(string provider, TimeSpan minInterval)
     {
         var due = _lastCall.GetValueOrDefault(provider, DateTime.MinValue) + minInterval - DateTime.UtcNow;
@@ -444,6 +490,8 @@ public sealed class ThreatIntelService(
             result = ReputationResult.Skipped($"Not configured (set {provider.ApiKeySetting})");
         else if (!IpEnrichmentService.IsPublic(ip))
             result = ReputationResult.Skipped("Private or reserved address - never sent to external services");
+        else if (!throttle.TryConsumeDaily(provider.Name, _o.DailyBudget(provider.Name)))
+            result = ReputationResult.Failed($"Daily budget of {_o.DailyBudget(provider.Name)} lookups used up (protects the free quota); try again tomorrow");
         else if (!await throttle.TryEnterAsync(provider.Name, provider.MinInterval, waitForSlot, ct))
             result = ReputationResult.Failed(
                 $"Rate limit: try again in {Math.Ceiling(throttle.RetryAfter(provider.Name, provider.MinInterval).TotalSeconds)} s");
@@ -590,7 +638,8 @@ public sealed class ThreatIntelService(
             .Select(a => a.SourceIp)
             .Distinct()
             .ToListAsync(ct);
-        var lookups = await EnrichAsync(ips, ct);
+        // Without AutoLookup nothing is sent; the GreyNoise rule still uses answers that analysts looked up by hand.
+        var lookups = _o.AutoLookup ? await EnrichAsync(ips, ct) : 0;
         var downgraded = await ApplyGreyNoiseRuleAsync(logFileId, ct);
         return new ThreatIntelRunSummary(lookups, downgraded);
     }

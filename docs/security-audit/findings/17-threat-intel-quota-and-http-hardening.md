@@ -6,7 +6,7 @@
 | **Kind** | Hardening |
 | **Area** | Threat intel |
 | **CWE** | CWE-770 / CWE-200 |
-| **Status** | Confirmed (code); Likely (redirect header behaviour) |
+| **Status** | Fixed (branch `security-fixes`): rate limit "ti-lookup" (30/min per user) on Refresh/Test, daily budget per provider, no redirects, 1 MB response limit; verified live (31st → 429) |
 | **Found** | 2026-11-17 audit, branch `ui-liquid-glass` |
 
 ## Where
