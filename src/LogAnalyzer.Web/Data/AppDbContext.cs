@@ -20,7 +20,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     {
         base.OnModelCreating(b);
 
-        b.Entity<AppUser>(e => e.Property(x => x.FullName).HasMaxLength(150));
+        b.Entity<AppUser>(e =>
+        {
+            e.Property(x => x.FullName).HasMaxLength(150);
+            e.Property(x => x.Tier).HasConversion<string>().HasMaxLength(10);
+        });
 
         b.Entity<LogFile>(e =>
         {
@@ -28,9 +32,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
             e.Property(x => x.DetectionWarnings).HasMaxLength(2000);
+            e.Property(x => x.UploadedByName).HasMaxLength(256);
+            e.Ignore(x => x.UploaderDisplay);
+            // Deleting a user account keeps the files: the link becomes null, UploadedByName keeps the e-mail.
             e.HasOne(x => x.UploadedBy).WithMany()
                 .HasForeignKey(x => x.UploadedById)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         b.Entity<LogEvent>(e =>
@@ -94,6 +101,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.HasOne(x => x.AssignedTo).WithMany()
                 .HasForeignKey(x => x.AssignedToId)
                 .OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.EscalatedBy).HasMaxLength(256);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.Severity);
             e.HasIndex(x => x.SourceIp);

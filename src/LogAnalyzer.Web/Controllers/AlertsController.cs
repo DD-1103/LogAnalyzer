@@ -17,7 +17,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
 
     [HttpGet]
     public async Task<IActionResult> Index(AlertStatus? status, Severity? severity, AttackType? attackType,
-        string? ip, int? logFileId, int page = 1)
+        string? ip, int? logFileId, bool escalated = false, int page = 1)
     {
         // Mark alerts as "seen" for the nav badge, but remember the previous visit to highlight new rows.
         var userId = userManager.GetUserId(User);
@@ -25,7 +25,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         await db.Users.Where(u => u.Id == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(u => u.AlertsSeenAt, DateTime.UtcNow));
 
-        var query = Filter(status, severity, attackType, ip, logFileId);
+        var query = Filter(status, severity, attackType, ip, logFileId, escalated);
 
         var count = await query.CountAsync();
         var totalPages = Math.Max(1, (int)Math.Ceiling(count / (double)PageSize));
@@ -45,6 +45,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
             AttackType = attackType,
             Ip = ip,
             LogFileId = logFileId,
+            Escalated = escalated,
             Page = page,
             TotalPages = totalPages,
             TotalCount = count,
@@ -70,9 +71,14 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
             .Take(MaxEvidenceShown)
             .ToListAsync();
 
+        var me = await userManager.GetUserAsync(User);
+        var isAdmin = User.IsInRole(Roles.Admin);
         return View(new AlertDetailsViewModel
         {
             Alert = alert,
+            AllowedStatuses = SocPermissions.AllowedStatuses(isAdmin, me?.Tier, alert.Status),
+            CanEscalate = SocPermissions.CanEscalate(isAdmin, me?.Tier, alert),
+            Tier = SocPermissions.EffectiveTier(isAdmin, me?.Tier),
             Evidence = evidence,
             EvidenceShown = evidence.Count,
             IpInfo = await db.IpInfos.AsNoTracking().FirstOrDefaultAsync(i => i.Ip == alert.SourceIp),
@@ -95,6 +101,18 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
             return RedirectToAction(nameof(Details), new { id });
         }
 
+        // SOC 1 works on open alerts only; closing, false positives and reopening are SOC 2 / admin decisions.
+        // The tier is read from the database, so a change by an administrator applies at once.
+        var me = await userManager.GetUserAsync(User);
+        if (!SocPermissions.CanChange(User.IsInRole(Roles.Admin), me?.Tier, alert.Status, model.Status))
+        {
+            await audit.WriteAsync("Alert.Update.Denied", $"#{id} {alert.Title}", $"{alert.Status} -> {model.Status} (SOC 1)");
+            TempData["Error"] = SocPermissions.IsOpen(alert.Status)
+                ? $"SOC 1 analysts cannot set an alert to {model.Status}. Escalate it to SOC 2 instead."
+                : "This alert is closed. Only SOC 2 analysts or administrators can reopen or change it.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
         var oldStatus = alert.Status;
         alert.Status = model.Status;
         alert.Notes = string.IsNullOrWhiteSpace(model.Notes) ? null : model.Notes.Trim();
@@ -112,12 +130,43 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         return RedirectToAction(nameof(Details), new { id });
     }
 
+    /// <summary>SOC 1 hands an open alert over to SOC 2: it is marked escalated, unassigned and stays open.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Escalate(long id, string? reason)
+    {
+        var alert = await db.Alerts.FirstOrDefaultAsync(a => a.Id == id);
+        if (alert is null)
+            return NotFound();
+        var me = await userManager.GetUserAsync(User);
+        if (!SocPermissions.CanEscalate(User.IsInRole(Roles.Admin), me?.Tier, alert))
+        {
+            TempData["Error"] = "This alert cannot be escalated (already escalated, closed, or you are not SOC 1).";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        alert.EscalatedAt = DateTime.UtcNow;
+        alert.EscalatedBy = User.Identity?.Name;
+        alert.Status = AlertStatus.Investigating;
+        alert.AssignedToId = null; // the next SOC 2 analyst who saves it becomes the owner
+        var note = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC] Escalated to SOC 2 by {User.Identity?.Name}"
+                   + (string.IsNullOrWhiteSpace(reason) ? "." : ": " + AuditLog.Clean(reason.Trim()));
+        var notes = string.IsNullOrWhiteSpace(alert.Notes) ? note : alert.Notes + "\n" + note;
+        alert.Notes = notes.Length > 4000 ? notes[..4000] : notes;
+        await db.SaveChangesAsync();
+
+        await audit.WriteAsync("Alert.Escalate", $"#{id} {alert.Title}", reason);
+        logger.LogInformation("User {User} escalated alert {Id} to SOC 2", User.Identity?.Name, id);
+        TempData["Success"] = "Alert escalated to SOC 2.";
+        return RedirectToAction(nameof(Details), new { id });
+    }
+
     /// <summary>Exports the alerts matching the current filters as CSV (opens in Excel).</summary>
     [HttpGet]
     public async Task<IActionResult> Export(AlertStatus? status, Severity? severity, AttackType? attackType,
-        string? ip, int? logFileId, CancellationToken ct)
+        string? ip, int? logFileId, CancellationToken ct, bool escalated = false)
     {
-        var filtered = Filter(status, severity, attackType, ip, logFileId);
+        var filtered = Filter(status, severity, attackType, ip, logFileId, escalated);
         var count = await filtered.CountAsync(ct);
         var ips = await filtered.Select(a => a.SourceIp).Distinct().ToListAsync(ct);
         var ipInfo = await db.IpInfos.AsNoTracking()
@@ -161,7 +210,8 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         return new EmptyResult();
     }
 
-    private IQueryable<Alert> Filter(AlertStatus? status, Severity? severity, AttackType? attackType, string? ip, int? logFileId)
+    private IQueryable<Alert> Filter(AlertStatus? status, Severity? severity, AttackType? attackType, string? ip, int? logFileId,
+        bool escalated = false)
     {
         var query = db.Alerts.AsNoTracking().Include(a => a.LogFile).Include(a => a.AssignedTo).AsQueryable();
         if (status.HasValue) query = query.Where(a => a.Status == status.Value);
@@ -169,6 +219,9 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         if (attackType.HasValue) query = query.Where(a => a.AttackType == attackType.Value);
         if (!string.IsNullOrWhiteSpace(ip)) query = query.Where(a => a.SourceIp == ip.Trim());
         if (logFileId.HasValue) query = query.Where(a => a.LogFileId == logFileId.Value);
+        // Escalated by SOC 1 and still open: the SOC 2 work queue.
+        if (escalated) query = query.Where(a => a.EscalatedAt != null
+                                                && (a.Status == AlertStatus.New || a.Status == AlertStatus.Investigating));
         return query;
     }
 

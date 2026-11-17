@@ -93,7 +93,7 @@ else
                         <td class="text-nowrap">@Format.Bytes(f.SizeBytes)</td>
                         <td class="small">
                             <span class="text-nowrap">@f.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
-                            <div class="text-body-secondary">@f.UploadedBy?.Email</div>
+                            <div class="text-body-secondary">@f.UploaderDisplay</div>
                         </td>
                         <td>
                             <span class="badge @Format.StatusBadge(f.Status)">

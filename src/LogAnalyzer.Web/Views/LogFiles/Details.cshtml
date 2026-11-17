@@ -29,7 +29,7 @@
                 }
                 @f.Status
             </span>
-            Uploaded @f.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm") by @(f.UploadedBy?.Email ?? "unknown").
+            Uploaded @f.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm") by @f.UploaderDisplay.
         </p>
     </div>
     @if (f.Status == LogFileStatus.Completed)
@@ -119,7 +119,7 @@
                 <span class="lg-icon lg-icon-sm lg-tint-indigo" aria-hidden="true"><i class="bi bi-hdd"></i></span>
             </div>
             <div class="lg-stat-value">@Format.Bytes(f.SizeBytes)</div>
-            <div class="lg-stat-meta text-truncate">by @f.UploadedBy?.Email</div>
+            <div class="lg-stat-meta text-truncate">by @f.UploaderDisplay</div>
         </div></div>
     </div>
 </div>

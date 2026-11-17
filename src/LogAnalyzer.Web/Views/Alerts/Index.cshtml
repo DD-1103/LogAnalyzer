@@ -2,7 +2,7 @@
 @{
     ViewData["Title"] = "Alerts";
     var filtered = Model.Status.HasValue || Model.Severity.HasValue || Model.AttackType.HasValue
-                   || !string.IsNullOrWhiteSpace(Model.Ip) || Model.LogFileId.HasValue;
+                   || !string.IsNullOrWhiteSpace(Model.Ip) || Model.LogFileId.HasValue || Model.Escalated;
 }
 @section Head {
     <link rel="stylesheet" href="~/css/views-b.css" asp-append-version="true" />
@@ -16,8 +16,16 @@
         </p>
     </div>
     <div class="lg-actions">
+        @if (Model.Escalated)
+        {
+            <a asp-action="Index" class="btn btn-sm btn-info"><i class="bi bi-arrow-up-circle-fill" aria-hidden="true"></i> SOC 2 queue <i class="bi bi-x" aria-hidden="true"></i></a>
+        }
+        else
+        {
+            <a asp-action="Index" asp-route-escalated="true" class="btn btn-sm btn-outline-info"><i class="bi bi-arrow-up-circle" aria-hidden="true"></i> Escalated to SOC 2</a>
+        }
         <a asp-action="Export" asp-route-status="@Model.Status" asp-route-severity="@Model.Severity"
-           asp-route-attackType="@Model.AttackType" asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId"
+           asp-route-attackType="@Model.AttackType" asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId" asp-route-escalated="@(Model.Escalated ? "true" : null)"
            class="btn btn-sm btn-outline-success"><i class="bi bi-filetype-csv" aria-hidden="true"></i> Export CSV</a>
     </div>
 </header>
@@ -26,6 +34,10 @@
     @if (Model.LogFileId.HasValue)
     {
         <input type="hidden" name="logFileId" value="@Model.LogFileId" />
+    }
+    @if (Model.Escalated)
+    {
+        <input type="hidden" name="escalated" value="true" />
     }
     <div class="col-6 col-md-2">
         <label class="form-label small" for="status">Status</label>
@@ -120,7 +132,13 @@ else
                         <td class="font-monospace">@a.SourceIp</td>
                         <td class="text-end">@a.EventCount.ToString("N0")</td>
                         <td class="small text-nowrap">@a.LastSeen.ToString("dd/MM/yyyy HH:mm:ss")</td>
-                        <td><span class="badge @Format.AlertStatusBadge(a.Status)">@a.Status</span></td>
+                        <td>
+                            <span class="badge @Format.AlertStatusBadge(a.Status)">@a.Status</span>
+                            @if (a.EscalatedAt is not null && SocPermissions.IsOpen(a.Status))
+                            {
+                                <span class="badge text-bg-info" title="Escalated to SOC 2 by @a.EscalatedBy"><i class="bi bi-arrow-up-circle" aria-hidden="true"></i> SOC 2</span>
+                            }
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -134,13 +152,13 @@ else
                 <li class="page-item @(Model.Page == 1 ? "disabled" : "")">
                     <a class="page-link" asp-action="Index" asp-route-page="@(Model.Page - 1)"
                        asp-route-status="@Model.Status" asp-route-severity="@Model.Severity" asp-route-attackType="@Model.AttackType"
-                       asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId">Previous</a>
+                       asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId" asp-route-escalated="@(Model.Escalated ? "true" : null)">Previous</a>
                 </li>
                 <li class="page-item disabled"><span class="page-link">Page @Model.Page of @Model.TotalPages</span></li>
                 <li class="page-item @(Model.Page == Model.TotalPages ? "disabled" : "")">
                     <a class="page-link" asp-action="Index" asp-route-page="@(Model.Page + 1)"
                        asp-route-status="@Model.Status" asp-route-severity="@Model.Severity" asp-route-attackType="@Model.AttackType"
-                       asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId">Next</a>
+                       asp-route-ip="@Model.Ip" asp-route-logFileId="@Model.LogFileId" asp-route-escalated="@(Model.Escalated ? "true" : null)">Next</a>
                 </li>
             </ul>
         </nav>

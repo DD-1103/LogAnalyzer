@@ -10,8 +10,8 @@ using Microsoft.EntityFrameworkCore;
 namespace LogAnalyzer.Web.Controllers;
 
 /// <summary>
-/// Admin-only account management (FR1): create Admin/Analyst accounts, change role, disable/enable, reset password.
-/// Accounts are never deleted, so alerts and audit entries stay attributable.
+/// Admin-only account management (FR1): create, edit (name, role, SOC tier), disable/enable, unlock, reset password
+/// and delete. Disable suspends an account; delete removes it for good while uploads, alerts and the audit trail stay.
 /// </summary>
 [Authorize(Roles = Roles.Admin)]
 public class UsersController(
@@ -63,6 +63,7 @@ public class UsersController(
             Email = model.Email.Trim(),
             EmailConfirmed = true,
             FullName = model.FullName.Trim(),
+            Tier = model.Role == Roles.Analyst ? model.Tier ?? AnalystTier.Soc1 : null,
             LockoutEnabled = true,
             MustChangePassword = true   // the administrator knows this password
         };
@@ -75,42 +76,141 @@ public class UsersController(
         }
         await userManager.AddToRoleAsync(user, model.Role);
 
-        await audit.WriteAsync("User.Create", user.Email, $"role {model.Role}");
+        await audit.WriteAsync("User.Create", user.Email, $"role {model.Role}{(user.Tier is { } t ? " " + SocPermissions.Label(t) : "")}");
         logger.LogInformation("User {Admin} created account {Email} ({Role})", User.Identity?.Name, user.Email, model.Role);
         TempData["Success"] = $"Account {user.Email} created as {model.Role}.";
         return RedirectToAction(nameof(Index));
     }
 
+    [HttpGet]
+    public async Task<IActionResult> Edit(string id)
+    {
+        var user = await userManager.FindByIdAsync(id);
+        if (user is null)
+            return NotFound();
+        var role = (await userManager.GetRolesAsync(user)).OrderBy(r => r).FirstOrDefault() ?? Roles.Analyst;
+        ViewBag.Roles = AllRoles;
+        return View(new EditUserModel
+        {
+            Id = user.Id,
+            Email = user.Email ?? string.Empty,
+            FullName = user.FullName,
+            Role = role,
+            Tier = user.Tier ?? AnalystTier.Soc1,
+            IsSelf = user.Id == userManager.GetUserId(User)
+        });
+    }
+
+    /// <summary>Saves name, role and SOC tier. Admins cannot change their own role (no accidental self-lock-out).</summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChangeRole(string id, string role)
+    public async Task<IActionResult> Edit(string id, EditUserModel model)
     {
         await AdminStateLock.WaitAsync();
-        try { return await ChangeRoleLockedAsync(id, role); }
+        try { return await EditLockedAsync(id, model); }
         finally { AdminStateLock.Release(); }
     }
 
-    private async Task<IActionResult> ChangeRoleLockedAsync(string id, string role)
+    private async Task<IActionResult> EditLockedAsync(string id, EditUserModel model)
     {
-        if (!AllRoles.Contains(role))
-            return BadRequest();
+        var user = await userManager.FindByIdAsync(id);
+        if (user is null)
+            return NotFound();
+        var isSelf = user.Id == userManager.GetUserId(User);
+        var currentRoles = await userManager.GetRolesAsync(user);
+        var currentRole = currentRoles.OrderBy(r => r).FirstOrDefault() ?? Roles.Analyst;
+
+        model.Id = user.Id;
+        model.Email = user.Email ?? string.Empty;
+        model.IsSelf = isSelf;
+        ViewBag.Roles = AllRoles;
+        if (!AllRoles.Contains(model.Role))
+            ModelState.AddModelError(nameof(model.Role), "Unknown role.");
+        if (isSelf && model.Role != currentRole)
+            ModelState.AddModelError(nameof(model.Role), "You cannot change your own role.");
+        if (model.Role != Roles.Admin && currentRole == Roles.Admin && await IsLastActiveAdminAsync(user))
+            ModelState.AddModelError(nameof(model.Role), "This is the last active administrator.");
+        if (!ModelState.IsValid)
+            return View(model);
+
+        var newTier = model.Role == Roles.Analyst ? model.Tier ?? AnalystTier.Soc1 : (AnalystTier?)null;
+        var changes = new List<string>();
+        if (user.FullName != model.FullName.Trim())
+            changes.Add($"name \"{user.FullName}\" -> \"{model.FullName.Trim()}\"");
+        if (currentRole != model.Role)
+            changes.Add($"role {currentRole} -> {model.Role}");
+        if (user.Tier != newTier)
+            changes.Add($"tier {TierText(user.Tier)} -> {TierText(newTier)}");
+        if (changes.Count == 0)
+        {
+            TempData["Success"] = "Nothing changed.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        user.FullName = model.FullName.Trim();
+        user.Tier = newTier;
+        await userManager.UpdateAsync(user);
+        if (currentRole != model.Role)
+        {
+            await userManager.RemoveFromRolesAsync(user, currentRoles);
+            await userManager.AddToRoleAsync(user, model.Role);
+            await userManager.UpdateSecurityStampAsync(user); // forces a fresh sign-in with the new role
+        }
+
+        await audit.WriteAsync("User.Edit", user.Email, string.Join("; ", changes));
+        logger.LogInformation("User {Admin} edited account {Email}: {Changes}", User.Identity?.Name, user.Email, string.Join("; ", changes));
+        TempData["Success"] = $"{user.Email} saved ({string.Join(", ", changes)}).";
+        return RedirectToAction(nameof(Index));
+    }
+
+    /// <summary>
+    /// Removes an account for good (e.g. someone left the organisation): the person can no longer sign in and open
+    /// sessions end at their next request. History stays: uploaded files keep the uploader's e-mail, the audit log
+    /// keeps every entry, alerts they owned go back to the queue (unassigned).
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Delete(string id, string? confirmEmail)
+    {
+        await AdminStateLock.WaitAsync();
+        try { return await DeleteLockedAsync(id, confirmEmail); }
+        finally { AdminStateLock.Release(); }
+    }
+
+    private async Task<IActionResult> DeleteLockedAsync(string id, string? confirmEmail)
+    {
         var user = await userManager.FindByIdAsync(id);
         if (user is null)
             return NotFound();
         if (user.Id == userManager.GetUserId(User))
-            return Fail("You cannot change your own role.");
-        if (role != Roles.Admin && await IsLastActiveAdminAsync(user))
+            return Fail("You cannot delete your own account.");
+        if (!string.Equals(confirmEmail?.Trim(), user.Email, StringComparison.OrdinalIgnoreCase))
+            return Fail($"Not deleted: type the e-mail address {user.Email} to confirm.");
+        if (await IsLastActiveAdminAsync(user))
             return Fail("This is the last active administrator.");
 
-        var current = await userManager.GetRolesAsync(user);
-        await userManager.RemoveFromRolesAsync(user, current);
-        await userManager.AddToRoleAsync(user, role);
-        await userManager.UpdateSecurityStampAsync(user); // forces a fresh sign-in with the new role
+        var roles = string.Join(",", await userManager.GetRolesAsync(user));
+        var files = await db.LogFiles.CountAsync(f => f.UploadedById == user.Id);
+        // Keep who uploaded each file (the foreign key becomes null when the account is removed).
+        await db.LogFiles.Where(f => f.UploadedById == user.Id && f.UploadedByName == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.UploadedByName, user.Email));
+        var unassigned = await db.Alerts.Where(a => a.AssignedToId == user.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.AssignedToId, (string?)null));
 
-        await audit.WriteAsync("User.ChangeRole", user.Email, $"{string.Join(",", current)} -> {role}");
-        TempData["Success"] = $"{user.Email} is now {role}.";
+        var result = await userManager.DeleteAsync(user);
+        if (!result.Succeeded)
+            return Fail("Account not deleted: " + string.Join(" ", result.Errors.Select(e => e.Description)));
+
+        var details = $"role {roles}{(user.Tier is { } t ? " " + SocPermissions.Label(t) : "")}; " +
+                      $"{files} uploaded file(s) kept; {unassigned} alert(s) unassigned";
+        await audit.WriteAsync("User.Delete", user.Email, details);
+        logger.LogWarning("User {Admin} deleted account {Email} ({Details})", User.Identity?.Name, user.Email, details);
+        TempData["Success"] = $"{user.Email} deleted. {files} uploaded file(s) and the audit history are kept; " +
+                              $"{unassigned} alert(s) went back to the queue.";
         return RedirectToAction(nameof(Index));
     }
+
+    private static string TierText(AnalystTier? tier) => tier is { } t ? SocPermissions.Label(t) : "none";
 
     [HttpPost]
     [ValidateAntiForgeryToken]

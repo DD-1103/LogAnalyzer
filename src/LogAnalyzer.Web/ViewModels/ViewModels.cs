@@ -78,6 +78,7 @@ public class AlertListViewModel
     public AttackType? AttackType { get; set; }
     public string? Ip { get; set; }
     public int? LogFileId { get; set; }
+    public bool Escalated { get; set; }
     public int Page { get; set; }
     public int TotalPages { get; set; }
     public int TotalCount { get; set; }
@@ -88,6 +89,11 @@ public class AlertListViewModel
 
 public class AlertDetailsViewModel
 {
+    /// <summary>Statuses the current user may choose (SOC tier rules).</summary>
+    public IReadOnlyList<AlertStatus> AllowedStatuses { get; set; } = [];
+    public bool CanEscalate { get; set; }
+    public AnalystTier Tier { get; set; }
+
     public required Alert Alert { get; set; }
     public List<LogEvent> Evidence { get; set; } = [];
     public int EvidenceShown { get; set; }
@@ -284,11 +290,30 @@ public class CreateUserModel
     [Required]
     public string Role { get; set; } = LogAnalyzer.Web.Data.Roles.Analyst;
 
+    [Display(Name = "SOC tier"), EnumDataType(typeof(AnalystTier))]
+    public AnalystTier? Tier { get; set; } = AnalystTier.Soc1;
+
     [Required, DataType(DataType.Password), StringLength(128, MinimumLength = 10)]
     public string Password { get; set; } = string.Empty;
 
     [Required, DataType(DataType.Password), Compare(nameof(Password)), Display(Name = "Confirm password")]
     public string ConfirmPassword { get; set; } = string.Empty;
+}
+
+public class EditUserModel
+{
+    public string Id { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public bool IsSelf { get; set; }
+
+    [Required, StringLength(150), Display(Name = "Full name")]
+    public string FullName { get; set; } = string.Empty;
+
+    [Required]
+    public string Role { get; set; } = LogAnalyzer.Web.Data.Roles.Analyst;
+
+    [Display(Name = "SOC tier"), EnumDataType(typeof(AnalystTier))]
+    public AnalystTier? Tier { get; set; }
 }
 
 public class ChangePasswordModel

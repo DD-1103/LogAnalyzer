@@ -92,7 +92,7 @@ public sealed class ReportService(AppDbContext db)
                     col.Item().Table(t =>
                     {
                         t.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
-                        SummaryRow(t, "Uploaded", $"{file.UploadedAt.ToLocalTime():dd/MM/yyyy HH:mm} by {file.UploadedBy?.Email}");
+                        SummaryRow(t, "Uploaded", $"{file.UploadedAt.ToLocalTime():dd/MM/yyyy HH:mm} by {file.UploaderDisplay}");
                         SummaryRow(t, "File size", Format.Bytes(file.SizeBytes));
                         SummaryRow(t, "Lines parsed / failed", $"{file.ParsedLines:N0} / {file.FailedLines:N0}");
                         SummaryRow(t, "Malicious requests", $"{maliciousEvents:N0}");

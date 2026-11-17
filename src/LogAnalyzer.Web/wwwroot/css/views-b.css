@@ -144,3 +144,6 @@ code.lg-sample-line {
     .lg-ti-header form { margin-left: 0; }
     .lg-row-actions { gap: .25rem; }
 }
+
+/* Alert notes shown read-only (closed alerts for SOC 1): keep the analyst's line breaks */
+.lg-notes { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lg-text-2); }

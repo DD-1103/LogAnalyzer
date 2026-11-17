@@ -1,0 +1,94 @@
+@model EditUserModel
+@{
+    ViewData["Title"] = $"Edit {Model.Email}";
+    var roles = (string[])ViewBag.Roles;
+}
+
+@section Head {
+    <link rel="stylesheet" href="~/css/views-c.css" asp-append-version="true" />
+}
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a asp-action="Index">Users</a></li>
+        <li class="breadcrumb-item active text-break" aria-current="page">@Model.Email</li>
+    </ol>
+</nav>
+
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title">Edit user</h1>
+        <p class="lg-subtitle">Name, role and SOC tier. The e-mail address is the login name and cannot be changed.</p>
+    </div>
+</header>
+
+<div class="row g-4">
+    <div class="col-lg-7 col-xl-6">
+        <form asp-action="Edit" asp-route-id="@Model.Id" method="post" class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <span class="lg-icon lg-icon-lg lg-tint-indigo"><i class="bi bi-person-gear" aria-hidden="true"></i></span>
+                    <div class="min-w-0">
+                        <div class="fw-semibold text-break">@Model.Email</div>
+                        <div class="small text-body-secondary">@(Model.IsSelf ? "This is your own account: your role cannot be changed here." : "Changes take effect at the user's next request.")</div>
+                    </div>
+                </div>
+
+                <div asp-validation-summary="All" class="alert alert-danger lg-validation small mb-3"></div>
+
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label asp-for="FullName" class="form-label small"></label>
+                        <input asp-for="FullName" class="form-control" maxlength="150" autocomplete="off" />
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Role" class="form-label small"></label>
+                        @if (Model.IsSelf)
+                        {
+                            <input type="hidden" asp-for="Role" />
+                            <input class="form-control" value="@Model.Role" disabled />
+                        }
+                        else
+                        {
+                            <select asp-for="Role" class="form-select">
+                                @foreach (var r in roles)
+                                {
+                                    <option value="@r">@r</option>
+                                }
+                            </select>
+                        }
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Tier" class="form-label small"></label>
+                        <select asp-for="Tier" class="form-select">
+                            <option value="@AnalystTier.Soc1">SOC 1 – triage &amp; escalate</option>
+                            <option value="@AnalystTier.Soc2">SOC 2 – investigate &amp; close</option>
+                        </select>
+                        <div class="form-text">Only used for analysts. Administrators can always do everything.</div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2 mt-4">
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check2" aria-hidden="true"></i> Save</button>
+                    <a asp-action="Index" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-lg-5 col-xl-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="h6">What the tiers may do</h2>
+                <dl class="lg-kv small mb-0">
+                    <dt>SOC 1</dt>
+                    <dd>Works on open alerts: sets <em>New</em> / <em>Investigating</em>, writes notes and escalates an alert to SOC 2. Cannot close alerts.</dd>
+                    <dt>SOC 2</dt>
+                    <dd>Everything on alerts: closes them, marks false positives, reopens closed alerts and takes over escalations.</dd>
+                    <dt>Admin</dt>
+                    <dd>Everything SOC 2 can do, plus rules, users, log file deletion and the audit log.</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>

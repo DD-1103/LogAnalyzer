@@ -51,6 +51,14 @@
                         </select>
                     </div>
                     <div class="col-12">
+                        <label asp-for="Tier" class="form-label small"></label>
+                        <select asp-for="Tier" class="form-select">
+                            <option value="@AnalystTier.Soc1">SOC 1 – triage &amp; escalate</option>
+                            <option value="@AnalystTier.Soc2">SOC 2 – investigate &amp; close</option>
+                        </select>
+                        <div class="form-text">Only used for analysts.</div>
+                    </div>
+                    <div class="col-12">
                         <label asp-for="Email" class="form-label small"></label>
                         <input asp-for="Email" class="form-control" autocomplete="off" />
                     </div>

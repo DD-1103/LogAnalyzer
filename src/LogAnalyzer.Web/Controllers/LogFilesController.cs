@@ -60,6 +60,7 @@ public class LogFilesController(
             FileName = originalName.Length > 260 ? originalName[^260..] : originalName,
             SizeBytes = file.Length,
             UploadedById = userManager.GetUserId(User)!,
+            UploadedByName = User.Identity?.Name,
             Status = LogFileStatus.Pending
         };
         db.LogFiles.Add(logFile);

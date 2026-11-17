@@ -9,6 +9,9 @@ public class AppUser : IdentityUser
 
     /// <summary>Disabled by an administrator: cannot sign in (the account and its history are kept).</summary>
     public bool IsDisabled { get; set; }
+
+    /// <summary>Analysts only: SOC 1 or SOC 2 (decides who may close alerts). Null for administrators.</summary>
+    public AnalystTier? Tier { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }
 
@@ -27,8 +30,13 @@ public class LogFile
     public long SizeBytes { get; set; }
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
-    public string UploadedById { get; set; } = string.Empty;
+    /// <summary>Null once the uploader's account was deleted; <see cref="UploadedByName"/> keeps who it was.</summary>
+    public string? UploadedById { get; set; }
     public AppUser? UploadedBy { get; set; }
+    public string? UploadedByName { get; set; }
+
+    /// <summary>Uploader for display, also after the account was deleted.</summary>
+    public string UploaderDisplay => UploadedBy?.Email ?? (UploadedByName is null ? "unknown" : UploadedByName + " (deleted user)");
 
     public LogFileStatus Status { get; set; } = LogFileStatus.Pending;
     public int TotalLines { get; set; }
@@ -145,6 +153,10 @@ public class Alert
     public string? Notes { get; set; }
     public string? AssignedToId { get; set; }
     public AppUser? AssignedTo { get; set; }
+
+    /// <summary>Set when a SOC 1 analyst hands the alert over to SOC 2.</summary>
+    public DateTime? EscalatedAt { get; set; }
+    public string? EscalatedBy { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

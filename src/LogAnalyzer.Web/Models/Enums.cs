@@ -48,6 +48,13 @@ public enum RuleField
     Referrer = 2
 }
 
+/// <summary>SOC tier of an analyst: SOC 1 triages and escalates, SOC 2 investigates and closes (see SocPermissions).</summary>
+public enum AnalystTier
+{
+    Soc1 = 1,
+    Soc2 = 2
+}
+
 public enum AlertStatus
 {
     New = 0,

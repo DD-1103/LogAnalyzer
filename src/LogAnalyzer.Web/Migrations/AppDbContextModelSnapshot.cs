@@ -45,6 +45,13 @@ namespace LogAnalyzer.Web.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<DateTime?>("EscalatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EscalatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<int>("EventCount")
                         .HasColumnType("int");
 
@@ -203,6 +210,10 @@ namespace LogAnalyzer.Web.Migrations
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Tier")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("bit");
@@ -552,8 +563,11 @@ namespace LogAnalyzer.Web.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("UploadedById")
-                        .IsRequired()
                         .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("UploadedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.HasKey("Id");
 
@@ -775,8 +789,7 @@ namespace LogAnalyzer.Web.Migrations
                     b.HasOne("LogAnalyzer.Web.Models.AppUser", "UploadedBy")
                         .WithMany()
                         .HasForeignKey("UploadedById")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("UploadedBy");
                 });

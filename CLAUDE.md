@@ -98,11 +98,11 @@ LogAnalyzer/
   ```
 
 ## 6. Database model (LogAnalyzerDb)
-- **AppUser** : IdentityUser + FullName, IsDisabled, CreatedAt, LastLoginAt, AlertsSeenAt?, RulesSeenAt?
-- **LogFile**: Id, FileName, SizeBytes, UploadedAt, UploadedById, Status (Pending/Processing/Analyzing/Completed/Failed, string), TotalLines, ParsedLines, FailedLines, ErrorMessage, ProcessedAt, **ParseMilliseconds, DetectionMilliseconds**
+- **AppUser** : IdentityUser + FullName, IsDisabled, **Tier** (Soc1/Soc2, analysts only, string), MustChangePassword, CreatedAt, LastLoginAt, AlertsSeenAt?, RulesSeenAt?
+- **LogFile**: Id, FileName, SizeBytes, UploadedAt, UploadedById (nullable, FK SetNull) + **UploadedByName** (e-mail kept after the account is deleted; `UploaderDisplay`), Status (Pending/Processing/Analyzing/Completed/Failed, string), TotalLines, ParsedLines, FailedLines, ErrorMessage, ProcessedAt, **ParseMilliseconds, DetectionMilliseconds**
 - **LogEvent**: Id(long), LogFileId, LineNumber, ClientIp, Timestamp(DateTimeOffset), Method, Url, Protocol, StatusCode, ResponseSize, Referrer, UserAgent, RawLine. Indexes on LogFileId, ClientIp, Timestamp.
 - **DetectionRule**: Name (unique), Description, AttackType, Severity, Kind (**Signature/Threshold/Anomaly**), Field, Pattern, Threshold (anomaly: min requests per IP), WindowSeconds, MethodFilter, PathPattern, StatusFilter, **ScoreThreshold** (anomaly), IsEnabled
-- **Alert**: Title, RuleId, LogFileId, SourceIp, AttackType, Severity, Status, FirstSeen, LastSeen, EventCount, **Score, Details** (anomaly), **OriginalSeverity, SeverityNote** (GreyNoise downgrade), Notes, AssignedToId, CreatedAt
+- **Alert**: Title, RuleId, LogFileId, SourceIp, AttackType, Severity, Status, FirstSeen, LastSeen, EventCount, **Score, Details** (anomaly), **OriginalSeverity, SeverityNote** (GreyNoise downgrade), Notes, AssignedToId, **EscalatedAt, EscalatedBy** (SOC 1 → SOC 2), CreatedAt
 - **AlertEvidence**: AlertId → LogEventId (unique pair). LogEvent FK is NoAction → evidence must be deleted before events.
 - **IpInfo** (key Ip): CountryCode, CountryName, City, Latitude, Longitude, AbuseScore (synced from AbuseIPDB), LastChecked
 - **IpReputation**: Ip + Provider (unique), Verdict (Unknown/Benign/Suspicious/Malicious/NotFound/Error/Skipped), Score 0–100, Summary, AttributesJson, Error, CheckedAt
@@ -134,7 +134,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 
 ### Step 6 — Rule & user management (FR1, FR4)
 - Rules: Admin create/edit (one form for 3 kinds, `rule-form.js` shows/disables fields per kind), delete only if the rule has no alerts (else disable), unique names, `RuleValidator` (compile + **ReDoS probe** with 100 ms timeout on adversarial inputs), **Test before saving** (`RuleTester`: runs the unsaved rule on a stored log, up to 500k events, shows matches/alerts/top IPs/samples).
-- Users (`/Users`, Admin): create, change role, disable/enable (security stamp updated → session ends within 1 min), unlock, reset password; cannot change/disable self or the last active admin. Disabled users can't sign in (`EnabledUserConfirmation` + `RequireConfirmedAccount`; same generic error message). Change own password (`/Account/ChangePassword`). Analyst gets AccessDenied on Users/Audit/rule editing (verified).
+- Users (`/Users`, Admin): create, **edit (`/Users/Edit/{id}`: name, role, SOC tier)**, disable/enable (security stamp updated → session ends within 1 min), unlock, reset password, **delete** (since 2026-11-17, see §9); cannot change/disable/delete self or the last active admin. Disabled users can't sign in (`EnabledUserConfirmation` + `RequireConfirmedAccount`; same generic error message). Change own password (`/Account/ChangePassword`). Analyst gets AccessDenied on Users/Audit/rule editing (verified).
 - Audit log page `/Audit` (Admin) with user/action filters.
 
 ### Step 7 — Isolation Forest (RQ2)
@@ -153,7 +153,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - `docs/evaluation-guide.md` = full protocol (datasets, DVWA VirtualBox lab, attack commands, labelling, thesis tables, threats to validity).
 
 ### Step 9 — Quality
-- 74 xUnit tests at step 9, 180 after the audit fixes (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
+- 74 xUnit tests at step 9, 190 now (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
 - `SecurityHeadersMiddleware`: CSP `script-src 'self'` (since the audit fixes all libraries are self-hosted; no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
 - Login rate limiter: 10 POSTs/min per IP → 429 (verified).
 - Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
@@ -202,10 +202,12 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - **Threat intel (17, 24, 28):** rate-limit policy `ti-lookup` (30/min per user); daily budgets `Enrichment:*DailyBudget` (in memory, reset on restart); provider HttpClients without redirects, 1 MB max body. **`Enrichment:AutoLookup` is false by default** – set it to true (appsettings or user-secrets) for automatic lookups after each file (roadmap step 1); `RetentionDays` 90 + `DataRetentionWorker` (daily). Client IPs are stored canonically (`IpAddressPolicy.Canonical`).
 - **Framework (27, 22):** global `AutoValidateAntiforgeryToken`; every action needs an explicit `[HttpGet]`/`[HttpPost]` (a reflection test fails otherwise). Package versions are exact, `Directory.Build.props` enables lock files – add packages with `dotnet add package X --version x.y.z` and commit the updated `packages.lock.json`.
 - Others: labels CSV ≤ 20 MB, label ≤ 64 chars (20); rule delete blocked while a file is busy (23); alerts paging tie-breaker + `[EnumDataType]` (25); CSV/JS edge cases (30).
-- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs`, `HardeningFixTests.cs` (180 total; EF InMemory for threat-intel tests).
+- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs`, `HardeningFixTests.cs`, `UserManagementTests.cs` (190 total; EF InMemory for threat-intel tests).
 
 ## 9. Decisions & advice already given
 - **Zimmerman tools / Chainsaw:** out of scope → possible future "Windows event log module" (needs supervisor approval).
+- **Users are deleted when someone leaves** (Daniel, 2026-11-17: "if someone gets fired we need to delete that user"). Disable = suspend; Delete = account removed (type the e-mail to confirm), uploads keep `UploadedByName`, owned alerts are unassigned, audit entries keep the name + `User.Delete`. Cannot delete yourself or the last active admin.
+- **SOC tiers (permissions, Daniel's choice):** SOC 1 = triage: only New/Investigating on open alerts, notes, *Escalate to SOC 2* (alert stays open, unassigned, note added, SOC 2 queue = Alerts → "Escalated to SOC 2"). SOC 2 = everything on alerts (close, false positive, reopen). Admins = SOC 2 + administration. Analysts without a tier count as SOC 1. Rules in `SocPermissions` (pure, unit-tested); the tier is read from the DB on each triage POST.
 - **Threat intel:** use personal/free accounts with the **university email**; **do NOT use the work GTI account** (AKSK license, logging, quota, key leakage). Snyk is not an IP source — mention only in a secure-development section (`dotnet list package --vulnerable`).
 - Isolation Forest implemented in C# instead of a Python microservice: no extra runtime, reproducible (seeded), explainable; mention scikit-learn as the reference implementation in the thesis.
 - CSIC 2010 only evaluates signature rules (no real IPs/timestamps); access logs have no POST bodies → report realistic vs. `--body-as-query` upper bound.

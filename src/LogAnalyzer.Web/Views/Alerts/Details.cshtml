@@ -125,6 +125,15 @@
 
                     <dt class="col-sm-4">Assigned to</dt>
                     <dd class="col-sm-8">@(a.AssignedTo?.Email ?? "—")</dd>
+
+                    @if (a.EscalatedAt is { } escalatedAt)
+                    {
+                        <dt class="col-sm-4">Escalated</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge text-bg-info"><i class="bi bi-arrow-up-circle" aria-hidden="true"></i> SOC 2</span>
+                            <span class="small text-body-secondary">by @a.EscalatedBy, @Format.TimeAgo(escalatedAt)</span>
+                        </dd>
+                    }
                 </dl>
             </div>
         </div>
@@ -137,23 +146,52 @@
                     <span class="lg-icon lg-icon-sm lg-tint-blue" aria-hidden="true"><i class="bi bi-person-check"></i></span>
                     <h2 class="h6 mb-0">Triage</h2>
                 </div>
-                <form asp-action="Update" asp-route-id="@a.Id" method="post">
-                    <div class="mb-3">
-                        <label for="Status" class="form-label small">Status</label>
-                        <select id="Status" name="Status" class="form-select">
-                            @foreach (var s in Enum.GetValues<AlertStatus>())
+                @if (Model.AllowedStatuses.Count == 0)
+                {
+                    <p class="small text-body-secondary mb-3">
+                        <i class="bi bi-lock" aria-hidden="true"></i> This alert is @a.Status. Only SOC 2 analysts or administrators can reopen or change it.
+                    </p>
+                    @if (!string.IsNullOrWhiteSpace(a.Notes))
+                    {
+                        <div class="small lg-notes">@a.Notes</div>
+                    }
+                }
+                else
+                {
+                    <form asp-action="Update" asp-route-id="@a.Id" method="post">
+                        <div class="mb-3">
+                            <label for="Status" class="form-label small">Status</label>
+                            <select id="Status" name="Status" class="form-select">
+                                @foreach (var s in Model.AllowedStatuses)
+                                {
+                                    if (a.Status == s) { <option value="@s" selected>@s</option> } else { <option value="@s">@s</option> }
+                                }
+                            </select>
+                            @if (Model.Tier == AnalystTier.Soc1)
                             {
-                                if (a.Status == s) { <option value="@s" selected>@s</option> } else { <option value="@s">@s</option> }
+                                <div class="form-text">As SOC 1 you work on open alerts; closing is done by SOC 2.</div>
                             }
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label for="Notes" class="form-label small">Analyst notes</label>
-                        <textarea id="Notes" name="Notes" rows="5" maxlength="4000" class="form-control"
-                                  placeholder="What did you find? Was the attack successful?">@a.Notes</textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-check2" aria-hidden="true"></i> Save</button>
-                </form>
+                        </div>
+                        <div class="mb-3">
+                            <label for="Notes" class="form-label small">Analyst notes</label>
+                            <textarea id="Notes" name="Notes" rows="5" maxlength="4000" class="form-control"
+                                      placeholder="What did you find? Was the attack successful?">@a.Notes</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check2" aria-hidden="true"></i> Save</button>
+                    </form>
+                }
+                @if (Model.CanEscalate)
+                {
+                    <hr class="my-4" />
+                    <form asp-action="Escalate" asp-route-id="@a.Id" method="post" class="js-confirm"
+                          data-confirm="Escalate this alert to SOC 2? It stays open and goes to the SOC 2 queue.">
+                        <label for="reason" class="form-label small">Escalate to SOC 2</label>
+                        <div class="input-group">
+                            <input id="reason" name="reason" class="form-control" maxlength="500" placeholder="Why? (optional)" />
+                            <button type="submit" class="btn btn-outline-warning"><i class="bi bi-arrow-up-circle" aria-hidden="true"></i> Escalate</button>
+                        </div>
+                    </form>
+                }
             </div>
         </div>
     </div>
