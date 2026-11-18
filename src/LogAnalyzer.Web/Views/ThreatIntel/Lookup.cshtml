@@ -6,13 +6,17 @@
     var checking = ind is null ? [] : Model.Providers.Where(p => p.IsConfigured && p.Supports(ind.Type)).ToList();
     var notChecking = ind is null ? [] : Model.Providers.Except(checking).ToList();
     var pending = checking.Count(p => !Model.Results.ContainsKey(p.Name));
+    var c = Model.Consensus;
+    var tone = c is null ? "none" : Format.ConsensusTone(c.Verdict);
     var (icon, tint) = ind?.Type switch
     {
         IndicatorType.Domain => ("bi-globe2", "lg-tint-indigo"),
         IndicatorType.Hash => ("bi-file-earmark-binary", "lg-tint-teal"),
-        _ => ("bi-hdd-network", Model.AlertCount > 0 ? "lg-tint-red" : "lg-tint-blue")
+        _ => ("bi-hdd-network", "lg-tint-blue")
     };
     string TypeName(IndicatorType t) => t switch { IndicatorType.Ip => "IP addresses", IndicatorType.Domain => "domains", _ => "file hashes" };
+    // Answers that are not real verdicts are shown as such on the card.
+    IpReputation? Answer(LogAnalyzer.Web.Services.IThreatIntelProvider p) => Model.Results.GetValueOrDefault(p.Name);
 }
 
 @section Head {
@@ -22,27 +26,16 @@
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a asp-action="Index">Threat intelligence</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Lookup</li>
+        <li class="breadcrumb-item active" aria-current="page">@(ind?.Label ?? "Lookup")</li>
     </ol>
 </nav>
-
-<header class="lg-page-header">
-    <div>
-        <h1 class="lg-title">Threat lookup</h1>
-        <p class="lg-subtitle">Check an IP address, a domain or a file hash at every configured provider in one go.</p>
-    </div>
-</header>
 
 <form asp-action="Search" method="post" class="lg-panel lg-search mb-4" role="search">
     <label for="lookup-q" class="visually-hidden">IP address, domain or file hash</label>
     <i class="bi bi-search lg-search-icon" aria-hidden="true"></i>
     <input id="lookup-q" name="q" value="@(Model.Query)" class="form-control font-monospace" maxlength="2048" required
            placeholder="185.220.101.45, example.com or a SHA-256 hash" autocomplete="off" spellcheck="false" />
-    <button type="submit" class="btn btn-primary"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Look up</button>
-    <p class="lg-search-hint">
-        Works with IPv4 and IPv6, domains, full URLs (the host is checked) and MD5, SHA-1 or SHA-256 hashes.
-        Defanged input such as <code>example[.]com</code> or <code>hxxps://</code> is accepted.
-    </p>
+    <button type="submit" class="btn btn-primary"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Search</button>
 </form>
 
 @if (Model.Error is not null)
@@ -52,75 +45,122 @@
         <div>@Model.Error</div>
     </div>
 }
-else if (ind is not null)
+else if (ind is not null && c is not null)
 {
-    <div class="lg-panel mb-4">
-        <div class="d-flex flex-wrap align-items-center gap-3">
-            <span class="lg-icon lg-icon-lg @tint"><i class="bi @icon" aria-hidden="true"></i></span>
-            <div class="min-w-0 flex-grow-1">
-                <div class="lg-ip text-break">@ind.Value</div>
-                <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
-                    <span class="lg-chip">@ind.Label</span>
-                    @if (Model.IpInfo?.CountryCode is not null)
+    <div class="lg-ti-dash">
+        @* ---------- LogAnalyzer verdict ---------- *@
+        <section class="lg-panel lg-ti-summary tone-@tone" aria-labelledby="verdict-title">
+            <div class="lg-ti-indicator">
+                <span class="lg-icon @tint" aria-hidden="true"><i class="bi @icon"></i></span>
+                <div class="min-w-0">
+                    <div class="lg-ip text-break @(ind.Value.Length > 24 ? "lg-ip-long" : null)">@ind.Value</div>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                        <span class="lg-chip">@ind.Label</span>
+                        @if (Model.IpInfo?.CountryCode is not null)
+                        {
+                            <span class="lg-chip"><i class="bi bi-geo-alt" aria-hidden="true"></i> @Model.IpInfo.CountryCode @Model.IpInfo.City</span>
+                        }
+                        @if (ind.Type == IndicatorType.Ip)
+                        {
+                            <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@ind.Value"
+                               class="badge @(Model.AlertCount > 0 ? "text-bg-danger" : "text-bg-secondary")">@Model.AlertCount alert(s)</a>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg-ti-chart">
+                <canvas id="ti-chart" aria-hidden="true"></canvas>
+                <div class="lg-ti-chart-center">
+                    <span class="lg-ti-verdict" id="verdict-title">@c.Label</span>
+                    @if (c.Verdict != LogAnalyzer.Web.Services.ConsensusVerdict.NoData)
                     {
-                        <span class="lg-chip">
-                            <i class="bi bi-geo-alt" aria-hidden="true"></i>
-                            @Model.IpInfo.CountryCode
-                            @(string.Join(", ", new[] { Model.IpInfo.City, Model.IpInfo.CountryName }.Where(x => !string.IsNullOrEmpty(x))))
-                        </span>
-                    }
-                    @if (Model.BlockedReason is not null)
-                    {
-                        <span class="lg-chip"><i class="bi bi-house-lock" aria-hidden="true"></i> @Model.BlockedReason</span>
-                    }
-                    @if (ind.Type == IndicatorType.Ip)
-                    {
-                        <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@ind.Value"
-                           class="badge @(Model.AlertCount > 0 ? "text-bg-danger" : "text-bg-secondary")">@Model.AlertCount alert(s)</a>
-                        <span class="small text-body-secondary">@Model.EventCount.ToString("N0") request(s) in uploaded logs</span>
+                        <span class="lg-ti-score">@c.Score</span>
+                        <span class="lg-ti-score-label">LogAnalyzer score</span>
                     }
                 </div>
             </div>
-            @if (Model.IsPublic && pending > 0)
+            <p class="visually-hidden">LogAnalyzer verdict: @c.Label, score @c.Score of 100. @c.Explanation</p>
+
+            <ul class="lg-ti-legend" aria-label="Answers by verdict">
+                <li class="tone-malicious"><span class="lg-ti-swatch" aria-hidden="true"></span>Malicious <b>@c.Malicious</b></li>
+                <li class="tone-suspicious"><span class="lg-ti-swatch" aria-hidden="true"></span>Suspicious <b>@c.Suspicious</b></li>
+                <li class="tone-benign"><span class="lg-ti-swatch" aria-hidden="true"></span>Benign <b>@c.Benign</b></li>
+                <li class="tone-none"><span class="lg-ti-swatch" aria-hidden="true"></span>No findings <b>@c.NoDetection</b></li>
+                @if (c.Failed > 0)
+                {
+                    <li class="tone-failed"><span class="lg-ti-swatch" aria-hidden="true"></span>Failed <b>@c.Failed</b></li>
+                }
+            </ul>
+            <p class="small text-body-secondary mb-0">@c.Explanation</p>
+
+            @if (Model.BlockedReason is not null)
             {
-                <form asp-action="Search" method="post">
-                    <input type="hidden" name="q" value="@ind.Value" />
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Look up at @pending provider(s)</button>
+                <p class="small mb-0"><i class="bi bi-house-lock" aria-hidden="true"></i> @Model.BlockedReason</p>
+            }
+            else if (checking.Count > 0)
+            {
+                <form asp-action="@(pending > 0 ? "Search" : "Refresh")" method="post" class="lg-ti-summary-action">
+                    @if (pending > 0)
+                    {
+                        <input type="hidden" name="q" value="@ind.Value" />
+                        <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Ask @pending more provider(s)</button>
+                    }
+                    else
+                    {
+                        <input type="hidden" name="ip" value="@ind.Value" />
+                        <input type="hidden" name="returnUrl" value="@returnUrl" />
+                        <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Refresh all answers</button>
+                    }
                 </form>
             }
-        </div>
-    </div>
+        </section>
 
-    @if (checking.Count == 0)
-    {
-        <div class="card mb-4">
-            <div class="lg-empty">
-                <i class="bi bi-plug" aria-hidden="true"></i>
-                <p class="mb-1">No configured provider can check @TypeName(ind.Type).</p>
-                @{ var could = Model.Providers.Where(p => p.Supports(ind.Type)).Select(p => p.Name).ToList(); }
-                @if (could.Count > 0)
-                {
-                    <p class="small text-body-secondary mb-0">Add an API key for @string.Join(" or ", could) on its provider page.</p>
-                }
-            </div>
-        </div>
-    }
-    else
-    {
-        <h2 class="lg-section-title">Answers <span class="lg-count">@checking.Count configured provider(s)</span></h2>
-        <div class="row g-3 mb-4">
-            @foreach (var p in checking)
+        @* ---------- one card per provider ---------- *@
+        <section class="lg-ti-vendors" aria-label="Provider answers">
+            @if (checking.Count == 0)
             {
-                <div class="col-md-6 col-xl-4">
-                    <partial name="_ReputationCard" model="new ReputationCardModel(p, Model.Results.GetValueOrDefault(p.Name), ind.Value, Model.IsPublic, returnUrl, ind)" />
+                <div class="card lg-ti-empty">
+                    <div class="lg-empty">
+                        <i class="bi bi-plug" aria-hidden="true"></i>
+                        <p class="mb-1">No configured provider can check @TypeName(ind.Type).</p>
+                        @{ var could = Model.Providers.Where(p => p.Supports(ind.Type)).Select(p => p.Name).ToList(); }
+                        @if (could.Count > 0)
+                        {
+                            <p class="small text-body-secondary mb-0">Add an API key for @string.Join(", ", could) on the <a asp-action="Providers">providers page</a>.</p>
+                        }
+                    </div>
                 </div>
             }
-        </div>
-    }
+            @foreach (var p in checking)
+            {
+                var r = Answer(p);
+                var (vIcon, vTint) = Format.VendorStyle(p.Slug);
+                var vTone = r is null ? "pending" : Format.VerdictTone(r.Verdict);
+                <button type="button" class="lg-vendor tone-@vTone" data-bs-toggle="modal" data-bs-target="#vendor-@p.Slug"
+                        aria-label="@p.Name: @(r is null ? "not looked up yet" : Format.VerdictLabel(r.Verdict)). Show details">
+                    <span class="lg-vendor-head">
+                        <span class="lg-icon lg-icon-sm @vTint" aria-hidden="true"><i class="bi @vIcon"></i></span>
+                        <span class="lg-vendor-name">@p.Name</span>
+                        <span class="lg-vendor-badge">@(r is null ? "Pending" : Format.VerdictLabel(r.Verdict))</span>
+                    </span>
+                    <span class="lg-vendor-verdict">@(r is null ? "Not looked up yet" : r.VendorVerdict ?? r.Summary ?? Format.VerdictLabel(r.Verdict))</span>
+                    @if (r?.Score is int score)
+                    {
+                        <progress class="lg-vendor-meter" max="100" value="@score" aria-label="Score @score of 100">@score</progress>
+                    }
+                    <span class="lg-vendor-foot">
+                        <span>@(r is null ? "Press Search to ask it" : "Checked " + Format.TimeAgo(r.CheckedAt))</span>
+                        <span class="lg-vendor-more">Details <i class="bi bi-chevron-right" aria-hidden="true"></i></span>
+                    </span>
+                </button>
+            }
+        </section>
+    </div>
 
     @if (notChecking.Count > 0)
     {
-        <div class="lg-not-checked small text-body-secondary">
+        <div class="lg-not-checked small text-body-secondary mt-3">
             <i class="bi bi-info-circle" aria-hidden="true"></i>
             Not checked:
             @for (var i = 0; i < notChecking.Count; i++)
@@ -130,6 +170,88 @@ else if (ind is not null)
             }
         </div>
     }
+
+    @* ---------- details per provider ---------- *@
+    @foreach (var p in checking)
+    {
+        var r = Answer(p);
+        var (vIcon, vTint) = Format.VendorStyle(p.Slug);
+        var attributes = r?.GetAttributes() ?? [];
+        <div class="modal fade lg-vendor-modal" id="vendor-@p.Slug" tabindex="-1" aria-labelledby="vendor-@p.Slug-title" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header gap-2">
+                        <span class="lg-icon lg-icon-sm @vTint" aria-hidden="true"><i class="bi @vIcon"></i></span>
+                        <h2 class="modal-title h5 mb-0" id="vendor-@p.Slug-title">@p.Name</h2>
+                        @if (r is not null)
+                        {
+                            <span class="badge @Format.VerdictBadge(r.Verdict)">@Format.VerdictLabel(r.Verdict)</span>
+                        }
+                        <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="small text-body-secondary">@p.Description</p>
+                        @if (r is null)
+                        {
+                            <p class="mb-0">Not looked up yet. Press <strong>Search</strong> to ask every configured provider.</p>
+                        }
+                        else
+                        {
+                            <div class="lg-vendor-detail-verdict tone-@Format.VerdictTone(r.Verdict)">
+                                <span class="lg-vendor-detail-label">@(r.VendorVerdict ?? Format.VerdictLabel(r.Verdict))</span>
+                                @if (r.Score is int s)
+                                {
+                                    <progress class="lg-vendor-meter" max="100" value="@s" aria-label="Score @s of 100">@s</progress>
+                                }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(r.Summary))
+                            {
+                                <p class="fw-semibold">@r.Summary</p>
+                            }
+                            @if (r.Error is not null)
+                            {
+                                <div class="alert alert-warning small">@r.Error</div>
+                            }
+                            @if (r.LastAttemptError is not null)
+                            {
+                                <div class="alert alert-warning small">Last refresh failed: @r.LastAttemptError. The answer below is from @Format.TimeAgo(r.CheckedAt).</div>
+                            }
+                            @if (attributes.Count > 0)
+                            {
+                                <dl class="lg-kv lg-vendor-attributes">
+                                    @foreach (var (key, value) in attributes)
+                                    {
+                                        <dt>@key</dt>
+                                        <dd class="text-break">@value</dd>
+                                    }
+                                </dl>
+                            }
+                            <p class="small text-body-secondary mb-0" title="@r.CheckedAt.ToString("u")">Checked @Format.TimeAgo(r.CheckedAt). Answers are reused for a few days, then refreshed.</p>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        @if (Model.IsPublic)
+                        {
+                            <a href="@p.WebLink(ind)" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                                Open on @p.Name <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+                            </a>
+                            <form asp-action="Refresh" method="post">
+                                <input type="hidden" name="ip" value="@ind.Value" />
+                                <input type="hidden" name="provider" value="@p.Slug" />
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> @(r is null ? "Look up now" : "Refresh")</button>
+                            </form>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <script type="application/json" id="ti-chart-data">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
+    {
+        malicious = c.Malicious, suspicious = c.Suspicious, benign = c.Benign, none = c.NoDetection, failed = c.Failed
+    }))</script>
 }
 else
 {
@@ -139,4 +261,12 @@ else
             <p class="mb-0">Paste an indicator above. Every configured provider that can check it answers at once.</p>
         </div>
     </div>
+}
+
+@section Scripts {
+    @if (c is not null)
+    {
+        <script src="~/lib/chartjs/chart.umd.min.js"></script>
+        <script src="~/js/ti-dashboard.js" asp-append-version="true"></script>
+    }
 }

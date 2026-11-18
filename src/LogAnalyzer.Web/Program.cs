@@ -123,6 +123,25 @@ builder.Services.AddHttpClient<VirusTotalProvider>(c => { c.Timeout = TimeSpan.F
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<AbuseIpDbProvider>());
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<GreyNoiseProvider>());
 builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<VirusTotalProvider>());
+// Vendors added 2026-11-18 (inactive until their key is set in user-secrets)
+builder.Services.AddHttpClient<GtiProvider>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddHttpClient<RecordedFutureProvider>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddHttpClient<OtxProvider>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddHttpClient<ThreatFoxProvider>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddHttpClient<UrlhausProvider>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddHttpClient<MalwareBazaarProvider>(c => { c.Timeout = TimeSpan.FromSeconds(15); c.MaxResponseContentBufferSize = 1_000_000; })
+    .ConfigurePrimaryHttpMessageHandler(ProviderHandler);
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<GtiProvider>());
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<RecordedFutureProvider>());
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<OtxProvider>());
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<ThreatFoxProvider>());
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<UrlhausProvider>());
+builder.Services.AddTransient<IThreatIntelProvider>(sp => sp.GetRequiredService<MalwareBazaarProvider>());
 builder.Services.AddScoped<ThreatIntelService>();
 builder.Services.AddScoped<ILogFileThreatIntel>(sp => sp.GetRequiredService<ThreatIntelService>());
 builder.Services.AddSingleton<ThreatIntelQueue>();

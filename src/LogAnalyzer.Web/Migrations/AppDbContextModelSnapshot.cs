@@ -459,8 +459,8 @@ namespace LogAnalyzer.Web.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
                     b.Property<string>("AttributesJson")
-                        .HasMaxLength(4000)
-                        .HasColumnType("nvarchar(4000)");
+                        .HasMaxLength(16000)
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CheckedAt")
                         .HasColumnType("datetime2");
@@ -499,6 +499,10 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<string>("Summary")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("VendorVerdict")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<string>("Verdict")
                         .IsRequired()

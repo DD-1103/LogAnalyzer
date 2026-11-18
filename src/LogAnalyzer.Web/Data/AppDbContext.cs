@@ -144,7 +144,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Provider).HasMaxLength(30).IsRequired();
             e.Property(x => x.Verdict).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Summary).HasMaxLength(500);
-            e.Property(x => x.AttributesJson).HasMaxLength(4000);
+            e.Property(x => x.AttributesJson).HasMaxLength(16000);
+            e.Property(x => x.VendorVerdict).HasMaxLength(120);
             e.Property(x => x.Error).HasMaxLength(500);
             e.Property(x => x.LastAttemptError).HasMaxLength(500);
             e.Ignore(x => x.HasVerdict);

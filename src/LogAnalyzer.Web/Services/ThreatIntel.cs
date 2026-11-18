@@ -21,6 +21,18 @@ public sealed class EnrichmentOptions
     public string? GreyNoiseApiKey { get; set; }
     public string? VirusTotalApiKey { get; set; }
 
+    /// <summary>Google Threat Intelligence (enterprise licence; never a work/AKSK key in this project).</summary>
+    public string? GtiApiKey { get; set; }
+    /// <summary>Recorded Future Connect API token (enterprise licence; never a work/AKSK key in this project).</summary>
+    public string? RecordedFutureApiKey { get; set; }
+    /// <summary>AlienVault OTX (free account).</summary>
+    public string? OtxApiKey { get; set; }
+    /// <summary>One abuse.ch Auth-Key (auth.abuse.ch, free) for ThreatFox, URLhaus and MalwareBazaar.</summary>
+    public string? AbuseChAuthKey { get; set; }
+
+    /// <summary>Automatic lookups per file for the newer providers (only used with AutoLookup).</summary>
+    public int DefaultMaxPerRun { get; set; } = 25;
+
     /// <summary>How long a provider answer is reused before the IP is looked up again.</summary>
     public int CacheDays { get; set; } = 7;
 
@@ -52,23 +64,29 @@ public sealed class EnrichmentOptions
     public int AbuseIpDbDailyBudget { get; set; } = 900;   // free: 1,000/day
     public int GreyNoiseDailyBudget { get; set; } = 50;    // community: small quota
     public int VirusTotalDailyBudget { get; set; } = 450;  // public API: 500/day
+    public int OtherDailyBudget { get; set; } = 1000;      // GTI, Recorded Future, OTX, abuse.ch
 
     public int DailyBudget(string provider) => provider switch
     {
         AbuseIpDbProvider.ProviderName => AbuseIpDbDailyBudget,
         GreyNoiseProvider.ProviderName => GreyNoiseDailyBudget,
         VirusTotalProvider.ProviderName => VirusTotalDailyBudget,
-        _ => 0
+        _ => OtherDailyBudget
     };
 }
 
 /// <summary>What a provider says about one IP, already mapped to the common verdict scale.</summary>
+/// <param name="VendorVerdict">
+/// The verdict in the provider's own words ("Very Malicious", "VERDICT_SUSPICIOUS" → "Suspicious", "65/68 engines"),
+/// shown on its card next to LogAnalyzer's normalised <paramref name="Verdict"/>.
+/// </param>
 public sealed record ReputationResult(
     ThreatVerdict Verdict,
     string Summary,
     int? Score = null,
     IReadOnlyDictionary<string, string>? Attributes = null,
-    string? Error = null)
+    string? Error = null,
+    string? VendorVerdict = null)
 {
     public static ReputationResult Failed(string error) => new(ThreatVerdict.Error, error, Error: error);
     public static ReputationResult Skipped(string reason) => new(ThreatVerdict.Skipped, reason);
@@ -291,7 +309,8 @@ public sealed class AbuseIpDbProvider(HttpClient http, IOptions<EnrichmentOption
 
         return new ReputationResult(verdict,
             $"Abuse confidence {score}% · {reports} report(s) from {users} user(s)",
-            score, attributes);
+            score, attributes,
+            VendorVerdict: whitelisted ? "Whitelisted" : $"Abuse confidence {score}%");
     }
 }
 
@@ -325,7 +344,7 @@ public sealed class GreyNoiseProvider(HttpClient http, IOptions<EnrichmentOption
     // 404 = "IP not observed scanning the internet or contained in RIOT data set."
     protected override ReputationResult? OnNotFound(JsonElement? body) =>
         new(ThreatVerdict.NotFound, "Not observed scanning the internet (not background noise) - activity may be targeted",
-            Attributes: new Dictionary<string, string> { ["Noise"] = "No", ["RIOT"] = "No" });
+            Attributes: new Dictionary<string, string> { ["Noise"] = "No", ["RIOT"] = "No" }, VendorVerdict: "Not seen scanning");
 
     protected override ReputationResult Parse(JsonElement root) => ParseResponse(root);
 
@@ -358,7 +377,10 @@ public sealed class GreyNoiseProvider(HttpClient http, IOptions<EnrichmentOption
         AddIf(attributes, "Actor / service", name);
         AddIf(attributes, "Last seen", Str(root, "last_seen"));
 
-        return new ReputationResult(verdict, summary, null, attributes);
+        var vendorVerdict = riot ? "RIOT business service"
+            : noise ? $"{(classification is null ? "Unknown" : char.ToUpperInvariant(classification[0]) + classification[1..])} scanner"
+            : "Not seen scanning";
+        return new ReputationResult(verdict, summary, null, attributes, VendorVerdict: vendorVerdict);
     }
 }
 
@@ -473,7 +495,8 @@ public sealed class VirusTotalProvider(HttpClient http, IOptions<EnrichmentOptio
 
         return new ReputationResult(verdict,
             $"{malicious} malicious / {suspicious} suspicious of {engines} engines",
-            score, attributes);
+            score, attributes,
+            VendorVerdict: engines == 0 ? "Not analysed" : $"{malicious + suspicious}/{engines} engines flag it");
     }
 }
 
@@ -679,7 +702,8 @@ public sealed class ThreatIntelService(
         row.Verdict = result.Verdict;
         row.Score = result.Score;
         row.Summary = Cut(result.Summary, 500);
-        row.AttributesJson = result.Attributes is { Count: > 0 } ? Cut(JsonSerializer.Serialize(result.Attributes), 4000) : null;
+        row.AttributesJson = result.Attributes is { Count: > 0 } ? CutAttributes(result.Attributes) : null;
+        row.VendorVerdict = Cut(result.VendorVerdict, 120);
         row.Error = Cut(result.Error, 500);
         row.CheckedAt = now;
         row.LastAttemptAt = now;
@@ -695,6 +719,18 @@ public sealed class ThreatIntelService(
                 info.AbuseScore = score;
         }
         return row;
+    }
+
+    /// <summary>Serialises the details; when they are too long, the longest values are shortened (never invalid JSON).</summary>
+    private static string CutAttributes(IReadOnlyDictionary<string, string> attributes)
+    {
+        const int max = 16_000;
+        var json = JsonSerializer.Serialize(attributes);
+        if (json.Length <= max)
+            return json;
+        var trimmed = attributes.ToDictionary(a => a.Key, a => a.Value.Length > 400 ? a.Value[..400] + "…" : a.Value);
+        json = JsonSerializer.Serialize(trimmed);
+        return json.Length <= max ? json : JsonSerializer.Serialize(trimmed.Take(40).ToDictionary());
     }
 
     /// <summary>SQL Server 2601 / 2627: duplicate key in a unique index / primary key.</summary>

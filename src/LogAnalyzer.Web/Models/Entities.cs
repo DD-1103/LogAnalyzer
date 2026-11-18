@@ -220,6 +220,9 @@ public class IpReputation
     /// <summary>Provider-specific details as a JSON object of label -> value (ISP, last seen, ...).</summary>
     public string? AttributesJson { get; set; }
 
+    /// <summary>The provider's own wording of its verdict (shown on the vendor card).</summary>
+    public string? VendorVerdict { get; set; }
+
     public string? Error { get; set; }
     public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
 

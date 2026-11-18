@@ -133,6 +133,14 @@ public class ThreatIntelIndexViewModel
     public List<IpReputation> Recent { get; set; } = [];
 }
 
+public record RecentLookup(string Value, IndicatorType Kind, LogAnalyzer.Web.Services.ThreatConsensusResult Consensus, DateTime CheckedAt);
+
+public class ThreatIntelSearchViewModel
+{
+    public IReadOnlyList<LogAnalyzer.Web.Services.IThreatIntelProvider> Providers { get; set; } = [];
+    public List<RecentLookup> Recent { get; set; } = [];
+}
+
 public class ThreatIntelProviderViewModel
 {
     public required LogAnalyzer.Web.Services.IThreatIntelProvider Provider { get; set; }
@@ -155,6 +163,7 @@ public class ThreatIntelLookupViewModel
     public string? Error { get; set; }
     public bool IsPublic { get; set; }
     public Dictionary<string, IpReputation> Results { get; set; } = [];
+    public LogAnalyzer.Web.Services.ThreatConsensusResult? Consensus { get; set; }
     public IpInfo? IpInfo { get; set; }
     public int AlertCount { get; set; }
     public int EventCount { get; set; }

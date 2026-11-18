@@ -95,7 +95,12 @@ LogAnalyzer/
   dotnet user-secrets set "Enrichment:AbuseIpDbApiKey" "KEY"
   dotnet user-secrets set "Enrichment:GreyNoiseApiKey" "KEY"
   dotnet user-secrets set "Enrichment:VirusTotalApiKey" "KEY"
+  dotnet user-secrets set "Enrichment:OtxApiKey" "KEY"
+  dotnet user-secrets set "Enrichment:AbuseChAuthKey" "KEY"      # ThreatFox + URLhaus + MalwareBazaar
+  dotnet user-secrets set "Enrichment:GtiApiKey" "KEY"           # personal/university licence only
+  dotnet user-secrets set "Enrichment:RecordedFutureApiKey" "KEY" # personal/university licence only
   ```
+  Configured on Daniel's laptop (2026-11-18): AbuseIPDB, VirusTotal.
 
 ## 6. Database model (LogAnalyzerDb)
 - **AppUser** : IdentityUser + FullName, IsDisabled, **Tier** (Soc1/Soc2, analysts only, string), MustChangePassword, CreatedAt, LastLoginAt, AlertsSeenAt?, RulesSeenAt?
@@ -107,7 +112,7 @@ LogAnalyzer/
 - **Notification**: UserId (FK cascade), Title, Body, Link (app-relative only), Kind, CreatedAt, ReadAt (bell; only read ones can be deleted; retention 30 days read / 90 days all)
 - **AlertEvidence**: AlertId → LogEventId (unique pair). LogEvent FK is NoAction → evidence must be deleted before events.
 - **IpInfo** (key Ip): CountryCode, CountryName, City, Latitude, Longitude, AbuseScore (synced from AbuseIPDB), LastChecked
-- **IpReputation**: Ip (holds any indicator: IP, domain or hash, max 256) + Provider (unique), **Kind** (IndicatorType Ip/Domain/Hash), Verdict (Unknown/Benign/Suspicious/Malicious/NotFound/Error/Skipped), Score 0–100, Summary, AttributesJson, Error, CheckedAt
+- **IpReputation**: Ip (holds any indicator: IP, domain or hash, max 256) + Provider (unique), **Kind** (IndicatorType Ip/Domain/Hash), **VendorVerdict** (the vendor's own wording, e.g. "Very Malicious, risk 92"), Verdict (Unknown/Benign/Suspicious/Malicious/NotFound/Error/Skipped), Score 0–100, Summary, AttributesJson, Error, CheckedAt
 - **AuditEntry**: Timestamp, UserName, Action (e.g. Login.Failed, Rule.Edit, User.Disable, LogFile.Upload, Alert.Update, ThreatIntel.Lookup), Target, Details, IpAddress — append-only
 - Enums stored as strings → sorting by severity/status uses explicit CASE ranks in LINQ.
 - The default Isolation Forest rule is inserted by the `RulesUsersAnomaly` migration (SQL with IF NOT EXISTS); DbSeeder seeds the 6 classic rules only when no non-anomaly rule exists.
@@ -155,7 +160,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - `docs/evaluation-guide.md` = full protocol (datasets, DVWA VirtualBox lab, attack commands, labelling, thesis tables, threats to validity).
 
 ### Step 9 — Quality
-- 74 xUnit tests at step 9, 237 now (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
+- 74 xUnit tests at step 9, 274 now (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
 - `SecurityHeadersMiddleware`: CSP `script-src 'self'` (since the audit fixes all libraries are self-hosted; no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
 - Login rate limiter: 10 POSTs/min per IP → 429 (verified).
 - Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
@@ -185,7 +190,8 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - `.btn` never shrinks (glass.css §11); the account button shows the e-mail's local part (icon only at 1200–1399 px) so the xl nav + bell fit; check nav width at 1200 px after adding nav items.
 - New controller actions need `[HttpGet]` or `[HttpPost]` (test `EveryControllerAction_HasAnExplicitHttpVerb`); XML comments in .props/.csproj must not contain `--`.
 - Don't name action parameters / query params `action` (clashes with MVC route value) — use e.g. `intent`, `type`.
-- Stop the running app before `dotnet build` from the CLI (bin files are locked while it runs).
+- Stop the running app before `dotnet build` from the CLI (bin files are locked while it runs). If Daniel's VS instance is running, compile-check with `dotnet build -p:OutDir=<scratch folder>/` instead of stopping it.
+- Reserved TLDs (`.example`, `.test`, `.invalid`, `.local`, ...) are never sent to providers – use real-looking domains (e.g. `bad-site.com`) in provider tests.
 - Duplicate sample uploads were cleaned on 2026-11-13: only log file **#4** (sample-access.log) remains.
 - The Desktop copy of this file (`OneDrive\Desktop\CLAUDE.md`) is the old version — this repo file is the source of truth.
 
@@ -206,7 +212,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - **Threat intel (17, 24, 28):** rate-limit policy `ti-lookup` (30/min per user); daily budgets `Enrichment:*DailyBudget` (in memory, reset on restart); provider HttpClients without redirects, 1 MB max body. **`Enrichment:AutoLookup` is false by default** – set it to true (appsettings or user-secrets) for automatic lookups after each file (roadmap step 1); `RetentionDays` 90 + `DataRetentionWorker` (daily). Client IPs are stored canonically (`IpAddressPolicy.Canonical`).
 - **Framework (27, 22):** global `AutoValidateAntiforgeryToken`; every action needs an explicit `[HttpGet]`/`[HttpPost]` (a reflection test fails otherwise). Package versions are exact, `Directory.Build.props` enables lock files – add packages with `dotnet add package X --version x.y.z` and commit the updated `packages.lock.json`.
 - Others: labels CSV ≤ 20 MB, label ≤ 64 chars (20); rule delete blocked while a file is busy (23); alerts paging tie-breaker + `[EnumDataType]` (25); CSV/JS edge cases (30).
-- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs`, `HardeningFixTests.cs`, `UserManagementTests.cs`, `Soc2AndLookupTests.cs` (237 total; EF InMemory for threat-intel/notification tests).
+- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs`, `HardeningFixTests.cs`, `UserManagementTests.cs`, `Soc2AndLookupTests.cs`, `VendorDashboardTests.cs` (274 total; EF InMemory for threat-intel/notification tests).
 
 ## 9. Decisions & advice already given
 - **Zimmerman tools / Chainsaw:** out of scope → possible future "Windows event log module" (needs supervisor approval).
@@ -215,6 +221,9 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - **SOC 2 hub (`/Soc2`, Daniel 2026-11-18):** SOC 2 + admins only (DB tier check, nav link via `la:tier` claim). Tabs All / Waiting / In progress / Mine / Decided. A SOC 2 analyst *takes* an escalation (atomic `ExecuteUpdate`, first wins) → owner = `AssignedToId`, shown to everyone as an **owner pill** (initials + name). **Only the owner** changes status or gives/changes the verdict (Malicious → Closed, FalsePositive → FalsePositive, KeepMonitoring → Investigating, Benign → Closed); decided rows are greyed but open; anyone can add a **second opinion** (comment). Owner gives back / admin releases. Re-run detection deletes alerts and with them escalations/comments (confirm text says so).
 - **Notifications (bell, top right, outside the collapsible nav):** escalation → every active SOC 2 analyst (fallback: admins if no SOC 2 exists); take + verdict → the escalating SOC 1; comment on an escalation → its owner; never the actor. Badge from NavCounts (10 s poll); opening the bell marks all read (badge clears) → each can be deleted (×) or "Clear all"; `/Notifications` page works without JS. `notifications.js` builds DOM with textContent only; POSTs send the antiforgery token header from `<meta name="request-verification-token">`.
 - **Threat lookup (Daniel 2026-11-18):** one search for **IP / domain / file hash (MD5, SHA-1, SHA-256)**; also URLs (host is looked up) and defanged input (`example[.]com`, `hxxps`). "Look up" (POST `/ThreatIntel/Search`, rate-limited) asks **every configured provider that supports the type** (`IThreatIntelProvider.SupportedTypes`; AbuseIPDB/GreyNoise IP only, VirusTotal IP + domain + hash), reuses answers younger than CacheDays, waits ≤ 16 s for VirusTotal's 4/min limit. Unconfigured/unsupported providers are listed as "Not checked". Internal names (.local, .internal, .lan, .corp, ... + `Enrichment:InternalDomains`) are never sent, like private IPs (`IndicatorParser.MaySend`). Verified live on 2026-11-18 with Daniel's AbuseIPDB + VirusTotal keys (user-secrets).
+- **Threat-intel dashboard (Daniel 2026-11-18):** `/ThreatIntel` = only a search bar (+ provider chips with a green dot when configured, recent lookups with verdict pills); old overview moved to `/ThreatIntel/Providers`. A search shows the **result dashboard** (`Lookup?q=`): left a doughnut of all provider answers with the **LogAnalyzer verdict** + score inside (`ThreatConsensus`, pure + unit-tested: score = 100·(malicious + ½ suspicious − ½ benign)/answers; Malicious if ≥ 2 malicious or 1 and score ≥ 40; Suspicious if flagged and score > 0; Benign if benign answers outweigh; No threat found; No data), right one **card per configured provider** in the vendor's own words (`ReputationResult.VendorVerdict`), clicking a card opens a details window (all attributes, refresh, link to the vendor). `ti-dashboard.js` draws the ring from CSS tokens.
+- **Nine providers** (`ThreatIntel.cs` + `ThreatIntelVendors.cs`): AbuseIPDB, GreyNoise (IP); VirusTotal, **GTI** (VT v3 API + `gti_assessment`, header `x-tool`), **Recorded Future** (Connect v2 `/v2/{ip|domain|hash}/{v}?fields=risk,intelCard`, `X-RFToken`; format NOT verified – docs need a login), **AlienVault OTX** (`/api/v1/indicators/{IPv4|IPv6|domain|file}/{v}/general`, `X-OTX-API-KEY`), **ThreatFox** (POST JSON `search_ioc`/`search_hash`; wildcard results filtered to the exact IP/`ip:port`/domain), **URLhaus** (POST form `/v1/host/`, `/v1/payload/` md5/sha256) – these support IP + domain + hash; **MalwareBazaar** (POST form `get_info`, hashes only). abuse.ch: one `Enrichment:AbuseChAuthKey` (Auth-Key header). Formats checked against the public docs on 2026-11-18; all parsers have unit tests.
+- **GTI and Recorded Future are enterprise products: only a personal/university licence may be used – never the AKSK work keys.** They stay inactive until a key is set.
 - **Threat intel:** use personal/free accounts with the **university email**; **do NOT use the work GTI account** (AKSK license, logging, quota, key leakage). Snyk is not an IP source — mention only in a secure-development section (`dotnet list package --vulnerable`).
 - Isolation Forest implemented in C# instead of a Python microservice: no extra runtime, reproducible (seeded), explainable; mention scikit-learn as the reference implementation in the thesis.
 - CSIC 2010 only evaluates signature rules (no real IPs/timestamps); access logs have no POST bodies → report realistic vs. `--body-as-query` upper bound.

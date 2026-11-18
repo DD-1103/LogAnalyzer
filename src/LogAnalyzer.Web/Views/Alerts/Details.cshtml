@@ -21,6 +21,7 @@
 }
 @section Head {
     <link rel="stylesheet" href="~/css/views-b.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/views-c.css" asp-append-version="true" />
 }
 
 <nav aria-label="breadcrumb">
@@ -323,9 +324,18 @@
     var isPublicIp = IpEnrichmentService.IsPublic(a.SourceIp);
     var returnUrl = Context.Request.Path.ToString();
 }
+@{
+    var tiProviders = Model.Providers.Where(p => p.IsConfigured && p.Supports(IndicatorType.Ip)).ToList();
+    var tiConsensus = LogAnalyzer.Web.Services.ThreatConsensus.Compute(
+        Model.Reputation.Values.Where(r => tiProviders.Any(p => p.Name == r.Provider)));
+}
 <div class="lg-ti-header">
     <h2 class="lg-section-title">Threat intelligence</h2>
-    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-q="@a.SourceIp" class="small">full IP page</a>
+    @if (tiProviders.Count > 0)
+    {
+        <span class="lg-ti-pill tone-@Format.ConsensusTone(tiConsensus.Verdict)" title="@tiConsensus.Explanation">LogAnalyzer verdict: @tiConsensus.Label</span>
+    }
+    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-q="@a.SourceIp" class="small">full threat dashboard</a>
     @if (isPublicIp && Model.Providers.Any(p => p.IsConfigured))
     {
         <form asp-controller="ThreatIntel" asp-action="Refresh" method="post" class="ms-auto">
@@ -336,10 +346,19 @@
     }
 </div>
 <div class="row g-3 mb-4">
-    @foreach (var p in Model.Providers)
+    @foreach (var p in tiProviders)
     {
-        <div class="col-lg-4">
+        <div class="col-md-6 col-xl-4">
             <partial name="_ReputationCard" model="new ReputationCardModel(p, Model.Reputation.GetValueOrDefault(p.Name), a.SourceIp, isPublicIp, returnUrl)" />
+        </div>
+    }
+    @if (tiProviders.Count == 0)
+    {
+        <div class="col-12">
+            <div class="lg-not-checked small text-body-secondary">
+                <i class="bi bi-info-circle" aria-hidden="true"></i> No threat-intel provider is configured.
+                <a asp-controller="ThreatIntel" asp-action="Providers">Add an API key</a> to see what vendors know about this IP.
+            </div>
         </div>
     }
 </div>

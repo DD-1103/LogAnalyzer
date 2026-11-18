@@ -12,7 +12,8 @@ namespace LogAnalyzer.Web.Controllers;
 
 /// <summary>
 /// Threat-intelligence providers (AbuseIPDB, GreyNoise, VirusTotal):
-///   GET  /ThreatIntel                      overview, configuration status, GreyNoise effect
+///   GET  /ThreatIntel                      search bar (IP, domain, hash) + recent lookups
+///   GET  /ThreatIntel/Providers            configuration status of every provider, GreyNoise effect
 ///   GET  /ThreatIntel/Provider/{slug}      one provider: setup, quota, cached answers, test
 ///   GET  /ThreatIntel/Lookup?q=            everything known about one IP, domain or file hash (cached)
 ///   POST /ThreatIntel/Search               "Look up": all configured providers that support the type
@@ -30,8 +31,34 @@ public class ThreatIntelController(
     private const string TestIp = "8.8.8.8";
     private const int PageSize = 50;
 
+    /// <summary>The threat-intel start page: one search bar, the providers that will answer, recent lookups.</summary>
     [HttpGet]
     public async Task<IActionResult> Index(CancellationToken ct)
+    {
+        var recentKeys = await db.IpReputations.AsNoTracking()
+            .Where(r => r.Verdict != ThreatVerdict.Skipped)
+            .GroupBy(r => r.Ip)
+            .Select(g => new { Ip = g.Key, Last = g.Max(x => x.CheckedAt) })
+            .OrderByDescending(x => x.Last)
+            .Take(8)
+            .ToListAsync(ct);
+        var ips = recentKeys.Select(k => k.Ip).ToList();
+        var rows = await db.IpReputations.AsNoTracking().Where(r => ips.Contains(r.Ip)).ToListAsync(ct);
+
+        return View(new ThreatIntelSearchViewModel
+        {
+            Providers = threatIntel.Providers,
+            Recent = recentKeys.Select(k =>
+            {
+                var answers = rows.Where(r => r.Ip == k.Ip).ToList();
+                return new RecentLookup(k.Ip, answers.First().Kind, ThreatConsensus.Compute(answers), k.Last);
+            }).ToList()
+        });
+    }
+
+    /// <summary>Provider set-up and statistics (configuration, cached answers, GreyNoise effect).</summary>
+    [HttpGet]
+    public async Task<IActionResult> Providers(CancellationToken ct)
     {
         var verdicts = await db.IpReputations.AsNoTracking()
             .GroupBy(r => new { r.Provider, r.Verdict })
@@ -58,7 +85,7 @@ public class ThreatIntelController(
                 .Take(15)
                 .ToListAsync(ct)
         };
-        return View(model);
+        return View("Providers", model);
     }
 
     [HttpGet]
@@ -110,6 +137,9 @@ public class ThreatIntelController(
         model.IsPublic = IndicatorParser.MaySend(indicator, threatIntel.InternalDomains, out var blocked);
         model.BlockedReason = model.IsPublic ? null : blocked;
         model.Results = (await threatIntel.GetCachedAsync(indicator.Value, ct)).ToDictionary(r => r.Provider);
+        // The LogAnalyzer verdict counts only providers that are configured and support this type of indicator.
+        var usable = threatIntel.Providers.Where(p => p.IsConfigured && p.Supports(indicator.Type)).Select(p => p.Name).ToHashSet();
+        model.Consensus = ThreatConsensus.Compute(model.Results.Values.Where(r => usable.Contains(r.Provider)));
         if (indicator.Type == IndicatorType.Ip)
         {
             model.IpInfo = await db.IpInfos.AsNoTracking().FirstOrDefaultAsync(i => i.Ip == indicator.Value, ct);

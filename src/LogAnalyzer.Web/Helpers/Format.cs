@@ -95,6 +95,49 @@ public static class Format
         _ => "text-success"
     };
 
+    /// <summary>Icon and tint of each threat-intel vendor (no vendor logos: plain icons, one colour per vendor).</summary>
+    public static (string Icon, string Tint) VendorStyle(string slug) => slug switch
+    {
+        "abuseipdb" => ("bi-flag-fill", "lg-tint-red"),
+        "greynoise" => ("bi-broadcast", "lg-tint-teal"),
+        "virustotal" => ("bi-shield-fill-check", "lg-tint-blue"),
+        "gti" => ("bi-google", "lg-tint-indigo"),
+        "recordedfuture" => ("bi-bullseye", "lg-tint-orange"),
+        "otx" => ("bi-people-fill", "lg-tint-green"),
+        "threatfox" => ("bi-bug-fill", "lg-tint-red"),
+        "urlhaus" => ("bi-link-45deg", "lg-tint-orange"),
+        "malwarebazaar" => ("bi-archive-fill", "lg-tint-gray"),
+        _ => ("bi-globe2", "lg-tint-gray")
+    };
+
+    /// <summary>CSS tone of a provider verdict (vendor cards, legend).</summary>
+    public static string VerdictTone(ThreatVerdict verdict) => verdict switch
+    {
+        ThreatVerdict.Malicious => "malicious",
+        ThreatVerdict.Suspicious => "suspicious",
+        ThreatVerdict.Benign => "benign",
+        ThreatVerdict.Error => "failed",
+        ThreatVerdict.Skipped => "skipped",
+        _ => "none"
+    };
+
+    public static string VerdictLabel(ThreatVerdict verdict) => verdict switch
+    {
+        ThreatVerdict.NotFound => "No record",
+        ThreatVerdict.Unknown => "No detection",
+        ThreatVerdict.Error => "Failed",
+        _ => verdict.ToString()
+    };
+
+    public static string ConsensusTone(LogAnalyzer.Web.Services.ConsensusVerdict verdict) => verdict switch
+    {
+        LogAnalyzer.Web.Services.ConsensusVerdict.Malicious => "malicious",
+        LogAnalyzer.Web.Services.ConsensusVerdict.Suspicious => "suspicious",
+        LogAnalyzer.Web.Services.ConsensusVerdict.Benign => "benign",
+        LogAnalyzer.Web.Services.ConsensusVerdict.NoThreatFound => "clean",
+        _ => "none"
+    };
+
     public static string VerdictBadge(ThreatVerdict verdict) => verdict switch
     {
         ThreatVerdict.Malicious => "text-bg-danger",

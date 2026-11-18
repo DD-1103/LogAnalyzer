@@ -4,13 +4,7 @@
 @{
     var p = Model.Provider;
     var r = Model.Result;
-    var (icon, tint) = p.Slug switch
-    {
-        "abuseipdb" => ("bi-flag-fill", "lg-tint-red"),
-        "greynoise" => ("bi-broadcast", "lg-tint-teal"),
-        "virustotal" => ("bi-shield-fill-check", "lg-tint-blue"),
-        _ => ("bi-globe2", "lg-tint-gray")
-    };
+    var (icon, tint) = Format.VendorStyle(p.Slug);
 }
 <div class="card h-100">
     <div class="card-body d-flex flex-column">
