@@ -21,15 +21,15 @@
     <div>
         <h1 class="lg-title">Threat intelligence</h1>
         <p class="lg-subtitle">
-            Attacker IPs are checked at @configured of @Model.Providers.Count providers after each log file is analysed.
-            Answers are cached, and private addresses never leave this server.
+            @configured of @Model.Providers.Count providers are configured. Look up an IP address, domain or file hash at all of them at once;
+            answers are cached, and private addresses and internal host names never leave this server.
         </p>
     </div>
     <div class="lg-actions">
-        <form asp-action="Lookup" method="get" class="d-flex gap-2" role="search">
-            <label for="ti-ip" class="visually-hidden">IP address</label>
-            <input id="ti-ip" name="ip" class="form-control form-control-sm font-monospace" placeholder="IP address, e.g. 185.220.101.45" maxlength="45" required />
-            <button type="submit" class="btn btn-sm btn-primary text-nowrap"><i class="bi bi-search" aria-hidden="true"></i> Look up</button>
+        <form asp-action="Search" method="post" class="lg-search lg-search-sm" role="search">
+            <label for="ti-q" class="visually-hidden">IP address, domain or file hash</label>
+            <input id="ti-q" name="q" class="form-control form-control-sm font-monospace" placeholder="IP, domain or hash" maxlength="2048" required autocomplete="off" spellcheck="false" />
+            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Look up</button>
         </form>
     </div>
 </header>
@@ -145,7 +145,7 @@
                                 @foreach (var r in Model.Recent)
                                 {
                                     <tr>
-                                        <td class="font-monospace"><a asp-action="Lookup" asp-route-ip="@r.Ip">@r.Ip</a></td>
+                                        <td class="font-monospace"><a asp-action="Lookup" asp-route-q="@r.Ip" class="text-break">@r.Ip</a></td>
                                         <td>@r.Provider</td>
                                         <td><span class="badge @Format.VerdictBadge(r.Verdict)">@r.Verdict</span></td>
                                         <td class="summary-cell" title="@(r.Error ?? r.Summary)">@(r.Error ?? r.Summary)</td>

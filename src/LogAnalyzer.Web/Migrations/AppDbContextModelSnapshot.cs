@@ -38,6 +38,9 @@ namespace LogAnalyzer.Web.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
 
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -51,6 +54,14 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<string>("EscalatedBy")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("EscalatedById")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("EscalationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<int>("EventCount")
                         .HasColumnType("int");
@@ -102,9 +113,22 @@ namespace LogAnalyzer.Web.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
+                    b.Property<string>("Verdict")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime?>("VerdictAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("VerdictBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AssignedToId");
+
+                    b.HasIndex("EscalatedAt");
 
                     b.HasIndex("LogFileId");
 
@@ -117,6 +141,46 @@ namespace LogAnalyzer.Web.Migrations
                     b.HasIndex("Status");
 
                     b.ToTable("Alerts");
+                });
+
+            modelBuilder.Entity("LogAnalyzer.Web.Models.AlertComment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("AlertId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AuthorId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("AuthorName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AlertId");
+
+                    b.ToTable("AlertComments");
                 });
 
             modelBuilder.Entity("LogAnalyzer.Web.Models.AlertEvidence", b =>
@@ -407,8 +471,15 @@ namespace LogAnalyzer.Web.Migrations
 
                     b.Property<string>("Ip")
                         .IsRequired()
-                        .HasMaxLength(45)
-                        .HasColumnType("nvarchar(45)");
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)")
+                        .HasDefaultValue("Ip");
 
                     b.Property<DateTime?>("LastAttemptAt")
                         .HasColumnType("datetime2");
@@ -595,6 +666,49 @@ namespace LogAnalyzer.Web.Migrations
                     b.ToTable("LogFileHourStats");
                 });
 
+            modelBuilder.Entity("LogAnalyzer.Web.Models.Notification", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Body")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Link")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ReadAt");
+
+                    b.ToTable("Notifications");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
@@ -754,6 +868,17 @@ namespace LogAnalyzer.Web.Migrations
                     b.Navigation("Rule");
                 });
 
+            modelBuilder.Entity("LogAnalyzer.Web.Models.AlertComment", b =>
+                {
+                    b.HasOne("LogAnalyzer.Web.Models.Alert", "Alert")
+                        .WithMany("Comments")
+                        .HasForeignKey("AlertId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Alert");
+                });
+
             modelBuilder.Entity("LogAnalyzer.Web.Models.AlertEvidence", b =>
                 {
                     b.HasOne("LogAnalyzer.Web.Models.Alert", "Alert")
@@ -801,6 +926,17 @@ namespace LogAnalyzer.Web.Migrations
                         .HasForeignKey("LogFileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("LogAnalyzer.Web.Models.Notification", b =>
+                {
+                    b.HasOne("LogAnalyzer.Web.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -856,6 +992,8 @@ namespace LogAnalyzer.Web.Migrations
 
             modelBuilder.Entity("LogAnalyzer.Web.Models.Alert", b =>
                 {
+                    b.Navigation("Comments");
+
                     b.Navigation("Evidence");
                 });
 

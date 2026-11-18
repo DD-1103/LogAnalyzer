@@ -1408,3 +1408,108 @@ table.lg-stacked > tbody > tr:hover { background: var(--lg-row-hover); border-ra
     .lg-backdrop, .lg-shell, .lg-footer { display: none !important; }
     .card, .lg-panel, .table-responsive { box-shadow: none !important; backdrop-filter: none !important; background: #fff !important; }
 }
+
+/* ---------------------------------------------------------------- 11. Layout safety
+   Buttons keep their full label: in a flex row the inputs and text around them shrink, never the button
+   (a squeezed glass button clips its text because of overflow: hidden for the sheen). */
+.btn { flex-shrink: 0; }
+.input-group > .form-control, .input-group > .form-select { min-width: 0; }
+
+/* ---------------------------------------------------------------- 12. Notification bell
+   Glass icon button like the theme toggle; the unread badge sits on its rim (outside the button, which clips). */
+.lg-bell { position: relative; }
+.lg-bell-badge {
+    position: absolute;
+    top: -4px;
+    right: -5px;
+    min-width: 19px;
+    height: 19px;
+    padding: 0 5px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    font-size: .68rem;
+    font-weight: 700;
+    line-height: 1;
+    color: #fff;
+    background: rgb(var(--lg-red-rgb));
+    box-shadow: 0 0 0 2px var(--lg-rim-glow), 0 4px 10px rgba(var(--lg-red-rgb), .45);
+    pointer-events: none;
+    z-index: 2;
+}
+.lg-motion .lg-bell-badge:not(.d-none) { animation: lg-bell-pop .45s var(--lg-spring); }
+@keyframes lg-bell-pop { from { transform: scale(.4); } to { transform: scale(1); } }
+
+.lg-bell-menu {
+    width: min(380px, calc(100vw - 24px));
+    padding: 0;
+    overflow: hidden;
+}
+.lg-bell-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .75rem .9rem .6rem;
+    border-bottom: 1px solid var(--lg-hairline);
+}
+.lg-bell-list {
+    list-style: none;
+    margin: 0;
+    padding: .3rem;
+    max-height: min(60vh, 440px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+.lg-bell-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: start;
+    gap: .65rem;
+    padding: .6rem .55rem;
+    border-radius: 14px;
+    transition: opacity .25s var(--lg-ease), transform .25s var(--lg-ease);
+}
+.lg-bell-item:hover { background: var(--lg-surface-hover); }
+.lg-bell-item.is-new { background: rgba(var(--lg-accent-rgb), .09); }
+.lg-bell-item.is-leaving { opacity: 0; transform: translateX(12px); }
+.lg-bell-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    color: rgb(var(--lg-accent-ink-rgb));
+    background: rgba(var(--lg-accent-rgb), .14);
+}
+.lg-bell-text { display: grid; gap: .1rem; min-width: 0; color: inherit; text-decoration: none; }
+a.lg-bell-text:hover .lg-bell-title { text-decoration: underline; }
+.lg-bell-title { font-size: .86rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.lg-bell-body { font-size: .8rem; color: var(--lg-text-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lg-bell-time { font-size: .74rem; color: var(--lg-text-3); }
+.lg-bell-delete {
+    border: 0;
+    background: transparent;
+    color: var(--lg-text-3);
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+}
+.lg-bell-delete:hover { color: rgb(var(--lg-red-ink-rgb)); background: rgba(var(--lg-red-rgb), .12); }
+.lg-bell-delete:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(var(--lg-accent-rgb), .55); }
+.lg-bell-empty { padding: 1.4rem 1rem; text-align: center; font-size: .85rem; color: var(--lg-text-2); }
+.lg-bell-all {
+    display: block;
+    padding: .6rem .9rem;
+    border-top: 1px solid var(--lg-hairline);
+    font-size: .82rem;
+    text-align: center;
+}
+
+/* Narrow desktops (1200-1399 px): the full nav plus bell is tight; the account button shows only its icon
+   (the name stays in its tooltip and menu). */
+@media (min-width: 1200px) and (max-width: 1399.98px) {
+    .lg-user-btn .lg-user-name { display: none; }
+}

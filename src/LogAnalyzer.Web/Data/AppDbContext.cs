@@ -15,6 +15,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
     public DbSet<IpInfo> IpInfos => Set<IpInfo>();
     public DbSet<IpReputation> IpReputations => Set<IpReputation>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<AlertComment> AlertComments => Set<AlertComment>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -102,6 +104,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
                 .HasForeignKey(x => x.AssignedToId)
                 .OnDelete(DeleteBehavior.SetNull);
             e.Property(x => x.EscalatedBy).HasMaxLength(256);
+            e.Property(x => x.EscalatedById).HasMaxLength(450);
+            e.Property(x => x.EscalationReason).HasMaxLength(500);
+            e.Property(x => x.Verdict).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.VerdictBy).HasMaxLength(256);
+            e.HasIndex(x => x.EscalatedAt);
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.Severity);
             e.HasIndex(x => x.SourceIp);
@@ -131,7 +138,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
 
         b.Entity<IpReputation>(e =>
         {
-            e.Property(x => x.Ip).HasMaxLength(45).IsRequired();
+            // Holds IPs, domains (max 253) and SHA-256 hashes (64).
+            e.Property(x => x.Ip).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Kind).HasConversion<string>().HasMaxLength(10).HasDefaultValue(IndicatorType.Ip);
             e.Property(x => x.Provider).HasMaxLength(30).IsRequired();
             e.Property(x => x.Verdict).HasConversion<string>().HasMaxLength(20);
             e.Property(x => x.Summary).HasMaxLength(500);
@@ -152,6 +161,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.IpAddress).HasMaxLength(45);
             e.HasIndex(x => x.Timestamp);
             e.HasIndex(x => x.Action);
+        });
+
+        b.Entity<AlertComment>(e =>
+        {
+            e.Property(x => x.AuthorId).HasMaxLength(450);
+            e.Property(x => x.AuthorName).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Text).HasMaxLength(2000).IsRequired();
+            e.Property(x => x.Kind).HasMaxLength(20);
+            // Deleting alerts (re-run detection, file delete) removes their comments.
+            e.HasOne(x => x.Alert).WithMany(a => a.Comments)
+                .HasForeignKey(x => x.AlertId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.AlertId);
+        });
+
+        b.Entity<Notification>(e =>
+        {
+            e.Property(x => x.Title).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Body).HasMaxLength(500);
+            e.Property(x => x.Link).HasMaxLength(300);
+            e.Property(x => x.Kind).HasMaxLength(20);
+            e.HasOne(x => x.User).WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.UserId, x.ReadAt });
         });
     }
 }

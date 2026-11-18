@@ -92,6 +92,11 @@ public class AlertDetailsViewModel
     /// <summary>Statuses the current user may choose (SOC tier rules).</summary>
     public IReadOnlyList<AlertStatus> AllowedStatuses { get; set; } = [];
     public bool CanEscalate { get; set; }
+    public bool CanClaim { get; set; }
+    public bool CanRelease { get; set; }
+    public bool CanGiveVerdict { get; set; }
+    public bool IsOwner { get; set; }
+    public List<AlertComment> Comments { get; set; } = [];
     public AnalystTier Tier { get; set; }
 
     public required Alert Alert { get; set; }
@@ -140,6 +145,12 @@ public class ThreatIntelProviderViewModel
 public class ThreatIntelLookupViewModel
 {
     public IReadOnlyList<LogAnalyzer.Web.Services.IThreatIntelProvider> Providers { get; set; } = [];
+    /// <summary>What the analyst typed.</summary>
+    public string? Query { get; set; }
+    public LogAnalyzer.Web.Services.Indicator? Indicator { get; set; }
+    /// <summary>Why the indicator is never sent (private IP, internal host name).</summary>
+    public string? BlockedReason { get; set; }
+    /// <summary>The normalised indicator value (IP, domain or hash).</summary>
     public string? Ip { get; set; }
     public string? Error { get; set; }
     public bool IsPublic { get; set; }
@@ -150,7 +161,10 @@ public class ThreatIntelLookupViewModel
 }
 
 public record ReputationCardModel(LogAnalyzer.Web.Services.IThreatIntelProvider Provider, IpReputation? Result,
-    string Ip, bool IsPublic, string? ReturnUrl);
+    string Ip, bool IsPublic, string? ReturnUrl, LogAnalyzer.Web.Services.Indicator? Indicator = null)
+{
+    public LogAnalyzer.Web.Services.Indicator Target => Indicator ?? LogAnalyzer.Web.Services.Indicator.ForIp(Ip);
+}
 
 // ---- Rule management ----
 
@@ -337,4 +351,19 @@ public class AuditViewModel
     public int Page { get; set; }
     public int TotalPages { get; set; }
     public int TotalCount { get; set; }
+}
+
+// ---- SOC 2 hub ----
+
+public record Soc2HubItem(Alert Alert, LogAnalyzer.Web.Services.SocPermissions.HubState State, int Comments,
+    string? OwnerName, bool IsMine);
+
+public class Soc2HubViewModel
+{
+    public List<Soc2HubItem> Items { get; set; } = [];
+    public string View { get; set; } = "all";
+    public int Waiting { get; set; }
+    public int InProgress { get; set; }
+    public int Decided { get; set; }
+    public int Mine { get; set; }
 }

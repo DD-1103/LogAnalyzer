@@ -132,6 +132,7 @@ builder.Services.AddHostedService<DataRetentionWorker>();
 // Dashboard and reports
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<ReportService>();
+builder.Services.AddScoped<NotificationService>();
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 var app = builder.Build();

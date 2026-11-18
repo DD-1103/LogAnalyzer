@@ -254,7 +254,7 @@
                                             <div class="d-flex flex-wrap gap-1 mt-1">
                                                 @foreach (var r in ip.Reputation)
                                                 {
-                                                    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@ip.Ip"
+                                                    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-q="@ip.Ip"
                                                        class="badge @Format.VerdictBadge(r.Verdict) text-decoration-none" title="@r.Summary">@Format.ReputationShort(r)</a>
                                                 }
                                             </div>

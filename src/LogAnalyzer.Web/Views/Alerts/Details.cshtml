@@ -149,7 +149,17 @@
                 @if (Model.AllowedStatuses.Count == 0)
                 {
                     <p class="small text-body-secondary mb-3">
-                        <i class="bi bi-lock" aria-hidden="true"></i> This alert is @a.Status. Only SOC 2 analysts or administrators can reopen or change it.
+                        <i class="bi bi-lock" aria-hidden="true"></i>
+                        @if (a.EscalatedAt is not null)
+                        {
+                            @(a.AssignedTo is null
+                                ? "This alert is escalated to SOC 2. A SOC 2 analyst takes it from the hub; then only they change its status and verdict."
+                                : $"This alert is owned by {NotificationService.DisplayName(a.AssignedTo)} (SOC 2). Only they change its status and verdict; add your opinion as a comment below.")
+                        }
+                        else
+                        {
+                            @($"This alert is {a.Status}. Only SOC 2 analysts or administrators can reopen or change it.")
+                        }
                     </p>
                     @if (!string.IsNullOrWhiteSpace(a.Notes))
                     {
@@ -197,13 +207,125 @@
     </div>
 </div>
 
+@if (a.EscalatedAt is { } escalatedOn)
+{
+    var ownerName = a.AssignedTo is null ? null : NotificationService.DisplayName(a.AssignedTo);
+    var hereUrl = Context.Request.Path.ToString();
+    <section class="lg-panel lg-escalation mb-4 @(a.Verdict is not null ? "is-decided" : null)" aria-labelledby="escalation-title">
+        <div class="lg-escalation-head">
+            <span class="lg-icon lg-tint-orange" aria-hidden="true"><i class="bi bi-arrow-up-circle"></i></span>
+            <div class="min-w-0 flex-grow-1">
+                <h2 id="escalation-title" class="h6 mb-0">Escalated to SOC 2</h2>
+                <div class="small text-body-secondary">by @(a.EscalatedBy ?? "SOC 1"), @Format.TimeAgo(escalatedOn)</div>
+            </div>
+            <div class="lg-escalation-owner">
+                @if (ownerName is not null)
+                {
+                    <span class="lg-owner @(Model.IsOwner ? "is-me" : null)">
+                        <span class="lg-owner-avatar lg-icon lg-icon-sm lg-tint-indigo" aria-hidden="true">@string.Concat(ownerName.Split([' ', '.', '@'], StringSplitOptions.RemoveEmptyEntries).Take(2).Select(p => char.ToUpperInvariant(p[0])))</span>
+                        <span class="lg-owner-name">@(Model.IsOwner ? "You own this" : $"Owned by {ownerName}")</span>
+                    </span>
+                }
+                @if (Model.CanClaim)
+                {
+                    <form asp-action="Claim" asp-route-id="@a.Id" method="post">
+                        <input type="hidden" name="returnUrl" value="@hereUrl" />
+                        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-hand-index-thumb" aria-hidden="true"></i> Take it</button>
+                    </form>
+                }
+                @if (Model.CanRelease)
+                {
+                    <form asp-action="Release" asp-route-id="@a.Id" method="post" class="js-confirm"
+                          data-confirm="@(Model.IsOwner ? "Give this escalation back to the SOC 2 queue?" : $"Take this escalation away from {ownerName} and put it back in the queue?")">
+                        <input type="hidden" name="returnUrl" value="@hereUrl" />
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">@(Model.IsOwner ? "Give back" : "Release")</button>
+                    </form>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(a.EscalationReason))
+        {
+            <blockquote class="lg-escalation-reason mb-0">@a.EscalationReason</blockquote>
+        }
+
+        @if (a.Verdict is { } verdict)
+        {
+            <div class="lg-verdict-result">
+                <span class="lg-verdict lg-verdict-@verdict.ToString().ToLowerInvariant()"><i class="bi bi-patch-check-fill" aria-hidden="true"></i> @SocPermissions.Label(verdict)</span>
+                <span class="small text-body-secondary">by @a.VerdictBy@(a.VerdictAt is { } at ? ", " + Format.TimeAgo(at) : "")</span>
+                <p class="small mb-0 mt-1">@SocPermissions.Describe(verdict)</p>
+            </div>
+        }
+
+        @if (Model.CanGiveVerdict)
+        {
+            <form asp-action="Verdict" asp-route-id="@a.Id" method="post" class="lg-verdict-form">
+                <fieldset>
+                    <legend class="form-label small mb-2">@(a.Verdict is null ? "Your verdict" : "Change your verdict")</legend>
+                    <div class="lg-verdict-options">
+                        @foreach (var v in Enum.GetValues<EscalationVerdict>())
+                        {
+                            <label class="lg-verdict-option">
+                                <input type="radio" name="verdict" value="@v" checked="@(a.Verdict == v)" required />
+                                <span class="lg-verdict lg-verdict-@v.ToString().ToLowerInvariant()">@SocPermissions.Label(v)</span>
+                                <span class="small text-body-secondary">@SocPermissions.Describe(v)</span>
+                            </label>
+                        }
+                    </div>
+                </fieldset>
+                <label for="verdict-note" class="form-label small mt-3">Why? (shown in the activity below)</label>
+                <textarea id="verdict-note" name="note" rows="2" maxlength="1500" class="form-control" placeholder="What did you check, what did you find?"></textarea>
+                <button type="submit" class="btn btn-primary mt-3"><i class="bi bi-patch-check" aria-hidden="true"></i> Save verdict</button>
+            </form>
+        }
+        else if (ownerName is not null && !Model.IsOwner)
+        {
+            <p class="small text-body-secondary mb-0">Only @ownerName can give or change the verdict. You can add a second opinion as a comment below.</p>
+        }
+    </section>
+}
+
+<section id="comments" class="mb-4" aria-labelledby="comments-title">
+    <h2 id="comments-title" class="lg-section-title">Activity and comments <span class="lg-count">@Model.Comments.Count</span></h2>
+    @if (Model.Comments.Count > 0)
+    {
+        <ol class="lg-timeline">
+            @foreach (var c in Model.Comments)
+            {
+                var (cIcon, cTint) = c.Kind switch
+                {
+                    "escalation" => ("bi-arrow-up-circle", "lg-tint-orange"),
+                    "claim" => ("bi-person-check", "lg-tint-indigo"),
+                    "release" => ("bi-arrow-counterclockwise", "lg-tint-gray"),
+                    "verdict" => ("bi-patch-check", "lg-tint-green"),
+                    _ => ("bi-chat-left-text", "lg-tint-blue")
+                };
+                <li class="lg-timeline-item">
+                    <span class="lg-icon lg-icon-sm @cTint" aria-hidden="true"><i class="bi @cIcon"></i></span>
+                    <div class="min-w-0">
+                        <div class="small"><span class="fw-semibold">@c.AuthorName</span> <span class="text-body-secondary" title="@c.CreatedAt.ToString("u")">@Format.TimeAgo(c.CreatedAt)</span></div>
+                        <div class="lg-notes">@c.Text</div>
+                    </div>
+                </li>
+            }
+        </ol>
+    }
+    <form asp-action="Comment" asp-route-id="@a.Id" method="post" class="lg-comment-form">
+        <label for="comment-text" class="form-label small">@(a.EscalatedAt is not null && !Model.IsOwner ? "Add a second opinion" : "Add a comment")</label>
+        <textarea id="comment-text" name="text" rows="2" maxlength="2000" class="form-control" required
+                  placeholder="Visible to every analyst on this alert"></textarea>
+        <button type="submit" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-send" aria-hidden="true"></i> Add comment</button>
+    </form>
+</section>
+
 @{
     var isPublicIp = IpEnrichmentService.IsPublic(a.SourceIp);
     var returnUrl = Context.Request.Path.ToString();
 }
 <div class="lg-ti-header">
     <h2 class="lg-section-title">Threat intelligence</h2>
-    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-ip="@a.SourceIp" class="small">full IP page</a>
+    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-q="@a.SourceIp" class="small">full IP page</a>
     @if (isPublicIp && Model.Providers.Any(p => p.IsConfigured))
     {
         <form asp-controller="ThreatIntel" asp-action="Refresh" method="post" class="ms-auto">

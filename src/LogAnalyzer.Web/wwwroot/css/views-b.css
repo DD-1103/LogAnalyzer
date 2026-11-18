@@ -147,3 +147,147 @@ code.lg-sample-line {
 
 /* Alert notes shown read-only (closed alerts for SOC 1): keep the analyst's line breaks */
 .lg-notes { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lg-text-2); }
+
+/* ======================================================================= SOC 2 hub & escalations
+   One quiet list; the memorable element is the owner pill on the right of each row. */
+
+/* Segmented filter (clear glass capsule) */
+.lg-segmented {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: .25rem;
+    padding: .3rem;
+    border-radius: 999px;
+    border: 1px solid var(--lg-hairline);
+    background: var(--lg-surface);
+    box-shadow: inset 0 1px 0 var(--lg-edge);
+    max-width: 100%;
+}
+.lg-segmented a {
+    padding: .35rem .85rem;
+    border-radius: 999px;
+    font-size: .85rem;
+    font-weight: 560;
+    color: var(--lg-text-2);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.lg-segmented a:hover { color: var(--lg-text); background: var(--lg-surface-hover); }
+.lg-segmented a.active { color: #fff; background: rgb(var(--lg-accent-rgb)); box-shadow: 0 4px 14px rgba(var(--lg-accent-rgb), .35); }
+.lg-segmented a:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(var(--lg-accent-rgb), .55); }
+
+.lg-hub { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.lg-hub-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .9rem;
+    padding: .85rem 1rem;
+    border-radius: 18px;
+    border: 1px solid var(--lg-hairline);
+    background: var(--lg-surface);
+    box-shadow: inset 0 1px 0 var(--lg-edge);
+    transition: opacity .25s var(--lg-ease), background-color .25s var(--lg-ease);
+}
+.lg-hub-row.is-mine { border-color: rgba(var(--lg-accent-rgb), .45); box-shadow: inset 3px 0 0 rgb(var(--lg-accent-rgb)), inset 0 1px 0 var(--lg-edge); }
+/* Decided: greyed, but fully readable on hover/focus and still a link */
+.lg-hub-row.is-decided { opacity: .58; filter: saturate(.35); }
+.lg-hub-row.is-decided:hover, .lg-hub-row.is-decided:focus-within { opacity: 1; filter: none; }
+.lg-hub-sev { align-self: start; margin-top: .15rem; }
+.lg-hub-main { min-width: 0; display: grid; gap: .25rem; }
+.lg-hub-title { font-weight: 620; color: var(--lg-text); text-decoration: none; overflow-wrap: anywhere; }
+a.lg-hub-title:hover { text-decoration: underline; text-underline-offset: 2px; }
+.lg-hub-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .7rem; font-size: .8rem; color: var(--lg-text-3); }
+.lg-hub-reason {
+    margin: .1rem 0 0;
+    font-size: .85rem;
+    color: var(--lg-text-2);
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.lg-hub-side { display: flex; flex-direction: column; align-items: flex-end; gap: .4rem; }
+
+/* Owner pill: who took the escalation */
+.lg-owner {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .2rem .75rem .2rem .2rem;
+    border-radius: 999px;
+    border: 1px solid var(--lg-hairline);
+    background: var(--lg-surface-hover);
+    box-shadow: inset 0 1px 0 var(--lg-edge);
+    max-width: 15rem;
+    font-size: .82rem;
+    font-weight: 600;
+}
+.lg-owner.is-me { border-color: rgba(var(--lg-accent-rgb), .55); background: rgba(var(--lg-accent-rgb), .12); color: rgb(var(--lg-accent-ink-rgb)); }
+.lg-owner-avatar { width: 26px !important; height: 26px !important; font-size: .68rem; font-weight: 700; border-radius: 999px !important; flex: 0 0 auto; }
+.lg-owner-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lg-owner-none { padding: .3rem .75rem; color: var(--lg-text-3); font-weight: 500; }
+
+/* Verdict capsules */
+.lg-verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: .2rem .65rem;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 650;
+    white-space: nowrap;
+}
+.lg-verdict-malicious      { color: rgb(var(--lg-red-ink-rgb));    background: rgba(var(--lg-red-rgb), .14); }
+.lg-verdict-falsepositive  { color: rgb(var(--lg-gray-ink-rgb));   background: rgba(var(--lg-gray-rgb), .18); }
+.lg-verdict-keepmonitoring { color: rgb(var(--lg-orange-ink-rgb)); background: rgba(var(--lg-orange-rgb), .16); }
+.lg-verdict-benign         { color: rgb(var(--lg-green-ink-rgb));  background: rgba(var(--lg-green-rgb), .15); }
+
+/* Escalation panel on the alert page */
+.lg-escalation { display: grid; gap: .9rem; }
+.lg-escalation.is-decided { border-color: rgba(var(--lg-green-rgb), .35); }
+.lg-escalation-head { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.lg-escalation-owner { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.lg-escalation-reason {
+    padding: .55rem .9rem;
+    border-left: 3px solid rgba(var(--lg-orange-rgb), .8);
+    border-radius: 0 12px 12px 0;
+    background: rgba(var(--lg-orange-rgb), .08);
+    font-size: .9rem;
+    overflow-wrap: anywhere;
+}
+.lg-verdict-result { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
+.lg-verdict-result p { flex-basis: 100%; }
+.lg-verdict-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.lg-verdict-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .5rem; }
+.lg-verdict-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .25rem .55rem;
+    align-items: center;
+    padding: .65rem .75rem;
+    border-radius: 14px;
+    border: 1px solid var(--lg-hairline);
+    background: var(--lg-surface);
+    cursor: pointer;
+}
+.lg-verdict-option > .small { grid-column: 2; }
+.lg-verdict-option:has(input:checked) { border-color: rgba(var(--lg-accent-rgb), .6); background: rgba(var(--lg-accent-rgb), .08); }
+.lg-verdict-option input:focus-visible { outline: 2px solid rgb(var(--lg-accent-rgb)); outline-offset: 2px; }
+
+/* Activity timeline */
+.lg-timeline { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: .75rem; }
+.lg-timeline-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .7rem; align-items: start; }
+.lg-comment-form { max-width: 46rem; }
+
+@media (max-width: 575.98px) {
+    .lg-hub-row { grid-template-columns: auto minmax(0, 1fr); }
+    .lg-hub-side { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; }
+    .lg-segmented { display: flex; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+    .lg-hub-row.is-decided { filter: none; }
+}

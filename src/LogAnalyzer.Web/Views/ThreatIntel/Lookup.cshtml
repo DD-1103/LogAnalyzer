@@ -1,8 +1,18 @@
 @model ThreatIntelLookupViewModel
 @{
-    ViewData["Title"] = Model.Ip is null ? "IP lookup" : $"IP {Model.Ip}";
+    var ind = Model.Indicator;
+    ViewData["Title"] = ind is null ? "Threat lookup" : $"{ind.Label} {ind.Value}";
     var returnUrl = Context.Request.Path + Context.Request.QueryString;
-    var anyConfigured = Model.Providers.Any(p => p.IsConfigured);
+    var checking = ind is null ? [] : Model.Providers.Where(p => p.IsConfigured && p.Supports(ind.Type)).ToList();
+    var notChecking = ind is null ? [] : Model.Providers.Except(checking).ToList();
+    var pending = checking.Count(p => !Model.Results.ContainsKey(p.Name));
+    var (icon, tint) = ind?.Type switch
+    {
+        IndicatorType.Domain => ("bi-globe2", "lg-tint-indigo"),
+        IndicatorType.Hash => ("bi-file-earmark-binary", "lg-tint-teal"),
+        _ => ("bi-hdd-network", Model.AlertCount > 0 ? "lg-tint-red" : "lg-tint-blue")
+    };
+    string TypeName(IndicatorType t) => t switch { IndicatorType.Ip => "IP addresses", IndicatorType.Domain => "domains", _ => "file hashes" };
 }
 
 @section Head {
@@ -12,23 +22,28 @@
 <nav aria-label="breadcrumb">
     <ol class="breadcrumb">
         <li class="breadcrumb-item"><a asp-action="Index">Threat intelligence</a></li>
-        <li class="breadcrumb-item active" aria-current="page">IP lookup</li>
+        <li class="breadcrumb-item active" aria-current="page">Lookup</li>
     </ol>
 </nav>
 
 <header class="lg-page-header">
     <div>
-        <h1 class="lg-title">IP lookup</h1>
-        <p class="lg-subtitle">Everything known about one address: location, alerts, and the answer of each reputation provider.</p>
-    </div>
-    <div class="lg-actions">
-        <form asp-action="Lookup" method="get" class="d-flex gap-2 lookup-form" role="search">
-            <label for="lookup-ip" class="visually-hidden">IP address</label>
-            <input id="lookup-ip" name="ip" value="@Model.Ip" class="form-control font-monospace" placeholder="IP address" maxlength="45" required />
-            <button type="submit" class="btn btn-primary text-nowrap"><i class="bi bi-search" aria-hidden="true"></i> Look up</button>
-        </form>
+        <h1 class="lg-title">Threat lookup</h1>
+        <p class="lg-subtitle">Check an IP address, a domain or a file hash at every configured provider in one go.</p>
     </div>
 </header>
+
+<form asp-action="Search" method="post" class="lg-panel lg-search mb-4" role="search">
+    <label for="lookup-q" class="visually-hidden">IP address, domain or file hash</label>
+    <i class="bi bi-search lg-search-icon" aria-hidden="true"></i>
+    <input id="lookup-q" name="q" value="@(Model.Query)" class="form-control font-monospace" maxlength="2048" required
+           placeholder="185.220.101.45, example.com or a SHA-256 hash" autocomplete="off" spellcheck="false" />
+    <button type="submit" class="btn btn-primary"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Look up</button>
+    <p class="lg-search-hint">
+        Works with IPv4 and IPv6, domains, full URLs (the host is checked) and MD5, SHA-1 or SHA-256 hashes.
+        Defanged input such as <code>example[.]com</code> or <code>hxxps://</code> is accepted.
+    </p>
+</form>
 
 @if (Model.Error is not null)
 {
@@ -37,16 +52,15 @@
         <div>@Model.Error</div>
     </div>
 }
-else if (Model.Ip is not null)
+else if (ind is not null)
 {
     <div class="lg-panel mb-4">
         <div class="d-flex flex-wrap align-items-center gap-3">
-            <span class="lg-icon lg-icon-lg @(Model.AlertCount > 0 ? "lg-tint-red" : "lg-tint-blue")">
-                <i class="bi bi-hdd-network" aria-hidden="true"></i>
-            </span>
+            <span class="lg-icon lg-icon-lg @tint"><i class="bi @icon" aria-hidden="true"></i></span>
             <div class="min-w-0 flex-grow-1">
-                <div class="lg-ip">@Model.Ip</div>
+                <div class="lg-ip text-break">@ind.Value</div>
                 <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                    <span class="lg-chip">@ind.Label</span>
                     @if (Model.IpInfo?.CountryCode is not null)
                     {
                         <span class="lg-chip">
@@ -55,41 +69,74 @@ else if (Model.Ip is not null)
                             @(string.Join(", ", new[] { Model.IpInfo.City, Model.IpInfo.CountryName }.Where(x => !string.IsNullOrEmpty(x))))
                         </span>
                     }
-                    @if (!Model.IsPublic)
+                    @if (Model.BlockedReason is not null)
                     {
-                        <span class="lg-chip"><i class="bi bi-house-lock" aria-hidden="true"></i> Private or reserved</span>
+                        <span class="lg-chip"><i class="bi bi-house-lock" aria-hidden="true"></i> @Model.BlockedReason</span>
                     }
-                    <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@Model.Ip"
-                       class="badge @(Model.AlertCount > 0 ? "text-bg-danger" : "text-bg-secondary")">@Model.AlertCount alert(s)</a>
-                    <span class="small text-body-secondary">@Model.EventCount.ToString("N0") request(s) in uploaded logs</span>
+                    @if (ind.Type == IndicatorType.Ip)
+                    {
+                        <a asp-controller="Alerts" asp-action="Index" asp-route-ip="@ind.Value"
+                           class="badge @(Model.AlertCount > 0 ? "text-bg-danger" : "text-bg-secondary")">@Model.AlertCount alert(s)</a>
+                        <span class="small text-body-secondary">@Model.EventCount.ToString("N0") request(s) in uploaded logs</span>
+                    }
                 </div>
             </div>
-            @if (anyConfigured && Model.IsPublic)
+            @if (Model.IsPublic && pending > 0)
             {
-                <form asp-action="Refresh" method="post">
-                    <input type="hidden" name="ip" value="@Model.Ip" />
-                    <input type="hidden" name="returnUrl" value="@returnUrl" />
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Look up at all providers</button>
+                <form asp-action="Search" method="post">
+                    <input type="hidden" name="q" value="@ind.Value" />
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Look up at @pending provider(s)</button>
                 </form>
             }
         </div>
     </div>
 
-    <div class="row g-3">
-        @foreach (var p in Model.Providers)
-        {
-            <div class="col-lg-4">
-                <partial name="_ReputationCard" model="new ReputationCardModel(p, Model.Results.GetValueOrDefault(p.Name), Model.Ip, Model.IsPublic, returnUrl)" />
+    @if (checking.Count == 0)
+    {
+        <div class="card mb-4">
+            <div class="lg-empty">
+                <i class="bi bi-plug" aria-hidden="true"></i>
+                <p class="mb-1">No configured provider can check @TypeName(ind.Type).</p>
+                @{ var could = Model.Providers.Where(p => p.Supports(ind.Type)).Select(p => p.Name).ToList(); }
+                @if (could.Count > 0)
+                {
+                    <p class="small text-body-secondary mb-0">Add an API key for @string.Join(" or ", could) on its provider page.</p>
+                }
             </div>
-        }
-    </div>
+        </div>
+    }
+    else
+    {
+        <h2 class="lg-section-title">Answers <span class="lg-count">@checking.Count configured provider(s)</span></h2>
+        <div class="row g-3 mb-4">
+            @foreach (var p in checking)
+            {
+                <div class="col-md-6 col-xl-4">
+                    <partial name="_ReputationCard" model="new ReputationCardModel(p, Model.Results.GetValueOrDefault(p.Name), ind.Value, Model.IsPublic, returnUrl, ind)" />
+                </div>
+            }
+        </div>
+    }
+
+    @if (notChecking.Count > 0)
+    {
+        <div class="lg-not-checked small text-body-secondary">
+            <i class="bi bi-info-circle" aria-hidden="true"></i>
+            Not checked:
+            @for (var i = 0; i < notChecking.Count; i++)
+            {
+                var p = notChecking[i];
+                <a asp-action="Provider" asp-route-id="@p.Slug">@p.Name</a><span> (@(p.IsConfigured ? $"does not check {TypeName(ind.Type)}" : "no API key"))</span>@(i < notChecking.Count - 1 ? ", " : ".")
+            }
+        </div>
+    }
 }
 else
 {
     <div class="card">
         <div class="lg-empty">
             <i class="bi bi-search" aria-hidden="true"></i>
-            <p class="mb-0">Enter an IPv4 or IPv6 address to see its location, alerts and reputation.</p>
+            <p class="mb-0">Paste an indicator above. Every configured provider that can check it answers at once.</p>
         </div>
     </div>
 }

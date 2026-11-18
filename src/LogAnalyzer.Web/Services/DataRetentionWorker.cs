@@ -54,6 +54,11 @@ public sealed class DataRetentionWorker(
         var ipInfos = await db.IpInfos
             .Where(i => !db.Alerts.Any(a => a.SourceIp == i.Ip) && !db.IpReputations.Any(r => r.Ip == i.Ip))
             .ExecuteDeleteAsync(ct);
+        // Notifications: read ones after 30 days, all after RetentionDays.
+        var readCutoff = now.AddDays(-30);
+        await db.Notifications
+            .Where(n => (n.ReadAt != null && n.ReadAt < readCutoff) || n.CreatedAt < expired)
+            .ExecuteDeleteAsync(ct);
         return (reputations, ipInfos);
     }
 }

@@ -148,3 +148,34 @@
 
 /* Flex children that may contain long text */
 .min-w-0 { min-width: 0; }
+
+/* ---- Threat lookup search bar (IP, domain or hash) ----
+   One wide glass field: icon, input and button on a row; the hint wraps below. The input shrinks, the button never. */
+.lg-search {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .6rem .75rem;
+}
+.lg-search .form-control { flex: 1 1 14rem; min-width: 0; }
+.lg-search .btn { flex: 0 0 auto; white-space: nowrap; }
+.lg-search-icon { color: var(--lg-text-3); font-size: 1.1rem; flex: 0 0 auto; }
+.lg-search-hint {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: .8rem;
+    color: var(--lg-text-3);
+}
+.lg-search-hint code { font-size: .78rem; }
+.lg-search.lg-panel .form-control { font-size: 1rem; padding-block: .6rem; }
+
+/* compact variant in a page header */
+.lg-search-sm { flex-wrap: nowrap; max-width: 30rem; width: 100%; }
+@media (max-width: 575.98px) { .lg-search-sm { flex-wrap: wrap; max-width: none; } }
+
+.lg-not-checked {
+    padding: .7rem .95rem;
+    border-radius: 14px;
+    background: rgba(var(--lg-gray-rgb), .08);
+}
+.lg-not-checked a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

@@ -277,6 +277,9 @@
                 setBadge('badge-files', c.processing, '');
                 setBadge('badge-alerts', c.newAlerts, '+');
                 setBadge('badge-rules', c.firingRules, '+');
+                setBadge('badge-soc2', c.soc2Waiting, '');
+                setBadge('badge-bell', c.notifications, '');
+                document.dispatchEvent(new CustomEvent('lg:navcounts', { detail: c }));
             } catch { /* offline or session expired: keep the last values */ }
         }
 

@@ -49,7 +49,7 @@
                 }
                 else if (!Model.IsPublic)
                 {
-                    <span>Private or reserved address: never sent to external services.</span>
+                    <span>@(Model.Target.Type == IndicatorType.Ip ? "Private or reserved address" : "Internal host name"): never sent to external services.</span>
                 }
                 else
                 {
@@ -74,10 +74,10 @@
         }
 
         <div class="d-flex flex-wrap gap-2 align-items-center mt-auto">
-            @if (p.IsConfigured && Model.IsPublic)
+            @if (p.IsConfigured && Model.IsPublic && p.Supports(Model.Target.Type))
             {
                 <form asp-controller="ThreatIntel" asp-action="Refresh" method="post" class="d-inline">
-                    <input type="hidden" name="ip" value="@Model.Ip" />
+                    <input type="hidden" name="ip" value="@Model.Target.Value" />
                     <input type="hidden" name="provider" value="@p.Slug" />
                     <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
                     <button type="submit" class="btn btn-sm btn-outline-primary">
@@ -85,9 +85,9 @@
                     </button>
                 </form>
             }
-            @if (Model.IsPublic)
+            @if (Model.IsPublic && p.Supports(Model.Target.Type))
             {
-                <a href="@p.WebLink(Model.Ip)" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                <a href="@p.WebLink(Model.Target)" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
                     Open on @p.Name <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
                 </a>
             }

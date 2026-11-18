@@ -48,7 +48,7 @@
             @if (User.IsInRole(Roles.Admin))
             {
                 <form asp-action="RerunDetection" asp-route-id="@f.Id" method="post" class="js-confirm"
-                      data-confirm="Re-run detection? Existing alerts for this file (and their status/notes) will be replaced.">
+                      data-confirm="Re-run detection? Existing alerts for this file are replaced, including their status, notes, escalations, verdicts and comments.">
                     <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Re-run detection</button>
                 </form>
             }

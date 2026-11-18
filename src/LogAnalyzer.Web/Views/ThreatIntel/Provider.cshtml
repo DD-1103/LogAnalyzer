@@ -130,7 +130,7 @@ else
                 @foreach (var r in Model.Results)
                 {
                     <tr>
-                        <td class="font-monospace"><a asp-action="Lookup" asp-route-ip="@r.Ip">@r.Ip</a></td>
+                        <td class="font-monospace"><a asp-action="Lookup" asp-route-q="@r.Ip" class="text-break">@r.Ip</a></td>
                         <td><span class="badge @Format.VerdictBadge(r.Verdict)">@r.Verdict</span></td>
                         <td class="text-end">@(r.Score is int s ? s + "%" : "—")</td>
                         <td>@(r.Error ?? r.Summary)</td>

@@ -48,6 +48,27 @@ public enum RuleField
     Referrer = 2
 }
 
+/// <summary>Verdict a SOC 2 analyst gives on an escalated alert.</summary>
+public enum EscalationVerdict
+{
+    /// <summary>Confirmed attack (true positive).</summary>
+    Malicious = 1,
+    /// <summary>Not an attack: the rule fired on legitimate traffic.</summary>
+    FalsePositive = 2,
+    /// <summary>Not decided yet: keep the alert open and watch the source.</summary>
+    KeepMonitoring = 3,
+    /// <summary>Real activity, but expected or harmless (e.g. an authorised scanner).</summary>
+    Benign = 4
+}
+
+/// <summary>What an analyst can look up at the threat-intel providers.</summary>
+public enum IndicatorType
+{
+    Ip,
+    Domain,
+    Hash
+}
+
 /// <summary>SOC tier of an analyst: SOC 1 triages and escalates, SOC 2 investigates and closes (see SocPermissions).</summary>
 public enum AnalystTier
 {

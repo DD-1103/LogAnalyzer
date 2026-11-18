@@ -157,6 +157,19 @@ public class Alert
     /// <summary>Set when a SOC 1 analyst hands the alert over to SOC 2.</summary>
     public DateTime? EscalatedAt { get; set; }
     public string? EscalatedBy { get; set; }
+    /// <summary>Account id of the escalating analyst (no foreign key: the account may be deleted later).</summary>
+    public string? EscalatedById { get; set; }
+    public string? EscalationReason { get; set; }
+
+    /// <summary>When the SOC 2 owner (<see cref="AssignedToId"/>) took the escalation.</summary>
+    public DateTime? ClaimedAt { get; set; }
+
+    /// <summary>The SOC 2 owner's decision; only the owner can set or change it.</summary>
+    public EscalationVerdict? Verdict { get; set; }
+    public DateTime? VerdictAt { get; set; }
+    public string? VerdictBy { get; set; }
+
+    public ICollection<AlertComment> Comments { get; set; } = new List<AlertComment>();
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -194,6 +207,8 @@ public class IpReputation
 {
     public long Id { get; set; }
     public string Ip { get; set; } = string.Empty;
+    /// <summary>IP address, domain or file hash (the column is still called Ip for compatibility).</summary>
+    public IndicatorType Kind { get; set; } = IndicatorType.Ip;
     public string Provider { get; set; } = string.Empty;
     public ThreatVerdict Verdict { get; set; }
 
@@ -243,4 +258,40 @@ public class AuditEntry
     public string? Target { get; set; }
     public string? Details { get; set; }
     public string? IpAddress { get; set; }
+}
+
+/// <summary>A note on an alert by any analyst: second opinions, escalation reasons and verdict explanations.</summary>
+public class AlertComment
+{
+    public long Id { get; set; }
+    public long AlertId { get; set; }
+    public Alert? Alert { get; set; }
+
+    /// <summary>No foreign key: comments stay when the author's account is deleted.</summary>
+    public string? AuthorId { get; set; }
+    public string AuthorName { get; set; } = string.Empty;
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>"comment", "escalation", "claim", "release" or "verdict" - drives the icon in the timeline.</summary>
+    public string Kind { get; set; } = "comment";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>An in-app notification for one user (bell in the navigation).</summary>
+public class Notification
+{
+    public long Id { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public AppUser? User { get; set; }
+
+    public string Title { get; set; } = string.Empty;
+    public string? Body { get; set; }
+    /// <summary>Local URL to open (always app-relative, e.g. /Alerts/Details/67).</summary>
+    public string? Link { get; set; }
+    /// <summary>"escalation", "claim", "verdict" or "comment".</summary>
+    public string Kind { get; set; } = "info";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Set the first time the user opens the bell; only read notifications can be deleted.</summary>
+    public DateTime? ReadAt { get; set; }
 }

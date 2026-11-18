@@ -1,0 +1,118 @@
+@model Soc2HubViewModel
+@{
+    ViewData["Title"] = "SOC 2 hub";
+    var returnUrl = Context.Request.Path + Context.Request.QueryString;
+
+    static string Initials(string name)
+    {
+        var parts = name.Split([' ', '.', '@', '_', '-'], StringSplitOptions.RemoveEmptyEntries);
+        var letters = string.Concat(parts.Take(2).Select(p => char.ToUpperInvariant(p[0])));
+        return letters.Length == 0 ? "?" : letters;
+    }
+    // Same person, same colour, on every page.
+    static string OwnerTint(string? id)
+    {
+        string[] tints = ["lg-tint-blue", "lg-tint-indigo", "lg-tint-teal", "lg-tint-green", "lg-tint-orange"];
+        var hash = 0;
+        foreach (var c in id ?? "") hash = unchecked(hash * 31 + c);
+        return tints[Math.Abs(hash % tints.Length)];
+    }
+    string Tab(string view, string label, int? count) =>
+        $"{label}{(count is > 0 ? $" ({count})" : "")}";
+}
+
+@section Head {
+    <link rel="stylesheet" href="~/css/views-b.css" asp-append-version="true" />
+}
+
+<header class="lg-page-header">
+    <div>
+        <h1 class="lg-title">SOC 2 hub</h1>
+        <p class="lg-subtitle">
+            Alerts that SOC 1 escalated to you. Take one to own it: your name shows on it for the rest of the team.
+            Only the owner gives the verdict; anyone can open a decided alert and add a second opinion.
+        </p>
+    </div>
+</header>
+
+<nav class="lg-segmented mb-3" aria-label="Filter escalations">
+    <a asp-route-view="all" class="@(Model.View == "all" ? "active" : null)" aria-current="@(Model.View == "all" ? "page" : null)">All</a>
+    <a asp-route-view="waiting" class="@(Model.View == "waiting" ? "active" : null)" aria-current="@(Model.View == "waiting" ? "page" : null)">@Tab("waiting", "Waiting", Model.Waiting)</a>
+    <a asp-route-view="progress" class="@(Model.View == "progress" ? "active" : null)" aria-current="@(Model.View == "progress" ? "page" : null)">@Tab("progress", "In progress", Model.InProgress)</a>
+    <a asp-route-view="mine" class="@(Model.View == "mine" ? "active" : null)" aria-current="@(Model.View == "mine" ? "page" : null)">@Tab("mine", "Mine", Model.Mine)</a>
+    <a asp-route-view="decided" class="@(Model.View == "decided" ? "active" : null)" aria-current="@(Model.View == "decided" ? "page" : null)">@Tab("decided", "Decided", Model.Decided)</a>
+</nav>
+
+@if (Model.Items.Count == 0)
+{
+    <div class="card">
+        <div class="lg-empty">
+            <i class="bi bi-inboxes" aria-hidden="true"></i>
+            <p class="mb-0">
+                @(Model.View switch
+                {
+                    "waiting" => "Nothing is waiting. Every escalation has an owner.",
+                    "progress" => "No escalation is being worked on right now.",
+                    "mine" => "You do not own any escalation. Take one from the Waiting list.",
+                    "decided" => "No verdicts yet.",
+                    _ => "No escalations yet. When a SOC 1 analyst escalates an alert, it appears here and you get a notification."
+                })
+            </p>
+        </div>
+    </div>
+}
+else
+{
+    <ul class="lg-hub">
+        @foreach (var item in Model.Items)
+        {
+            var a = item.Alert;
+            var decided = item.State == SocPermissions.HubState.Decided;
+            <li class="lg-hub-row @(decided ? "is-decided" : null) @(item.IsMine && !decided ? "is-mine" : null)">
+                <span class="lg-hub-sev badge @Format.SeverityBadge(a.Severity)">@a.Severity</span>
+                <div class="lg-hub-main">
+                    <a asp-controller="Alerts" asp-action="Details" asp-route-id="@a.Id" class="lg-hub-title">#@a.Id @a.Title</a>
+                    <div class="lg-hub-meta">
+                        <span class="lg-chip">@Format.AttackLabel(a.AttackType)</span>
+                        <span class="font-monospace">@a.SourceIp</span>
+                        <span>escalated by @(a.EscalatedBy ?? "SOC 1") @Format.TimeAgo(a.EscalatedAt!.Value)</span>
+                        @if (item.Comments > 0)
+                        {
+                            <span><i class="bi bi-chat-left-text" aria-hidden="true"></i> @item.Comments</span>
+                        }
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(a.EscalationReason))
+                    {
+                        <p class="lg-hub-reason">@a.EscalationReason</p>
+                    }
+                </div>
+                <div class="lg-hub-side">
+                    @if (decided)
+                    {
+                        <span class="lg-verdict lg-verdict-@a.Verdict!.Value.ToString().ToLowerInvariant()">
+                            <i class="bi bi-patch-check-fill" aria-hidden="true"></i> @SocPermissions.Label(a.Verdict.Value)
+                        </span>
+                    }
+                    @if (item.OwnerName is not null)
+                    {
+                        <span class="lg-owner @(item.IsMine ? "is-me" : null)" title="@(item.IsMine ? "You own this escalation" : $"{item.OwnerName} owns this escalation")">
+                            <span class="lg-owner-avatar lg-icon lg-icon-sm @OwnerTint(a.AssignedToId)" aria-hidden="true">@Initials(item.OwnerName)</span>
+                            <span class="lg-owner-name">@(item.IsMine ? "You" : item.OwnerName)</span>
+                        </span>
+                    }
+                    else if (!decided)
+                    {
+                        <form asp-controller="Alerts" asp-action="Claim" asp-route-id="@a.Id" method="post">
+                            <input type="hidden" name="returnUrl" value="@returnUrl" />
+                            <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-hand-index-thumb" aria-hidden="true"></i> Take it</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <span class="lg-owner lg-owner-none">No owner</span>
+                    }
+                </div>
+            </li>
+        }
+    </ul>
+}

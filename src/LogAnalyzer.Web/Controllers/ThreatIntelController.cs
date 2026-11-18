@@ -14,8 +14,9 @@ namespace LogAnalyzer.Web.Controllers;
 /// Threat-intelligence providers (AbuseIPDB, GreyNoise, VirusTotal):
 ///   GET  /ThreatIntel                      overview, configuration status, GreyNoise effect
 ///   GET  /ThreatIntel/Provider/{slug}      one provider: setup, quota, cached answers, test
-///   GET  /ThreatIntel/Lookup?ip=           everything known about one IP
-///   POST /ThreatIntel/Refresh              live lookup of one IP (one or all providers)
+///   GET  /ThreatIntel/Lookup?q=            everything known about one IP, domain or file hash (cached)
+///   POST /ThreatIntel/Search               "Look up": all configured providers that support the type
+///   POST /ThreatIntel/Refresh              forced live lookup (one or all providers)
 ///   POST /ThreatIntel/Test/{slug}          Admin: checks that the API key works (8.8.8.8)
 ///   GET  /ThreatIntel/Api/{slug}/{ip}      cached answer as JSON
 /// </summary>
@@ -87,28 +88,65 @@ public class ThreatIntelController(
         });
     }
 
+    /// <summary>
+    /// Everything known about one indicator (IP, domain or file hash): cached provider answers and, for IPs,
+    /// location, alerts and requests. Reading this page never contacts a provider; "Look up" (POST Search) does.
+    /// </summary>
     [HttpGet]
-    public async Task<IActionResult> Lookup(string? ip, CancellationToken ct)
+    public async Task<IActionResult> Lookup(string? q, string? ip, CancellationToken ct)
     {
-        var model = new ThreatIntelLookupViewModel { Providers = threatIntel.Providers };
-        if (string.IsNullOrWhiteSpace(ip))
+        var query = string.IsNullOrWhiteSpace(q) ? ip : q;
+        var model = new ThreatIntelLookupViewModel { Providers = threatIntel.Providers, Query = query?.Trim() };
+        if (string.IsNullOrWhiteSpace(query))
             return View(model);
-
-        if (!TryNormalize(ip, out var address))
+        if (!IndicatorParser.TryParse(query, out var indicator, out var error))
         {
-            model.Error = "Enter a valid IPv4 or IPv6 address.";
-            model.Ip = ip;
+            model.Error = error;
             return View(model);
         }
 
-        model.Ip = address;
-        model.IsPublic = IpEnrichmentService.IsPublic(address);
-        model.Results = (await threatIntel.GetCachedAsync(address, ct)).ToDictionary(r => r.Provider);
-        model.IpInfo = await db.IpInfos.AsNoTracking().FirstOrDefaultAsync(i => i.Ip == address, ct);
-        model.AlertCount = await db.Alerts.CountAsync(a => a.SourceIp == address, ct);
-        model.EventCount = await db.LogEvents.CountAsync(e => e.ClientIp == address, ct);
+        model.Indicator = indicator;
+        model.Ip = indicator.Value;
+        model.IsPublic = IndicatorParser.MaySend(indicator, threatIntel.InternalDomains, out var blocked);
+        model.BlockedReason = model.IsPublic ? null : blocked;
+        model.Results = (await threatIntel.GetCachedAsync(indicator.Value, ct)).ToDictionary(r => r.Provider);
+        if (indicator.Type == IndicatorType.Ip)
+        {
+            model.IpInfo = await db.IpInfos.AsNoTracking().FirstOrDefaultAsync(i => i.Ip == indicator.Value, ct);
+            model.AlertCount = await db.Alerts.CountAsync(a => a.SourceIp == indicator.Value, ct);
+            model.EventCount = await db.LogEvents.CountAsync(e => e.ClientIp == indicator.Value, ct);
+        }
         return View(model);
     }
+
+    /// <summary>
+    /// "Look up": checks the indicator at every configured provider that supports its type (cached answers younger
+    /// than CacheDays are reused), then shows the result page. Unconfigured providers are never called.
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [EnableRateLimiting("ti-lookup")]
+    public async Task<IActionResult> Search(string? q, CancellationToken ct)
+    {
+        if (!IndicatorParser.TryParse(q, out var indicator, out var error))
+        {
+            TempData["Error"] = error;
+            return RedirectToAction(nameof(Lookup), new { q });
+        }
+
+        var results = await threatIntel.LookupEverywhereAsync(indicator, UiMaxWait, ct);
+        if (results.Count > 0)
+        {
+            var summary = string.Join("; ", results.Select(r => $"{r.Provider}: {r.Verdict}"));
+            await audit.WriteAsync("ThreatIntel.Lookup", $"{indicator.Label} {indicator.Value}", summary, ct);
+            logger.LogInformation("User {User} looked up {Type} {Indicator}: {Result}",
+                User.Identity?.Name, indicator.Type, indicator.Value, summary);
+        }
+        return RedirectToAction(nameof(Lookup), new { q = indicator.Value });
+    }
+
+    /// <summary>A UI lookup waits at most this long for a rate-limited provider (VirusTotal: 4 requests/minute).</summary>
+    private static readonly TimeSpan UiMaxWait = TimeSpan.FromSeconds(16);
 
     /// <summary>Live lookup. provider = slug, or empty for all configured providers.</summary>
     [HttpPost]
@@ -116,14 +154,16 @@ public class ThreatIntelController(
     [EnableRateLimiting("ti-lookup")]
     public async Task<IActionResult> Refresh(string ip, string? provider, string? returnUrl, CancellationToken ct)
     {
-        if (!TryNormalize(ip, out var address))
+        // "ip" carries any indicator (IP, domain or hash) for compatibility with existing forms.
+        if (!IndicatorParser.TryParse(ip, out var indicator, out var error))
         {
-            TempData["Error"] = "Invalid IP address.";
+            TempData["Error"] = error;
             return RedirectToAction(nameof(Lookup));
         }
+        var address = indicator.Value;
 
         var targets = string.IsNullOrEmpty(provider)
-            ? threatIntel.Providers.Where(p => p.IsConfigured).ToList()
+            ? threatIntel.Providers.Where(p => p.IsConfigured && p.Supports(indicator.Type)).ToList()
             : threatIntel.Find(provider) is { } one ? [one] : [];
 
         if (targets.Count == 0)
@@ -137,7 +177,7 @@ public class ThreatIntelController(
             var messages = new List<string>();
             foreach (var p in targets)
             {
-                var r = await threatIntel.RefreshAsync(address, p, waitForSlot: false, ct);
+                var r = await threatIntel.RefreshAsync(indicator, p, waitForSlot: false, ct, UiMaxWait);
                 messages.Add(r.LastAttemptError is not null
                     ? $"{p.Name}: {r.Verdict} kept (refresh failed – {r.LastAttemptError})"
                     : $"{p.Name}: {r.Verdict}{(r.Error is null ? "" : " – " + r.Error)}");
@@ -150,7 +190,7 @@ public class ThreatIntelController(
 
         if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
             return LocalRedirect(returnUrl);
-        return RedirectToAction(nameof(Lookup), new { ip = address });
+        return RedirectToAction(nameof(Lookup), new { q = address });
     }
 
     /// <summary>Checks the API key of one provider with a harmless lookup of 8.8.8.8.</summary>

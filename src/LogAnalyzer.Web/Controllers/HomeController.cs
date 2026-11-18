@@ -43,7 +43,14 @@ public class HomeController(AppDbContext db) : Controller
             .Distinct()
             .CountAsync();
 
-        return Json(new { processing, newAlerts, firingRules });
+        // Bell: unread notifications. SOC 2 hub: escalations nobody has taken yet (only for SOC 2 / admins).
+        var notifications = await db.Notifications.CountAsync(n => n.UserId == userId && n.ReadAt == null);
+        var tier = await db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => u.Tier).FirstOrDefaultAsync();
+        var soc2Waiting = SocPermissions.IsSoc2(User.IsInRole(Roles.Admin), tier)
+            ? await db.Alerts.CountAsync(a => a.EscalatedAt != null && a.AssignedToId == null && a.Verdict == null)
+            : 0;
+
+        return Json(new { processing, newAlerts, firingRules, notifications, soc2Waiting });
     }
 
     [AllowAnonymous]

@@ -14,11 +14,16 @@ public class AppUserClaimsPrincipalFactory(UserManager<AppUser> userManager, Rol
 {
     public const string MustChangePasswordClaim = "la:must_change_password";
 
+    /// <summary>SOC tier, only used to show the SOC 2 hub link; permissions are checked against the database.</summary>
+    public const string TierClaim = "la:tier";
+
     protected override async Task<ClaimsIdentity> GenerateClaimsAsync(AppUser user)
     {
         var identity = await base.GenerateClaimsAsync(user);
         if (user.MustChangePassword)
             identity.AddClaim(new Claim(MustChangePasswordClaim, "true"));
+        if (user.Tier is { } tier)
+            identity.AddClaim(new Claim(TierClaim, tier.ToString()));
         return identity;
     }
 }

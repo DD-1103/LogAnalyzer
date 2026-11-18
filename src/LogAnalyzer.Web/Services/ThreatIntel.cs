@@ -39,6 +39,12 @@ public sealed class EnrichmentOptions
     /// </summary>
     public bool AutoLookup { get; set; }
 
+    /// <summary>
+    /// The organisation's own domains (e.g. "example.org"): they and their sub-domains are never sent to providers,
+    /// like private IP addresses. Built-in internal names (.local, .internal, .lan, ...) are always blocked.
+    /// </summary>
+    public string[] InternalDomains { get; set; } = [];
+
     /// <summary>Threat-intel answers and GeoIP rows of IPs without alerts are deleted after this many days.</summary>
     public int RetentionDays { get; set; } = 90;
 
@@ -91,6 +97,18 @@ public interface IThreatIntelProvider
     string WebLink(string ip);
 
     Task<ReputationResult> LookupAsync(string ip, CancellationToken ct);
+
+    /// <summary>Indicator types this provider can look up (IP only unless the provider says otherwise).</summary>
+    IReadOnlyCollection<IndicatorType> SupportedTypes => [IndicatorType.Ip];
+
+    bool Supports(IndicatorType type) => SupportedTypes.Contains(type);
+
+    string WebLink(Indicator indicator) => WebLink(indicator.Value);
+
+    Task<ReputationResult> LookupAsync(Indicator indicator, CancellationToken ct) =>
+        indicator.Type == IndicatorType.Ip
+            ? LookupAsync(indicator.Value, ct)
+            : Task.FromResult(ReputationResult.Skipped($"{Name} does not look up {indicator.Label.ToLowerInvariant()}s"));
 }
 
 /// <summary>Shared HTTP handling: status codes, timeouts, JSON errors. Subclasses build the request and parse the body.</summary>
@@ -106,21 +124,45 @@ public abstract class ThreatIntelProviderBase(HttpClient http, ILogger logger) :
     public abstract int MaxPerRun { get; }
     public virtual TimeSpan MinInterval => TimeSpan.Zero;
     public abstract string WebLink(string ip);
+    public virtual string WebLink(Indicator indicator) => WebLink(indicator.Value);
+
+    public virtual IReadOnlyCollection<IndicatorType> SupportedTypes => [IndicatorType.Ip];
+    public bool Supports(IndicatorType type) => SupportedTypes.Contains(type);
 
     protected abstract HttpRequestMessage BuildRequest(string ip);
 
+    /// <summary>Request for any supported indicator type; IP-only providers keep using <see cref="BuildRequest(string)"/>.</summary>
+    protected virtual HttpRequestMessage BuildRequest(Indicator indicator) => BuildRequest(indicator.Value);
+
     /// <summary>Called for HTTP 404: some providers use it for "no data about this IP".</summary>
     protected virtual ReputationResult? OnNotFound(JsonElement? body) => null;
+    protected virtual ReputationResult? OnNotFound(JsonElement? body, Indicator indicator) => OnNotFound(body);
 
     protected abstract ReputationResult Parse(JsonElement root);
+    protected virtual ReputationResult Parse(JsonElement root, Indicator indicator) => Parse(root);
 
-    public async Task<ReputationResult> LookupAsync(string ip, CancellationToken ct)
+    public Task<ReputationResult> LookupAsync(string ip, CancellationToken ct) => LookupAsync(Indicator.ForIp(ip), ct);
+
+    public async Task<ReputationResult> LookupAsync(Indicator indicator, CancellationToken ct)
     {
         if (!IsConfigured)
             return ReputationResult.Skipped($"Not configured (set {ApiKeySetting})");
-        // Only the canonical form of a public address leaves the machine (e.g. "::ffff:8.8.8.8" is sent as "8.8.8.8").
-        if (!IpAddressPolicy.TryGetPublic(ip, out var canonical))
-            return ReputationResult.Skipped("Private or reserved address - never sent to external services");
+        if (!Supports(indicator.Type))
+            return ReputationResult.Skipped($"{Name} does not look up {indicator.Label.ToLowerInvariant()}s");
+        // Only the canonical form of a public address leaves the machine (e.g. "::ffff:8.8.8.8" is sent as "8.8.8.8");
+        // internal host names never do.
+        var canonical = indicator;
+        if (indicator.Type == IndicatorType.Ip)
+        {
+            if (!IpAddressPolicy.TryGetPublic(indicator.Value, out var ip))
+                return ReputationResult.Skipped("Private or reserved address - never sent to external services");
+            canonical = Indicator.ForIp(ip);
+        }
+        else if (!IndicatorParser.MaySend(indicator, null, out var reason))
+        {
+            return ReputationResult.Skipped(reason);
+        }
+        var ipForLog = canonical.Value;
 
         try
         {
@@ -141,24 +183,24 @@ public abstract class ThreatIntelProviderBase(HttpClient http, ILogger logger) :
                     }
                     catch (JsonException) { /* not JSON */ }
                 }
-                if (OnNotFound(root) is { } notFound)
+                if (OnNotFound(root, canonical) is { } notFound)
                     return notFound;
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                logger.LogWarning("{Provider} returned HTTP {Status} for {Ip}", Name, (int)response.StatusCode, ip);
+                logger.LogWarning("{Provider} returned HTTP {Status} for {Indicator}", Name, (int)response.StatusCode, ipForLog);
                 return ReputationResult.Failed(DescribeStatus(response.StatusCode));
             }
 
             using var doc = JsonDocument.Parse(body);
-            return Parse(doc.RootElement);
+            return Parse(doc.RootElement, canonical);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or KeyNotFoundException
                                        or InvalidOperationException or FormatException
                                    || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
-            logger.LogWarning(ex, "{Provider} lookup failed for {Ip}", Name, ip);
+            logger.LogWarning(ex, "{Provider} lookup failed for {Indicator}", Name, ipForLog);
             return ReputationResult.Failed(ex is TaskCanceledException ? "Timeout" : $"Lookup failed: {ex.GetType().Name}");
         }
     }
@@ -320,7 +362,7 @@ public sealed class GreyNoiseProvider(HttpClient http, IOptions<EnrichmentOption
     }
 }
 
-/// <summary>VirusTotal API v3: verdicts of ~90 security vendors for an IP address.</summary>
+/// <summary>VirusTotal API v3: verdicts of ~90 security vendors for an IP address, a domain or a file hash.</summary>
 public sealed class VirusTotalProvider(HttpClient http, IOptions<EnrichmentOptions> options, ILogger<VirusTotalProvider> logger)
     : ThreatIntelProviderBase(http, logger)
 {
@@ -332,25 +374,50 @@ public sealed class VirusTotalProvider(HttpClient http, IOptions<EnrichmentOptio
     public override string ApiKeySetting => "Enrichment:VirusTotalApiKey";
     public override string SignupUrl => "https://www.virustotal.com/gui/join-us";
     public override string QuotaNote => "Public API: 4 requests/minute, 500/day (lookups are spaced automatically).";
-    public override string Description => "Multi-vendor verdict: how many antivirus / URL-reputation engines flag the IP.";
+    public override string Description => "Multi-vendor verdict: how many antivirus / URL-reputation engines flag the IP, domain or file.";
     public override bool IsConfigured => !string.IsNullOrWhiteSpace(_o.VirusTotalApiKey);
     public override int MaxPerRun => _o.VirusTotalMaxPerRun;
     public override TimeSpan MinInterval => TimeSpan.FromSeconds(Math.Max(0, _o.VirusTotalMinIntervalSeconds));
     public override string WebLink(string ip) => $"https://www.virustotal.com/gui/ip-address/{Uri.EscapeDataString(ip)}";
+    public override IReadOnlyCollection<IndicatorType> SupportedTypes => [IndicatorType.Ip, IndicatorType.Domain, IndicatorType.Hash];
 
-    protected override HttpRequestMessage BuildRequest(string ip)
+    public override string WebLink(Indicator indicator) => indicator.Type switch
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, $"https://www.virustotal.com/api/v3/ip_addresses/{Uri.EscapeDataString(ip)}");
+        IndicatorType.Domain => $"https://www.virustotal.com/gui/domain/{Uri.EscapeDataString(indicator.Value)}",
+        IndicatorType.Hash => $"https://www.virustotal.com/gui/file/{Uri.EscapeDataString(indicator.Value)}",
+        _ => WebLink(indicator.Value)
+    };
+
+    protected override HttpRequestMessage BuildRequest(string ip) => BuildRequest(Indicator.ForIp(ip));
+
+    protected override HttpRequestMessage BuildRequest(Indicator indicator)
+    {
+        var collection = indicator.Type switch
+        {
+            IndicatorType.Domain => "domains",
+            IndicatorType.Hash => "files",
+            _ => "ip_addresses"
+        };
+        var request = new HttpRequestMessage(HttpMethod.Get,
+            $"https://www.virustotal.com/api/v3/{collection}/{Uri.EscapeDataString(indicator.Value)}");
         request.Headers.Add("x-apikey", _o.VirusTotalApiKey);
         return request;
     }
 
-    protected override ReputationResult? OnNotFound(JsonElement? body) =>
-        new(ThreatVerdict.NotFound, "No VirusTotal record for this IP");
+    protected override ReputationResult? OnNotFound(JsonElement? body, Indicator indicator) =>
+        new(ThreatVerdict.NotFound, indicator.Type switch
+        {
+            IndicatorType.Domain => "No VirusTotal record for this domain",
+            IndicatorType.Hash => "VirusTotal has never seen this file",
+            _ => "No VirusTotal record for this IP"
+        });
 
     protected override ReputationResult Parse(JsonElement root) => ParseResponse(root);
+    protected override ReputationResult Parse(JsonElement root, Indicator indicator) => ParseResponse(root, indicator.Type);
 
-    public static ReputationResult ParseResponse(JsonElement root)
+    public static ReputationResult ParseResponse(JsonElement root) => ParseResponse(root, IndicatorType.Ip);
+
+    public static ReputationResult ParseResponse(JsonElement root, IndicatorType type)
     {
         var a = root.GetProperty("data").GetProperty("attributes");
         var stats = a.GetProperty("last_analysis_stats");
@@ -374,10 +441,33 @@ public sealed class VirusTotalProvider(HttpClient http, IOptions<EnrichmentOptio
         AddIf(attributes, "Harmless", harmless.ToString(CultureInfo.InvariantCulture));
         AddIf(attributes, "Undetected", undetected.ToString(CultureInfo.InvariantCulture));
         AddIf(attributes, "Community reputation", reputation?.ToString(CultureInfo.InvariantCulture));
-        AddIf(attributes, "AS owner", Str(a, "as_owner"));
-        AddIf(attributes, "ASN", Long(a, "asn")?.ToString(CultureInfo.InvariantCulture));
-        AddIf(attributes, "Network", Str(a, "network"));
-        AddIf(attributes, "Country", Str(a, "country"));
+        if (type == IndicatorType.Ip)
+        {
+            AddIf(attributes, "AS owner", Str(a, "as_owner"));
+            AddIf(attributes, "ASN", Long(a, "asn")?.ToString(CultureInfo.InvariantCulture));
+            AddIf(attributes, "Network", Str(a, "network"));
+            AddIf(attributes, "Country", Str(a, "country"));
+        }
+        else if (type == IndicatorType.Domain)
+        {
+            AddIf(attributes, "Registrar", Str(a, "registrar"));
+            if (Long(a, "creation_date") is long created)
+                attributes["Registered"] = DateTimeOffset.FromUnixTimeSeconds(created).UtcDateTime.ToString("yyyy-MM-dd");
+            if (a.TryGetProperty("categories", out var cats) && cats.ValueKind == JsonValueKind.Object)
+                AddIf(attributes, "Categories", string.Join(", ", cats.EnumerateObject()
+                    .Select(c => c.Value.ValueKind == JsonValueKind.String ? c.Value.GetString() : null)
+                    .Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase).Take(4)));
+        }
+        else
+        {
+            AddIf(attributes, "File name", Str(a, "meaningful_name"));
+            AddIf(attributes, "File type", Str(a, "type_description"));
+            if (Long(a, "size") is long size)
+                attributes["Size"] = size.ToString("N0", CultureInfo.InvariantCulture) + " bytes";
+            if (a.TryGetProperty("popular_threat_classification", out var ptc) && ptc.ValueKind == JsonValueKind.Object)
+                AddIf(attributes, "Threat label", Str(ptc, "suggested_threat_label"));
+            AddIf(attributes, "SHA-256", Str(a, "sha256"));
+        }
         if (Long(a, "last_analysis_date") is long unix)
             attributes["Last analysis"] = DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'");
 
@@ -473,6 +563,8 @@ public sealed class ThreatIntelService(
 
     public IReadOnlyList<IThreatIntelProvider> Providers { get; } = providers.ToList();
 
+    public IReadOnlyList<string> InternalDomains => _o.InternalDomains;
+
     public IThreatIntelProvider? Find(string? slug) =>
         Providers.FirstOrDefault(p => string.Equals(p.Slug, slug, StringComparison.OrdinalIgnoreCase));
 
@@ -483,20 +575,29 @@ public sealed class ThreatIntelService(
     /// Live lookup of one IP at one provider; the result replaces the cached row.
     /// With <paramref name="waitForSlot"/> false (UI requests) a throttled provider answers "try again in N s" instead of blocking.
     /// </summary>
-    public async Task<IpReputation> RefreshAsync(string ip, IThreatIntelProvider provider, bool waitForSlot, CancellationToken ct)
+    public Task<IpReputation> RefreshAsync(string ip, IThreatIntelProvider provider, bool waitForSlot, CancellationToken ct) =>
+        RefreshAsync(Indicator.ForIp(ip), provider, waitForSlot, ct);
+
+    /// <summary>Live lookup of one indicator (IP, domain or hash) at one provider; the answer is cached.</summary>
+    /// <param name="maxWait">How long a UI request may wait for a rate-limited provider's next slot (instead of failing at once).</param>
+    public async Task<IpReputation> RefreshAsync(Indicator indicator, IThreatIntelProvider provider, bool waitForSlot,
+        CancellationToken ct, TimeSpan? maxWait = null)
     {
+        var ip = indicator.Value;
         ReputationResult result;
         if (!provider.IsConfigured)
             result = ReputationResult.Skipped($"Not configured (set {provider.ApiKeySetting})");
-        else if (!IpEnrichmentService.IsPublic(ip))
-            result = ReputationResult.Skipped("Private or reserved address - never sent to external services");
+        else if (!provider.Supports(indicator.Type))
+            result = ReputationResult.Skipped($"{provider.Name} does not look up {indicator.Label.ToLowerInvariant()}s");
+        else if (!IndicatorParser.MaySend(indicator, _o.InternalDomains, out var reason))
+            result = ReputationResult.Skipped(reason);
         else if (!throttle.TryConsumeDaily(provider.Name, _o.DailyBudget(provider.Name)))
             result = ReputationResult.Failed($"Daily budget of {_o.DailyBudget(provider.Name)} lookups used up (protects the free quota); try again tomorrow");
-        else if (!await throttle.TryEnterAsync(provider.Name, provider.MinInterval, waitForSlot, ct))
+        else if (!await EnterSlotAsync(provider, waitForSlot, maxWait, ct))
             result = ReputationResult.Failed(
                 $"Rate limit: try again in {Math.Ceiling(throttle.RetryAfter(provider.Name, provider.MinInterval).TotalSeconds)} s");
         else
-            result = await provider.LookupAsync(ip, ct);
+            result = await provider.LookupAsync(indicator, ct);
 
         // Two lookups of a new IP at the same time (worker + UI, or a double click) both try to insert the row:
         // the loser gets a unique-key violation, reloads the winner's row and applies its result to it.
@@ -505,6 +606,7 @@ public sealed class ThreatIntelService(
             try
             {
                 var row = await ApplyResultAsync(ip, provider, result, ct);
+                row.Kind = indicator.Type;
                 await db.SaveChangesAsync(ct);
                 return row;
             }
@@ -513,6 +615,44 @@ public sealed class ThreatIntelService(
                 db.ChangeTracker.Clear();
             }
         }
+    }
+
+    private async Task<bool> EnterSlotAsync(IThreatIntelProvider provider, bool waitForSlot, TimeSpan? maxWait, CancellationToken ct)
+    {
+        if (maxWait is not { } limit || waitForSlot)
+            return await throttle.TryEnterAsync(provider.Name, provider.MinInterval, waitForSlot, ct);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(limit);
+        try
+        {
+            return await throttle.TryEnterAsync(provider.Name, provider.MinInterval, wait: true, timeout.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// What an analyst gets when pressing "Look up": every configured provider that supports the indicator type answers.
+    /// Fresh cached answers (younger than CacheDays) are reused, everything else is looked up live; a rate-limited
+    /// provider is waited for up to <paramref name="maxWait"/>. Unconfigured or unsupported providers are not called.
+    /// </summary>
+    public async Task<List<IpReputation>> LookupEverywhereAsync(Indicator indicator, TimeSpan maxWait, CancellationToken ct)
+    {
+        var freshAfter = DateTime.UtcNow.AddDays(-Math.Max(0, _o.CacheDays));
+        var cached = (await GetCachedAsync(indicator.Value, ct)).ToDictionary(r => r.Provider);
+        var results = new List<IpReputation>();
+        foreach (var provider in Providers.Where(p => p.IsConfigured && p.Supports(indicator.Type)))
+        {
+            if (cached.TryGetValue(provider.Name, out var row) && row.HasVerdict && row.CheckedAt > freshAfter)
+            {
+                results.Add(row);
+                continue;
+            }
+            results.Add(await RefreshAsync(indicator, provider, waitForSlot: false, ct, maxWait));
+        }
+        return results;
     }
 
     /// <summary>
@@ -546,7 +686,7 @@ public sealed class ThreatIntelService(
         row.LastAttemptError = null;
 
         // Keep the AbuseIPDB score on IpInfo too (dashboard, CSV and PDF read it from there).
-        if (provider.Name == AbuseIpDbProvider.ProviderName && result.Score is int score)
+        if (provider.Name == AbuseIpDbProvider.ProviderName && result.Score is int score && System.Net.IPAddress.TryParse(ip, out _))
         {
             var info = await db.IpInfos.FirstOrDefaultAsync(i => i.Ip == ip, ct);
             if (info is null)

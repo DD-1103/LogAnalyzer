@@ -76,8 +76,14 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         return View(new AlertDetailsViewModel
         {
             Alert = alert,
-            AllowedStatuses = SocPermissions.AllowedStatuses(isAdmin, me?.Tier, alert.Status),
+            AllowedStatuses = SocPermissions.AllowedStatuses(isAdmin, me?.Tier, alert, me?.Id),
             CanEscalate = SocPermissions.CanEscalate(isAdmin, me?.Tier, alert),
+            CanClaim = SocPermissions.CanClaim(isAdmin, me?.Tier, alert),
+            CanRelease = SocPermissions.CanRelease(isAdmin, alert, me?.Id),
+            CanGiveVerdict = SocPermissions.CanGiveVerdict(isAdmin, me?.Tier, alert, me?.Id),
+            IsOwner = SocPermissions.IsOwner(alert, me?.Id),
+            Comments = await db.AlertComments.AsNoTracking().Where(c => c.AlertId == id)
+                .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).ToListAsync(),
             Tier = SocPermissions.EffectiveTier(isAdmin, me?.Tier),
             Evidence = evidence,
             EvidenceShown = evidence.Count,
@@ -104,12 +110,16 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         // SOC 1 works on open alerts only; closing, false positives and reopening are SOC 2 / admin decisions.
         // The tier is read from the database, so a change by an administrator applies at once.
         var me = await userManager.GetUserAsync(User);
-        if (!SocPermissions.CanChange(User.IsInRole(Roles.Admin), me?.Tier, alert.Status, model.Status))
+        if (!SocPermissions.CanUpdate(User.IsInRole(Roles.Admin), me?.Tier, alert, me?.Id, model.Status))
         {
-            await audit.WriteAsync("Alert.Update.Denied", $"#{id} {alert.Title}", $"{alert.Status} -> {model.Status} (SOC 1)");
-            TempData["Error"] = SocPermissions.IsOpen(alert.Status)
-                ? $"SOC 1 analysts cannot set an alert to {model.Status}. Escalate it to SOC 2 instead."
-                : "This alert is closed. Only SOC 2 analysts or administrators can reopen or change it.";
+            await audit.WriteAsync("Alert.Update.Denied", $"#{id} {alert.Title}", $"{alert.Status} -> {model.Status}");
+            TempData["Error"] = SocPermissions.IsEscalated(alert)
+                ? alert.AssignedToId is null
+                    ? "This alert is escalated to SOC 2. A SOC 2 analyst has to take it first."
+                    : "This escalated alert belongs to another SOC 2 analyst. Add a comment with your opinion instead."
+                : SocPermissions.IsOpen(alert.Status)
+                    ? $"SOC 1 analysts cannot set an alert to {model.Status}. Escalate it to SOC 2 instead."
+                    : "This alert is closed. Only SOC 2 analysts or administrators can reopen or change it.";
             return RedirectToAction(nameof(Details), new { id });
         }
 
@@ -133,7 +143,7 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
     /// <summary>SOC 1 hands an open alert over to SOC 2: it is marked escalated, unassigned and stays open.</summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Escalate(long id, string? reason)
+    public async Task<IActionResult> Escalate(long id, string? reason, [FromServices] NotificationService notifications)
     {
         var alert = await db.Alerts.FirstOrDefaultAsync(a => a.Id == id);
         if (alert is null)
@@ -145,21 +155,176 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
             return RedirectToAction(nameof(Details), new { id });
         }
 
+        var cleanReason = string.IsNullOrWhiteSpace(reason) ? null : Cut(AuditLog.Clean(reason.Trim())!, 500);
         alert.EscalatedAt = DateTime.UtcNow;
         alert.EscalatedBy = User.Identity?.Name;
+        alert.EscalatedById = me?.Id;
+        alert.EscalationReason = cleanReason;
         alert.Status = AlertStatus.Investigating;
-        alert.AssignedToId = null; // the next SOC 2 analyst who saves it becomes the owner
-        var note = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC] Escalated to SOC 2 by {User.Identity?.Name}"
-                   + (string.IsNullOrWhiteSpace(reason) ? "." : ": " + AuditLog.Clean(reason.Trim()));
-        var notes = string.IsNullOrWhiteSpace(alert.Notes) ? note : alert.Notes + "\n" + note;
-        alert.Notes = notes.Length > 4000 ? notes[..4000] : notes;
+        alert.AssignedToId = null; // a SOC 2 analyst takes it from the hub
+        alert.ClaimedAt = null;
+        alert.Verdict = null;
+        AddEvent(alert.Id, me, "escalation", cleanReason is null ? "Escalated to SOC 2." : $"Escalated to SOC 2: {cleanReason}");
         await db.SaveChangesAsync();
 
-        await audit.WriteAsync("Alert.Escalate", $"#{id} {alert.Title}", reason);
+        var notified = await notifications.NotifySoc2Async(alert, me?.Id, NotificationService.DisplayName(me, User.Identity?.Name));
+        await audit.WriteAsync("Alert.Escalate", $"#{id} {alert.Title}", cleanReason);
         logger.LogInformation("User {User} escalated alert {Id} to SOC 2", User.Identity?.Name, id);
-        TempData["Success"] = "Alert escalated to SOC 2.";
+        TempData["Success"] = notified > 0
+            ? $"Alert escalated to SOC 2. {notified} SOC 2 analyst(s) were notified."
+            : "Alert escalated to SOC 2.";
         return RedirectToAction(nameof(Details), new { id });
     }
+
+    /// <summary>A SOC 2 analyst takes an escalation: they become its owner, everyone sees their name on it.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Claim(long id, string? returnUrl, [FromServices] NotificationService notifications)
+    {
+        var me = await userManager.GetUserAsync(User);
+        var alert = await db.Alerts.FirstOrDefaultAsync(a => a.Id == id);
+        if (alert is null || me is null)
+            return NotFound();
+        if (!SocPermissions.CanClaim(User.IsInRole(Roles.Admin), me.Tier, alert))
+        {
+            TempData["Error"] = alert.AssignedToId is null
+                ? "Only SOC 2 analysts can take escalated alerts."
+                : "Another SOC 2 analyst has already taken this alert.";
+            return BackTo(returnUrl, id);
+        }
+
+        // Atomic: only one of two analysts pressing "Take it" at the same time wins.
+        var won = await db.Alerts
+            .Where(a => a.Id == id && a.AssignedToId == null && a.EscalatedAt != null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.AssignedToId, me.Id)
+                .SetProperty(a => a.ClaimedAt, DateTime.UtcNow)
+                .SetProperty(a => a.Status, a => a.Status == AlertStatus.New ? AlertStatus.Investigating : a.Status));
+        if (won == 0)
+        {
+            TempData["Error"] = "Another SOC 2 analyst took this alert a moment ago.";
+            return BackTo(returnUrl, id);
+        }
+
+        var name = NotificationService.DisplayName(me);
+        AddEvent(id, me, "claim", $"{name} took the escalation.");
+        await db.SaveChangesAsync();
+        await notifications.NotifyUserAsync(alert.EscalatedById, me.Id, "claim",
+            $"{name} took your escalated alert #{id}", alert.Title, NotificationService.AlertLink(id));
+        await audit.WriteAsync("Alert.Claim", $"#{id} {alert.Title}");
+        TempData["Success"] = "You own this escalation now. Give a verdict when you have analysed it.";
+        return BackTo(returnUrl, id);
+    }
+
+    /// <summary>The owner (or an administrator) gives the escalation back to the SOC 2 queue.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Release(long id, string? returnUrl)
+    {
+        var me = await userManager.GetUserAsync(User);
+        var alert = await db.Alerts.Include(a => a.AssignedTo).FirstOrDefaultAsync(a => a.Id == id);
+        if (alert is null || me is null)
+            return NotFound();
+        if (!SocPermissions.CanRelease(User.IsInRole(Roles.Admin), alert, me.Id))
+        {
+            TempData["Error"] = "Only the owner or an administrator can give this escalation back.";
+            return BackTo(returnUrl, id);
+        }
+
+        var previous = NotificationService.DisplayName(alert.AssignedTo, "the previous owner");
+        alert.AssignedToId = null;
+        alert.ClaimedAt = null;
+        AddEvent(id, me, "release", SocPermissions.IsOwner(alert, me.Id) || alert.AssignedTo?.Id == me.Id
+            ? $"{NotificationService.DisplayName(me)} gave the escalation back to the queue."
+            : $"{NotificationService.DisplayName(me)} released the escalation from {previous}.");
+        await db.SaveChangesAsync();
+        await audit.WriteAsync("Alert.Release", $"#{id} {alert.Title}", $"previous owner {previous}");
+        TempData["Success"] = "The escalation is back in the SOC 2 queue.";
+        return BackTo(returnUrl, id);
+    }
+
+    /// <summary>The owner's decision on an escalated alert; it also sets the matching status.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Verdict(long id, EscalationVerdict? verdict, string? note,
+        [FromServices] NotificationService notifications)
+    {
+        var me = await userManager.GetUserAsync(User);
+        var alert = await db.Alerts.FirstOrDefaultAsync(a => a.Id == id);
+        if (alert is null || me is null)
+            return NotFound();
+        if (verdict is not { } v || !Enum.IsDefined(v))
+        {
+            TempData["Error"] = "Choose a verdict.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+        if (!SocPermissions.CanGiveVerdict(User.IsInRole(Roles.Admin), me.Tier, alert, me.Id))
+        {
+            await audit.WriteAsync("Alert.Verdict.Denied", $"#{id} {alert.Title}", v.ToString());
+            TempData["Error"] = "Only the SOC 2 analyst who took this escalation can give or change its verdict.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        var changed = alert.Verdict is { } old && old != v ? $" (was {SocPermissions.Label(old)})" : "";
+        alert.Verdict = v;
+        alert.VerdictAt = DateTime.UtcNow;
+        alert.VerdictBy = User.Identity?.Name;
+        alert.Status = SocPermissions.StatusFor(v);
+        var cleanNote = string.IsNullOrWhiteSpace(note) ? null : Cut(AuditLog.Clean(note.Trim())!, 1500);
+        AddEvent(id, me, "verdict", $"Verdict: {SocPermissions.Label(v)}{changed}." + (cleanNote is null ? "" : " " + cleanNote));
+        await db.SaveChangesAsync();
+
+        await notifications.NotifyUserAsync(alert.EscalatedById, me.Id, "verdict",
+            $"{NotificationService.DisplayName(me)}: {SocPermissions.Label(v)} on alert #{id}", alert.Title, NotificationService.AlertLink(id));
+        await audit.WriteAsync("Alert.Verdict", $"#{id} {alert.Title}", $"{SocPermissions.Label(v)}{changed}");
+        logger.LogInformation("User {User} gave verdict {Verdict} on alert {Id}", User.Identity?.Name, v, id);
+        TempData["Success"] = $"Verdict saved: {SocPermissions.Label(v)}.";
+        return RedirectToAction(nameof(Details), new { id });
+    }
+
+    /// <summary>Any analyst can add a comment, e.g. a second opinion on someone else's escalation.</summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Comment(long id, string? text, [FromServices] NotificationService notifications)
+    {
+        var me = await userManager.GetUserAsync(User);
+        var alert = await db.Alerts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id);
+        if (alert is null || me is null)
+            return NotFound();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            TempData["Error"] = "Write a comment first.";
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        AddEvent(id, me, "comment", Cut(AuditLog.Clean(text.Trim())!, 2000)!);
+        await db.SaveChangesAsync();
+        // The owner hears about second opinions on their escalation.
+        if (SocPermissions.IsEscalated(alert))
+            await notifications.NotifyUserAsync(alert.AssignedToId, me.Id, "comment",
+                $"{NotificationService.DisplayName(me)} commented on your escalation #{id}", Cut(text.Trim(), 160), NotificationService.AlertLink(id));
+        await audit.WriteAsync("Alert.Comment", $"#{id} {alert.Title}");
+        TempData["Success"] = "Comment added.";
+        return Redirect(Url.Action(nameof(Details), new { id }) + "#comments");
+    }
+
+    private void AddEvent(long alertId, AppUser? author, string kind, string text) =>
+        db.AlertComments.Add(new AlertComment
+        {
+            AlertId = alertId,
+            AuthorId = author?.Id,
+            AuthorName = NotificationService.DisplayName(author, User.Identity?.Name),
+            Kind = kind,
+            Text = text
+        });
+
+    private IActionResult BackTo(string? returnUrl, long id) =>
+        !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl)
+            ? LocalRedirect(returnUrl)
+            : RedirectToAction(nameof(Details), new { id });
+
+    private static string? Cut(string? value, int max) =>
+        value is null || value.Length <= max ? value : value[..max];
 
     /// <summary>Exports the alerts matching the current filters as CSV (opens in Excel).</summary>
     [HttpGet]
