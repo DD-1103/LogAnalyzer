@@ -6,6 +6,7 @@ obj/
 App_Data/
 *.log
 !samples/*.log
+!samples/firewall/*.log
 
 # Claude Code agent worktrees
 .claude/worktrees/
