@@ -1059,6 +1059,34 @@ hr { border-color: var(--lg-hairline); opacity: 1; }
     overflow-wrap: anywhere;
 }
 
+/* Segmented filter (clear glass capsule of links): SOC 2 hub tabs, rules page "All / Web / Firewall" */
+.lg-segmented {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: .25rem;
+    padding: .3rem;
+    border-radius: 999px;
+    border: 1px solid var(--lg-hairline);
+    background: var(--lg-surface);
+    box-shadow: inset 0 1px 0 var(--lg-edge);
+    max-width: 100%;
+}
+.lg-segmented a {
+    padding: .35rem .85rem;
+    border-radius: 999px;
+    font-size: .85rem;
+    font-weight: 560;
+    color: var(--lg-text-2);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.lg-segmented a:hover { color: var(--lg-text); background: var(--lg-surface-hover); }
+.lg-segmented a.active { color: #fff; background: rgb(var(--lg-accent-rgb)); box-shadow: 0 4px 14px rgba(var(--lg-accent-rgb), .35); }
+.lg-segmented a:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(var(--lg-accent-rgb), .55); }
+@media (max-width: 575.98px) {
+    .lg-segmented { display: flex; }
+}
+
 /* Key–value lists inside cards */
 .lg-kv dt { font-weight: 520; color: var(--lg-text-2); }
 .lg-kv dd { color: var(--lg-text); overflow-wrap: anywhere; }
