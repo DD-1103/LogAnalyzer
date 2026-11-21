@@ -39,6 +39,16 @@ public class LogFile
     public string UploaderDisplay => UploadedBy?.Email ?? (UploadedByName is null ? "unknown" : UploadedByName + " (deleted user)");
 
     public LogFileStatus Status { get; set; } = LogFileStatus.Pending;
+
+    /// <summary>Web access log or firewall log (set when the file is parsed); rules only run on their kind.</summary>
+    public LogSource Source { get; set; } = LogSource.WebAccess;
+
+    /// <summary>Detected (or chosen) format, e.g. "Fortinet FortiGate"; several when a collector mixes devices.</summary>
+    public string? Format { get; set; }
+
+    /// <summary>Format id chosen on upload ("auto" or null = detect from the first lines).</summary>
+    public string? RequestedFormat { get; set; }
+
     public int TotalLines { get; set; }
     public int ParsedLines { get; set; }
     public int FailedLines { get; set; }
@@ -91,6 +101,21 @@ public class LogEvent
     public string? Referrer { get; set; }
     public string? UserAgent { get; set; }
     public string RawLine { get; set; } = string.Empty;
+
+    // Firewall / network fields (null for web access logs). For firewall events ClientIp = source address,
+    // Method = action word (e.g. "DENY"), Url = message / summary, StatusCode = 0 (see ParsedLine.Network).
+    public string? DestinationIp { get; set; }
+    public int? SourcePort { get; set; }
+    public int? DestinationPort { get; set; }
+    /// <summary>Transport protocol in lower case: tcp, udp, icmp, ipv6-icmp, gre, esp, ... or the protocol number.</summary>
+    public string? Transport { get; set; }
+    public FirewallAction? Action { get; set; }
+    /// <summary>Vendor event type in lower case: traffic, threat, auth, vpn, system, ...</summary>
+    public string? EventType { get; set; }
+    public string? RuleName { get; set; }
+    public string? ThreatName { get; set; }
+    /// <summary>Firewall host name / serial that wrote the line.</summary>
+    public string? Device { get; set; }
 }
 
 public class DetectionRule
@@ -112,6 +137,15 @@ public class DetectionRule
     public string? MethodFilter { get; set; }   // e.g. "POST"
     public string? PathPattern { get; set; }    // regex on URL, e.g. "login"
     public int? StatusFilter { get; set; }      // e.g. 404
+
+    /// <summary>Kind of log the rule runs on (web rules never run on firewall files and vice versa).</summary>
+    public LogSource AppliesTo { get; set; } = LogSource.WebAccess;
+
+    // Firewall filters (Threshold, DistinctCount and Signature rules on firewall logs)
+    /// <summary>Comma-separated actions, e.g. "Deny,Drop,Reject"; null = any action.</summary>
+    public string? ActionFilter { get; set; }
+    /// <summary>Comma-separated destination ports / ranges, e.g. "22,23,3389,5900-5902"; null = any port.</summary>
+    public string? PortFilter { get; set; }
 
     // Anomaly rules: Threshold = minimum requests per IP, ScoreThreshold = Isolation Forest score (0.5-1)
     public double? ScoreThreshold { get; set; }

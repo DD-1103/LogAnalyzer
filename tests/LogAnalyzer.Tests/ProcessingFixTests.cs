@@ -242,7 +242,7 @@ public class ProcessingFixTests
         var queue = new LogProcessingQueue();
         var logger = new CapturingLogger<LogProcessingWorker>();
         var worker = new LogProcessingWorker(queue, new ThreatIntelQueue(), provider.GetRequiredService<IServiceScopeFactory>(),
-            new CombinedLogParser(), new LogFileStorage(new FakeEnv()), Options.Create(new ProcessingOptions()), logger);
+            new LogFileStorage(new FakeEnv()), Options.Create(new ProcessingOptions()), logger);
 
         await queue.EnqueueAsync(1);
         await queue.EnqueueDetectionAsync(2);

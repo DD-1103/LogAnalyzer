@@ -35,6 +35,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.ErrorMessage).HasMaxLength(2000);
             e.Property(x => x.DetectionWarnings).HasMaxLength(2000);
             e.Property(x => x.UploadedByName).HasMaxLength(256);
+            e.Property(x => x.Source).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.Format).HasMaxLength(300);
+            e.Property(x => x.RequestedFormat).HasMaxLength(40);
             e.Ignore(x => x.UploaderDisplay);
             // Deleting a user account keeps the files: the link becomes null, UploadedByName keeps the e-mail.
             e.HasOne(x => x.UploadedBy).WithMany()
@@ -50,6 +53,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Protocol).HasMaxLength(16);
             e.Property(x => x.Referrer).HasMaxLength(2000);
             e.Property(x => x.UserAgent).HasMaxLength(1000);
+            e.Property(x => x.DestinationIp).HasMaxLength(45);
+            e.Property(x => x.Transport).HasMaxLength(16);
+            e.Property(x => x.Action).HasConversion<string>().HasMaxLength(10);
+            e.Property(x => x.EventType).HasMaxLength(40);
+            e.Property(x => x.RuleName).HasMaxLength(200);
+            e.Property(x => x.ThreatName).HasMaxLength(300);
+            e.Property(x => x.Device).HasMaxLength(100);
             e.HasOne(x => x.LogFile).WithMany(f => f.Events)
                 .HasForeignKey(x => x.LogFileId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -80,6 +90,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : IdentityDbCo
             e.Property(x => x.Pattern).HasMaxLength(2000);
             e.Property(x => x.MethodFilter).HasMaxLength(16);
             e.Property(x => x.PathPattern).HasMaxLength(500);
+            e.Property(x => x.AppliesTo).HasConversion<string>().HasMaxLength(20);
+            e.Property(x => x.ActionFilter).HasMaxLength(60);
+            e.Property(x => x.PortFilter).HasMaxLength(200);
             e.HasIndex(x => x.Name).IsUnique();
         });
 

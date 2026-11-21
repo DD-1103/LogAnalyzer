@@ -12,7 +12,66 @@ public sealed record ParsedLine(
     int StatusCode,
     long? ResponseSize,
     string? Referrer,
-    string? UserAgent);
+    string? UserAgent)
+{
+    // Firewall / network fields (see LogEvent). Web access lines leave them null.
+    public string? DestinationIp { get; init; }
+    public int? SourcePort { get; init; }
+    public int? DestinationPort { get; init; }
+    public string? Transport { get; init; }
+    public LogAnalyzer.Web.Models.FirewallAction? Action { get; init; }
+    public string? EventType { get; init; }
+    public string? RuleName { get; init; }
+    public string? ThreatName { get; init; }
+    public string? Device { get; init; }
+
+    /// <summary>
+    /// Builds a firewall / network event in the shared shape: ClientIp = source address (canonical, "-" when the line
+    /// has none), Method = action word ("DENY", "ALLOW", ... or "EVENT"), Url = message, StatusCode = 0.
+    /// Transport and EventType are lower-cased; ports outside 0-65535 are dropped.
+    /// </summary>
+    public static ParsedLine Network(
+        string? sourceIp,
+        DateTimeOffset timestamp,
+        LogAnalyzer.Web.Models.FirewallAction action,
+        string message,
+        string? destinationIp = null,
+        int? sourcePort = null,
+        int? destinationPort = null,
+        string? transport = null,
+        string? eventType = null,
+        string? ruleName = null,
+        string? threatName = null,
+        string? device = null,
+        long? bytes = null)
+    {
+        static int? Port(int? p) => p is >= 0 and <= 65535 ? p : null;
+        static string? Clean(string? v) => string.IsNullOrWhiteSpace(v) || v == "-" ? null : v.Trim();
+        var src = Clean(sourceIp);
+        var dst = Clean(destinationIp);
+        return new ParsedLine(
+            ClientIp: src is null ? "-" : IpAddressPolicy.Canonical(src),
+            Timestamp: timestamp,
+            Method: action == LogAnalyzer.Web.Models.FirewallAction.Unknown ? "EVENT" : action.ToString().ToUpperInvariant(),
+            Url: message.Trim(),
+            Protocol: null,
+            StatusCode: 0,
+            ResponseSize: bytes,
+            Referrer: null,
+            UserAgent: null)
+        {
+            DestinationIp = dst is null ? null : IpAddressPolicy.Canonical(dst),
+            SourcePort = Port(sourcePort),
+            DestinationPort = Port(destinationPort),
+            Transport = Clean(transport)?.ToLowerInvariant(),
+            Action = action,
+            EventType = Clean(eventType)?.ToLowerInvariant(),
+            RuleName = Clean(ruleName),
+            ThreatName = Clean(threatName),
+            Device = Clean(device)
+        };
+    }
+}
 
 public interface ILogParser
 {

@@ -348,6 +348,15 @@ namespace LogAnalyzer.Web.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ActionFilter")
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("AppliesTo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<string>("AttackType")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -389,6 +398,10 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<string>("Pattern")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("PortFilter")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<double?>("ScoreThreshold")
                         .HasColumnType("float");
@@ -527,10 +540,29 @@ namespace LogAnalyzer.Web.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("Action")
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
                     b.Property<string>("ClientIp")
                         .IsRequired()
                         .HasMaxLength(45)
                         .HasColumnType("nvarchar(45)");
+
+                    b.Property<string>("DestinationIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<int?>("DestinationPort")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Device")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EventType")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
 
                     b.Property<int>("LineNumber")
                         .HasColumnType("int");
@@ -558,11 +590,26 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<long?>("ResponseSize")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("RuleName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("SourcePort")
+                        .HasColumnType("int");
+
                     b.Property<int>("StatusCode")
                         .HasColumnType("int");
 
+                    b.Property<string>("ThreatName")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
                     b.Property<DateTimeOffset>("Timestamp")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Transport")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
 
                     b.Property<string>("Url")
                         .IsRequired()
@@ -611,6 +658,10 @@ namespace LogAnalyzer.Web.Migrations
                         .HasMaxLength(260)
                         .HasColumnType("nvarchar(260)");
 
+                    b.Property<string>("Format")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
                     b.Property<long?>("ParseMilliseconds")
                         .HasColumnType("bigint");
 
@@ -623,8 +674,17 @@ namespace LogAnalyzer.Web.Migrations
                     b.Property<int>("ProcessingAttempts")
                         .HasColumnType("int");
 
+                    b.Property<string>("RequestedFormat")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("Status")
                         .IsRequired()

@@ -13,7 +13,18 @@ public sealed record DetectionEvent(
     int StatusCode,
     string? UserAgent,
     string? Referrer,
-    long? ResponseSize = null);
+    long? ResponseSize = null)
+{
+    // Firewall fields (null for web access logs); for firewall events Url holds the message.
+    public string? DestinationIp { get; init; }
+    public int? SourcePort { get; init; }
+    public int? DestinationPort { get; init; }
+    public string? Transport { get; init; }
+    public FirewallAction? Action { get; init; }
+    public string? EventType { get; init; }
+    public string? RuleName { get; init; }
+    public string? ThreatName { get; init; }
+}
 
 /// <summary>A rule with its regexes compiled once.</summary>
 public sealed class CompiledRule

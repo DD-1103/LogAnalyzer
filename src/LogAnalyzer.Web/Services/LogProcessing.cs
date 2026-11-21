@@ -9,6 +9,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
+using LogAnalyzer.Web.Services.LogFormats;
+
 namespace LogAnalyzer.Web.Services;
 
 public enum ProcessingJobKind
@@ -52,7 +54,6 @@ public sealed class LogProcessingWorker(
     LogProcessingQueue queue,
     ThreatIntelQueue threatIntelQueue,
     IServiceScopeFactory scopeFactory,
-    ILogParser parser,
     LogFileStorage storage,
     IOptions<ProcessingOptions> options,
     ILogger<LogProcessingWorker> logger) : BackgroundService
@@ -195,18 +196,24 @@ public sealed class LogProcessingWorker(
         int total = 0, parsed = 0, failed = 0, lineNumber = 0;
         var limits = Limits;
 
-        await using var fileStream = File.OpenRead(path);
-        Stream input = fileStream;
-        if (LogFileStorage.IsGzip(file.FileName))
+        // Which format? The one chosen on upload, otherwise detected from the first lines (web access log or one of
+        // the firewall formats). Time stamps without a year/zone are read relative to the upload (UTC).
+        var context = new LogParseContext(new DateTimeOffset(DateTime.SpecifyKind(file.UploadedAt, DateTimeKind.Utc)), TimeSpan.Zero);
+        var format = LogFormatRegistry.Find(file.RequestedFormat);
+        if (format is null)
         {
-            // Gzip bomb protection: limit the decompressed size (absolute, and relative to the upload).
-            var cap = Math.Min(limits.MaxDecompressedBytes,
-                Math.Max(64L * 1024 * 1024, fileStream.Length * (long)limits.MaxCompressionRatio));
-            input = new LimitedReadStream(new GZipStream(fileStream, CompressionMode.Decompress), cap,
-                $"The file expands to more than {Helpers.Format.Bytes(cap)} when decompressed. " +
-                "It is too large or not a normal log file (gzip bomb).");
+            var sample = await ReadSampleAsync(path, file.FileName, limits, ct);
+            format = LogFormatDetector.Detect(sample, context).Format;
+            logger.LogInformation("Log file {Id}: detected format {Format}", id, format?.DisplayName ?? "(none)");
         }
-        using var reader = new BoundedLineReader(new StreamReader(input), limits.MaxLineLength);
+        var recognised = format is not null;
+        var parser = new MultiFormatParser(format ?? new WebAccessLogFormat(), context, allowFallback: recognised);
+        await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
+            .SetProperty(f => f.Source, parser.Primary.Source)
+            .SetProperty(f => f.Format, recognised ? parser.Primary.DisplayName : null), ct);
+
+        await using var fileStream = File.OpenRead(path);
+        using var reader = OpenReader(fileStream, file.FileName, limits);
 
         // TableLock: one bulk-update lock instead of row locks -> much faster large imports.
         using var bulk = new SqlBulkCopy(db.Database.GetConnectionString(), SqlBulkCopyOptions.TableLock)
@@ -230,8 +237,10 @@ public sealed class LogProcessingWorker(
                 continue;
             total++;
 
-            // Over-long lines are never parsed: no web server writes 16 KB request lines into an access log.
-            if (!read.TooLong && parser.TryParse(line, out var p) && p is not null)
+            // Over-long lines are never parsed: no web server or firewall writes 16 KB lines.
+            ParsedLine? p = null;
+            var outcome = read.TooLong ? ParseOutcome.Failed : parser.Parse(line, out p);
+            if (outcome == ParseOutcome.Parsed && p is not null)
             {
                 parsed++;
                 table.Rows.Add(
@@ -246,7 +255,21 @@ public sealed class LogProcessingWorker(
                     (object?)p.ResponseSize ?? DBNull.Value,
                     (object?)Cut(p.Referrer, 2000) ?? DBNull.Value,
                     (object?)Cut(p.UserAgent, 1000) ?? DBNull.Value,
-                    Cut(line, 8000));
+                    Cut(line, 8000),
+                    (object?)Cut(p.DestinationIp, 45) ?? DBNull.Value,
+                    (object?)p.SourcePort ?? DBNull.Value,
+                    (object?)p.DestinationPort ?? DBNull.Value,
+                    (object?)Cut(p.Transport, 16) ?? DBNull.Value,
+                    (object?)p.Action?.ToString() ?? DBNull.Value,
+                    (object?)Cut(p.EventType, 40) ?? DBNull.Value,
+                    (object?)Cut(p.RuleName, 200) ?? DBNull.Value,
+                    (object?)Cut(p.ThreatName, 300) ?? DBNull.Value,
+                    (object?)Cut(p.Device, 100) ?? DBNull.Value);
+            }
+            else if (outcome == ParseOutcome.Skipped)
+            {
+                // Headers, comments and device messages without a connection: neither an event nor an error.
+                total--;
             }
             else
             {
@@ -265,7 +288,9 @@ public sealed class LogProcessingWorker(
             await bulk.WriteToServerAsync(table, ct);
 
         var parseMs = sw.ElapsedMilliseconds;
+        var formatText = recognised ? parser.Describe() : null;
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
+            .SetProperty(f => f.Format, formatText)
             .SetProperty(f => f.Status, LogFileStatus.Analyzing)
             .SetProperty(f => f.TotalLines, total)
             .SetProperty(f => f.ParsedLines, parsed)
@@ -330,6 +355,37 @@ public sealed class LogProcessingWorker(
         await threatIntelQueue.EnqueueAsync(id, ct);
     }
 
+    private static BoundedLineReader OpenReader(FileStream fileStream, string fileName, ProcessingOptions limits)
+    {
+        Stream input = fileStream;
+        if (LogFileStorage.IsGzip(fileName))
+        {
+            // Gzip bomb protection: limit the decompressed size (absolute, and relative to the upload).
+            var cap = Math.Min(limits.MaxDecompressedBytes,
+                Math.Max(64L * 1024 * 1024, fileStream.Length * (long)limits.MaxCompressionRatio));
+            input = new LimitedReadStream(new GZipStream(fileStream, CompressionMode.Decompress), cap,
+                $"The file expands to more than {Helpers.Format.Bytes(cap)} when decompressed. " +
+                "It is too large or not a normal log file (gzip bomb).");
+        }
+        return new BoundedLineReader(new StreamReader(input), limits.MaxLineLength);
+    }
+
+    /// <summary>The first non-empty lines of the file, for format detection.</summary>
+    private static async Task<List<string>> ReadSampleAsync(string path, string fileName, ProcessingOptions limits, CancellationToken ct)
+    {
+        var sample = new List<string>(LogFormatDetector.SampleLines);
+        await using var fileStream = File.OpenRead(path);
+        using var reader = OpenReader(fileStream, fileName, limits);
+        var read = 0;
+        while (sample.Count < LogFormatDetector.SampleLines && read++ < LogFormatDetector.SampleLines * 20
+               && await reader.ReadLineAsync(ct) is { } line)
+        {
+            if (!line.TooLong && !string.IsNullOrWhiteSpace(line.Text))
+                sample.Add(line.Text);
+        }
+        return sample;
+    }
+
     /// <summary>Deletes a file and all its data in batches (the request only marks it Deleting).</summary>
     private async Task DeleteAsync(int id, CancellationToken ct)
     {
@@ -387,6 +443,15 @@ public sealed class LogProcessingWorker(
         t.Columns.Add("Referrer", typeof(string));
         t.Columns.Add("UserAgent", typeof(string));
         t.Columns.Add("RawLine", typeof(string));
+        t.Columns.Add("DestinationIp", typeof(string));
+        t.Columns.Add("SourcePort", typeof(int));
+        t.Columns.Add("DestinationPort", typeof(int));
+        t.Columns.Add("Transport", typeof(string));
+        t.Columns.Add("Action", typeof(string));
+        t.Columns.Add("EventType", typeof(string));
+        t.Columns.Add("RuleName", typeof(string));
+        t.Columns.Add("ThreatName", typeof(string));
+        t.Columns.Add("Device", typeof(string));
         return t;
     }
 

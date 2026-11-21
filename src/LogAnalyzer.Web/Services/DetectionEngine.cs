@@ -44,7 +44,9 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
     {
         var sw = Stopwatch.StartNew();
 
-        var rules = await db.DetectionRules.AsNoTracking().Where(r => r.IsEnabled).ToListAsync(ct);
+        // Web rules run on access logs, firewall rules on firewall logs.
+        var source = await db.LogFiles.Where(f => f.Id == logFileId).Select(f => f.Source).FirstOrDefaultAsync(ct);
+        var rules = await db.DetectionRules.AsNoTracking().Where(r => r.IsEnabled && r.AppliesTo == source).ToListAsync(ct);
         var compiled = new List<CompiledRule>();
         foreach (var rule in rules.Where(r => r.Kind != RuleKind.Anomaly))
         {
@@ -64,7 +66,17 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
             .Where(e => e.LogFileId == logFileId)
             .OrderBy(e => e.Timestamp).ThenBy(e => e.LineNumber)
             .Select(e => new DetectionEvent(e.Id, e.ClientIp, e.Timestamp, e.Method, e.Url, e.StatusCode,
-                e.UserAgent, e.Referrer, e.ResponseSize))
+                e.UserAgent, e.Referrer, e.ResponseSize)
+            {
+                DestinationIp = e.DestinationIp,
+                SourcePort = e.SourcePort,
+                DestinationPort = e.DestinationPort,
+                Transport = e.Transport,
+                Action = e.Action,
+                EventType = e.EventType,
+                RuleName = e.RuleName,
+                ThreatName = e.ThreatName
+            })
             .AsAsyncEnumerable();
 
         await foreach (var e in events.WithCancellation(ct))
