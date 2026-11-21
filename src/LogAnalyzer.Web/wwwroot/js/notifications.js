@@ -41,8 +41,9 @@
         return days === 1 ? 'yesterday' : `${days} days ago`;
     }
 
+    // The server already adds this tab's session prefix (/s/n); only plain local paths become links.
     function safeLink(link) {
-        return typeof link === 'string' && link.startsWith('/') && !link.startsWith('//') ? link : null;
+        return typeof link === 'string' && link.startsWith('/') && !link.startsWith('//') && !link.startsWith('/\\') ? link : null;
     }
 
     function empty(text) {

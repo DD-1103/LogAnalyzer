@@ -42,9 +42,9 @@ else
                     <i class="bi @(n.Kind switch { "escalation" => "bi-arrow-up-circle", "claim" => "bi-person-check", "verdict" => "bi-patch-check", "comment" => "bi-chat-left-text", _ => "bi-info-circle" })"></i>
                 </span>
                 <div class="lg-hub-main">
-                    @if (n.Link is not null)
+                    @if (SessionSlots.AppLink(Context.Request.PathBase, n.Link) is { } link)
                     {
-                        <a href="@n.Link" class="lg-hub-title">@n.Title</a>
+                        <a href="@link" class="lg-hub-title">@n.Title</a>
                     }
                     else
                     {

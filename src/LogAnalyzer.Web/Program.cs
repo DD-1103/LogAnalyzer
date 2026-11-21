@@ -1,14 +1,17 @@
 using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Models;
 using LogAnalyzer.Web.Services;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,6 +54,21 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.SlidingExpiration = true;
 });
 
+// Session slots (/s/1 ... /s/9): every slot has its own Identity cookies, so several accounts can be signed in at
+// the same time in one browser, one per tab (see SessionSlots). The path is always "/" (the default would be the
+// path base, i.e. "/s/2", and a slot cookie could then shadow another one with the same name).
+foreach (var scheme in new[] { IdentityConstants.ApplicationScheme, IdentityConstants.ExternalScheme,
+             IdentityConstants.TwoFactorUserIdScheme, IdentityConstants.TwoFactorRememberMeScheme })
+{
+    builder.Services.Configure<CookieAuthenticationOptions>(scheme, options =>
+    {
+        options.CookieManager = new SessionSlotCookieManager();
+        options.Cookie.Path = "/";
+    });
+}
+// One antiforgery cookie for all slots (path "/"); the form tokens are bound to the user signed in in that slot.
+builder.Services.AddAntiforgery(options => options.Cookie.Path = "/");
+
 // Every page requires login unless marked [AllowAnonymous].
 var requireAuth = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
 builder.Services.AddControllersWithViews(options =>
@@ -61,6 +79,8 @@ builder.Services.AddControllersWithViews(options =>
     // Every POST/PUT/DELETE needs a valid antiforgery token, also on actions that forget the attribute.
     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
 });
+// TempData messages in a cookie per session slot (replaces MVC's CookieTempDataProvider).
+builder.Services.Replace(ServiceDescriptor.Singleton<ITempDataProvider, SessionSlotTempDataProvider>());
 
 // Behind a reverse proxy: trust X-Forwarded-For/-Proto only from the proxies listed in configuration
 // (ForwardedHeaders:KnownProxies), so rate limiting and the audit log see the real client address.
@@ -165,6 +185,9 @@ if (!EF.IsDesignTime)
 
 if (knownProxies.Length > 0)
     app.UseForwardedHeaders();
+
+// First: "/s/{1-9}/..." → session slot n, the prefix becomes the path base (links, redirects and cookies follow it).
+app.UseMiddleware<SessionSlotMiddleware>();
 
 if (!app.Environment.IsDevelopment())
 {

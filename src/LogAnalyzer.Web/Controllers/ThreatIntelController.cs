@@ -218,8 +218,8 @@ public class ThreatIntelController(
             TempData["Success"] = "Lookup finished. " + string.Join(" · ", messages);
         }
 
-        if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
-            return LocalRedirect(returnUrl);
+        if (SessionSlots.IsLocalToCurrentSlot(Request, returnUrl))
+            return LocalRedirect(returnUrl!);
         return RedirectToAction(nameof(Lookup), new { q = address });
     }
 

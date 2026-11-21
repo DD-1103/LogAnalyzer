@@ -15,6 +15,13 @@
             <p class="lg-auth-subtitle">Find web attacks in your server logs.</p>
         </div>
 
+        @if (SessionSlots.Current(Context) is > 0 and var slot)
+        {
+            <div class="alert alert-info small py-2 lg-session-hint" role="note">
+                <i class="bi bi-window-stack" aria-hidden="true"></i>
+                <div>You are signing in a separate session (session @slot). Your other tabs stay signed in.</div>
+            </div>
+        }
         <form asp-action="Login" method="post">
             <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2 small" role="alert"></div>
             <input type="hidden" asp-for="ReturnUrl" />

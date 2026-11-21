@@ -1,4 +1,14 @@
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+@inject LinkGenerator Links
+@inject Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> CookieOptions
+@{
+    // Session slot of this tab (/s/1 ... /s/9, 0 = normal URLs), see SessionSlots.
+    var slot = SessionSlots.Current(Context);
+    var authCookie = CookieOptions.Get(Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme).Cookie.Name ?? "";
+    var cookieNames = Context.Request.Cookies.Keys;
+    var otherSlots = SessionSlots.UsedSlots(cookieNames, authCookie).Where(s => s != slot).ToList();
+    var freeSlot = SessionSlots.FirstFreeSlot(cookieNames, authCookie);
+}
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
@@ -7,7 +17,8 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#edf1f8" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1f2d" media="(prefers-color-scheme: dark)" />
-    <title>@ViewData["Title"] · LogAnalyzer</title>
+    @* The slot comes first so tabs of different sessions can be told apart even when the title is cut off *@
+    <title>@(slot > 0 ? $"[{slot}] " : null)@ViewData["Title"] · LogAnalyzer</title>
     @if (User.Identity?.IsAuthenticated == true)
     {
         @* Antiforgery token for fetch() POSTs (bell); sent as the RequestVerificationToken header *@
@@ -140,6 +151,12 @@
                         </ul>
 
                         <div class="d-flex align-items-center gap-2 lg-nav-tools">
+                            @if (slot > 0)
+                            {
+                                <span class="lg-session-chip" title="Session @slot – this tab has its own sign-in">
+                                    <i class="bi bi-window-stack" aria-hidden="true"></i><span aria-hidden="true">@slot</span><span class="visually-hidden">Session @slot</span>
+                                </span>
+                            }
                             <button type="button" class="lg-icon-btn js-theme-toggle" aria-label="Theme: automatic" title="Theme: automatic">
                                 <i class="bi bi-sun-fill lg-theme-icon lg-theme-icon-light" aria-hidden="true"></i>
                                 <i class="bi bi-moon-stars-fill lg-theme-icon lg-theme-icon-dark" aria-hidden="true"></i>
@@ -150,8 +167,35 @@
                                     <i class="bi bi-person-circle" aria-hidden="true"></i> <span class="lg-user-name">@(User.Identity!.Name?.Split('@')[0])</span>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
-                                    <li><span class="dropdown-item-text small text-body-secondary">Signed in as <span class="fw-semibold text-break">@User.Identity!.Name</span><br />@(isAdmin ? Roles.Admin : Roles.Analyst)@(User.FindFirst(AppUserClaimsPrincipalFactory.TierClaim)?.Value is { } t && !isAdmin ? (t == nameof(AnalystTier.Soc2) ? " · SOC 2" : " · SOC 1") : "")</span></li>
+                                    <li><span class="dropdown-item-text small text-body-secondary">Signed in as <span class="fw-semibold text-break">@User.Identity!.Name</span><br />@(isAdmin ? Roles.Admin : Roles.Analyst)@(User.FindFirst(AppUserClaimsPrincipalFactory.TierClaim)?.Value is { } t && !isAdmin ? (t == nameof(AnalystTier.Soc2) ? " · SOC 2" : " · SOC 1") : "")@(slot > 0 ? $" · session {slot}" : "")</span></li>
                                     <li><a class="dropdown-item" asp-controller="Account" asp-action="ChangePassword"><i class="bi bi-key" aria-hidden="true"></i> Change password</a></li>
+                                    <li><hr class="dropdown-divider" /></li>
+                                    @if (freeSlot is { } next)
+                                    {
+                                        <li>
+                                            <a class="dropdown-item" href="@Links.GetPathByAction("Login", "Account", values: null, pathBase: SessionSlots.PathBaseFor(Context, next))"
+                                               target="_blank" rel="noopener" title="Opens a new tab with its own sign-in (session @next)">
+                                                <i class="bi bi-person-plus" aria-hidden="true"></i> Sign in another account
+                                            </a>
+                                        </li>
+                                    }
+                                    else
+                                    {
+                                        <li><span class="dropdown-item-text small text-body-secondary lg-session-note">All @SessionSlots.MaxSlot extra sessions are in use. Log out in one of them to sign in another account.</span></li>
+                                    }
+                                    @if (otherSlots.Count > 0)
+                                    {
+                                        <li>
+                                            <div class="dropdown-item-text small lg-session-list">
+                                                <span class="text-body-secondary">Other sessions:</span>
+                                                @foreach (var other in otherSlots)
+                                                {
+                                                    <a class="lg-chip" href="@(SessionSlots.PathBaseFor(Context, other).ToUriComponent())/" target="_blank" rel="noopener"
+                                                       aria-label="Open session @(other == 0 ? "main" : other.ToString()) in a new tab">@(other == 0 ? "Main" : other.ToString())</a>
+                                                }
+                                            </div>
+                                        </li>
+                                    }
                                     <li><hr class="dropdown-divider" /></li>
                                     <li>
                                         <form asp-controller="Account" asp-action="Logout" method="post">
