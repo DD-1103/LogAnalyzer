@@ -1,7 +1,7 @@
 @model Soc2HubViewModel
 @{
     ViewData["Title"] = "SOC 2 hub";
-    var returnUrl = Context.Request.Path + Context.Request.QueryString;
+    var returnUrl = SessionSlots.CurrentUrl(Context.Request);
 
     static string Initials(string name)
     {

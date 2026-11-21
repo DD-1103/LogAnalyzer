@@ -2,7 +2,7 @@
 @{
     var ind = Model.Indicator;
     ViewData["Title"] = ind is null ? "Threat lookup" : $"{ind.Label} {ind.Value}";
-    var returnUrl = Context.Request.Path + Context.Request.QueryString;
+    var returnUrl = SessionSlots.CurrentUrl(Context.Request);
     var checking = ind is null ? [] : Model.Providers.Where(p => p.IsConfigured && p.Supports(ind.Type)).ToList();
     var notChecking = ind is null ? [] : Model.Providers.Except(checking).ToList();
     var pending = checking.Count(p => !Model.Results.ContainsKey(p.Name));

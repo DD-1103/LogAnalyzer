@@ -211,7 +211,7 @@
 @if (a.EscalatedAt is { } escalatedOn)
 {
     var ownerName = a.AssignedTo is null ? null : NotificationService.DisplayName(a.AssignedTo);
-    var hereUrl = Context.Request.Path.ToString();
+    var hereUrl = SessionSlots.CurrentUrl(Context.Request, includeQuery: false);
     <section class="lg-panel lg-escalation mb-4 @(a.Verdict is not null ? "is-decided" : null)" aria-labelledby="escalation-title">
         <div class="lg-escalation-head">
             <span class="lg-icon lg-tint-orange" aria-hidden="true"><i class="bi bi-arrow-up-circle"></i></span>
@@ -322,7 +322,7 @@
 
 @{
     var isPublicIp = IpEnrichmentService.IsPublic(a.SourceIp);
-    var returnUrl = Context.Request.Path.ToString();
+    var returnUrl = SessionSlots.CurrentUrl(Context.Request, includeQuery: false);
 }
 @{
     var tiProviders = Model.Providers.Where(p => p.IsConfigured && p.Supports(IndicatorType.Ip)).ToList();

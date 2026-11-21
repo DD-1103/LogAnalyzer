@@ -1,5 +1,6 @@
 using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Models;
+using LogAnalyzer.Web.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -39,7 +40,8 @@ public class NotificationsController(AppDbContext db, UserManager<AppUser> userM
             .ToListAsync(ct);
         return Json(items.Select(n => new
         {
-            id = n.Id, title = n.Title, body = n.Body, link = n.Link, kind = n.Kind,
+            // Stored app-relative; returned with this tab's session prefix (/s/n) so a click stays in the session.
+            id = n.Id, title = n.Title, body = n.Body, link = SessionSlots.AppLink(Request.PathBase, n.Link), kind = n.Kind,
             createdAt = DateTime.SpecifyKind(n.CreatedAt, DateTimeKind.Utc), read = n.read
         }));
     }

@@ -46,7 +46,9 @@ public sealed class RevalidateSessionFilter(
         await signInManager.SignOutAsync();
         context.Result = http.Request.Headers.Accept.ToString().Contains("application/json", StringComparison.OrdinalIgnoreCase)
             ? new StatusCodeResult(StatusCodes.Status401Unauthorized)
-            : new RedirectToActionResult("Login", "Account", new { returnUrl = http.Request.Path.Value });
+            // Back to the same page (with its session prefix /s/n) after signing in again; a POST cannot be repeated
+            // by a redirect, so it starts at the home page of the session instead.
+            : new RedirectToActionResult("Login", "Account", new { returnUrl = readOnly ? SessionSlots.CurrentUrl(http.Request) : null });
     }
 
     public static bool RequiresAdmin(IEnumerable<object> metadata) =>

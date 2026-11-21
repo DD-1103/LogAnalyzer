@@ -319,8 +319,8 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         });
 
     private IActionResult BackTo(string? returnUrl, long id) =>
-        !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl)
-            ? LocalRedirect(returnUrl)
+        SessionSlots.IsLocalToCurrentSlot(Request, returnUrl)
+            ? LocalRedirect(returnUrl!)
             : RedirectToAction(nameof(Details), new { id });
 
     private static string? Cut(string? value, int max) =>

@@ -1,10 +1,13 @@
 using LogAnalyzer.Web.Models;
 using LogAnalyzer.Web.Services;
 using LogAnalyzer.Web.ViewModels;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace LogAnalyzer.Web.Controllers;
 
@@ -12,6 +15,7 @@ public class AccountController(
     SignInManager<AppUser> signInManager,
     UserManager<AppUser> userManager,
     IAuditLog audit,
+    IOptionsMonitor<CookieAuthenticationOptions> cookieOptions,
     ILogger<AccountController> logger) : Controller
 {
     // Verified for unknown e-mail addresses so that they take as long as real ones (no account discovery by timing).
@@ -20,8 +24,16 @@ public class AccountController(
 
     [AllowAnonymous]
     [HttpGet]
-    public IActionResult Login(string? returnUrl = null) =>
-        View(new LoginViewModel { ReturnUrl = returnUrl });
+    public async Task<IActionResult> Login(string? returnUrl = null)
+    {
+        // A sign-in cookie of this session slot that no longer works (expired, revoked) is removed, so the slot
+        // counts as free again for "Sign in another account".
+        var cookieName = cookieOptions.Get(IdentityConstants.ApplicationScheme).Cookie.Name;
+        if (User.Identity?.IsAuthenticated != true && cookieName is not null
+            && Request.Cookies.ContainsKey(SessionSlots.CookieName(cookieName, SessionSlots.Current(HttpContext))))
+            await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+        return View(new LoginViewModel { ReturnUrl = returnUrl });
+    }
 
     [AllowAnonymous]
     [HttpPost]
@@ -50,8 +62,10 @@ public class AccountController(
             user!.LastLoginAt = DateTime.UtcNow;
             await userManager.UpdateAsync(user);
             logger.LogInformation("User {Email} logged in", email);
-            await audit.WriteAsync("Login.Success", email, null, email);
-            return LocalRedirect(Url.IsLocalUrl(model.ReturnUrl) ? model.ReturnUrl! : "/");
+            var slot = SessionSlots.Current(HttpContext);
+            await audit.WriteAsync("Login.Success", email, slot > 0 ? $"session {slot}" : null, email);
+            // The return URL must stay in this tab's session slot (it already contains the /s/n prefix).
+            return LocalRedirect(SessionSlots.IsLocalToCurrentSlot(Request, model.ReturnUrl) ? model.ReturnUrl! : Url.Content("~/"));
         }
 
         // Unknown, wrong password, disabled and locked-out accounts all get the same message, so the page does not

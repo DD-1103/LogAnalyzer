@@ -1508,8 +1508,33 @@ a.lg-bell-text:hover .lg-bell-title { text-decoration: underline; }
     text-align: center;
 }
 
+/* Session slot of the tab (/s/1 ... /s/9): a small tinted capsule next to the account button. */
+.lg-session-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    flex-shrink: 0;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 650;
+    line-height: 1.2;
+    white-space: nowrap;
+    color: rgb(var(--lg-accent-ink-rgb));
+    background: rgba(var(--lg-accent-rgb), .14);
+    border: 1px solid rgba(var(--lg-accent-rgb), .32);
+    box-shadow: inset 0 1px 0 var(--lg-edge);
+}
+.lg-session-list { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.lg-session-list .lg-chip { text-decoration: none; color: var(--lg-text); }
+.lg-session-list .lg-chip:hover { background: var(--lg-surface-hover); }
+.lg-session-note { display: block; max-width: 260px; white-space: normal; }
+.lg-session-hint { display: flex; gap: .5rem; align-items: flex-start; }
+
 /* Narrow desktops (1200-1399 px): the full nav plus bell is tight; the account button shows only its icon
-   (the name stays in its tooltip and menu). */
+   (the name stays in its tooltip and menu), the session chip only its number. */
 @media (min-width: 1200px) and (max-width: 1399.98px) {
     .lg-user-btn .lg-user-name { display: none; }
+    .lg-session-chip { padding: .2rem .5rem; }
+    .lg-session-chip .bi { display: none; }
 }
