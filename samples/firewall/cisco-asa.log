@@ -1,0 +1,69 @@
+Nov 21 2026 10:00:00 fw01 : %ASA-6-302013: Built inbound TCP connection 5000 for outside:198.51.100.10/50000 (198.51.100.10/50000) to inside:10.0.0.20/443 (198.51.100.1/443)
+Nov 21 2026 10:00:04 fw01 : %ASA-6-302014: Teardown TCP connection 5000 for outside:198.51.100.10/50000 to inside:10.0.0.20/443 duration 0:00:04 bytes 4096 TCP FINs
+Nov 21 2026 10:00:10 fw01 : %ASA-6-302013: Built inbound TCP connection 5001 for outside:198.51.100.11/50001 (198.51.100.11/50001) to inside:10.0.0.20/443 (198.51.100.1/443)
+Nov 21 2026 10:00:14 fw01 : %ASA-6-302014: Teardown TCP connection 5001 for outside:198.51.100.11/50001 to inside:10.0.0.20/443 duration 0:00:04 bytes 4196 TCP FINs
+Nov 21 2026 10:00:20 fw01 : %ASA-6-302013: Built inbound TCP connection 5002 for outside:192.0.2.15/50002 (192.0.2.15/50002) to inside:10.0.0.20/80 (198.51.100.1/80)
+Nov 21 2026 10:00:24 fw01 : %ASA-6-302014: Teardown TCP connection 5002 for outside:192.0.2.15/50002 to inside:10.0.0.20/80 duration 0:00:04 bytes 4296 TCP FINs
+Nov 21 2026 10:00:30 fw01 : %ASA-6-302013: Built inbound TCP connection 5003 for outside:198.51.100.12/50003 (198.51.100.12/50003) to inside:10.0.0.20/443 (198.51.100.1/443)
+Nov 21 2026 10:00:34 fw01 : %ASA-6-302014: Teardown TCP connection 5003 for outside:198.51.100.12/50003 to inside:10.0.0.20/443 duration 0:00:04 bytes 4396 TCP FINs
+Nov 21 2026 10:00:40 fw01 : %ASA-6-302013: Built inbound TCP connection 5004 for outside:192.0.2.16/50004 (192.0.2.16/50004) to inside:10.0.0.21/25 (198.51.100.1/25)
+Nov 21 2026 10:00:44 fw01 : %ASA-6-302014: Teardown TCP connection 5004 for outside:192.0.2.16/50004 to inside:10.0.0.21/25 duration 0:00:04 bytes 4496 TCP FINs
+Nov 21 2026 10:00:50 fw01 : %ASA-6-302013: Built inbound TCP connection 5005 for outside:198.51.100.13/50005 (198.51.100.13/50005) to inside:10.0.0.20/443 (198.51.100.1/443)
+Nov 21 2026 10:00:54 fw01 : %ASA-6-302014: Teardown TCP connection 5005 for outside:198.51.100.13/50005 to inside:10.0.0.20/443 duration 0:00:04 bytes 4596 TCP FINs
+Nov 21 2026 10:02:00 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41000 dst inside:10.0.0.20/21 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:02 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41001 dst inside:10.0.0.20/22 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:04 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41002 dst inside:10.0.0.20/23 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:06 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41003 dst inside:10.0.0.20/25 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:08 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41004 dst inside:10.0.0.20/53 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:10 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41005 dst inside:10.0.0.20/80 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:12 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41006 dst inside:10.0.0.20/110 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:14 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41007 dst inside:10.0.0.20/135 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:16 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41008 dst inside:10.0.0.20/139 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:18 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41009 dst inside:10.0.0.20/143 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:20 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41010 dst inside:10.0.0.20/443 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:22 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41011 dst inside:10.0.0.20/445 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:24 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41012 dst inside:10.0.0.20/993 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:26 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41013 dst inside:10.0.0.20/1433 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:28 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41014 dst inside:10.0.0.20/1521 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:30 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41015 dst inside:10.0.0.20/3306 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:32 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41016 dst inside:10.0.0.20/3389 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:34 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41017 dst inside:10.0.0.20/5432 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:36 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41018 dst inside:10.0.0.20/5900 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:38 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41019 dst inside:10.0.0.20/8080 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:02:40 fw01 : %ASA-4-106023: Deny tcp src outside:203.0.113.5/41020 dst inside:10.0.0.20/8443 by access-group "OUTSIDE_IN" [0x0, 0x0]
+Nov 21 2026 10:05:00 fw01 : %ASA-6-302013: Built inbound TCP connection 6000 for outside:203.0.113.9/42000 (203.0.113.9/42000) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:05:10 fw01 : %ASA-6-302013: Built inbound TCP connection 6001 for outside:203.0.113.9/42001 (203.0.113.9/42001) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:05:20 fw01 : %ASA-6-302013: Built inbound TCP connection 6002 for outside:203.0.113.9/42002 (203.0.113.9/42002) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:05:30 fw01 : %ASA-6-302013: Built inbound TCP connection 6003 for outside:203.0.113.9/42003 (203.0.113.9/42003) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:05:40 fw01 : %ASA-6-302013: Built inbound TCP connection 6004 for outside:203.0.113.9/42004 (203.0.113.9/42004) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:05:50 fw01 : %ASA-6-302013: Built inbound TCP connection 6005 for outside:203.0.113.9/42005 (203.0.113.9/42005) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:06:00 fw01 : %ASA-6-302013: Built inbound TCP connection 6006 for outside:203.0.113.9/42006 (203.0.113.9/42006) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:06:10 fw01 : %ASA-6-302013: Built inbound TCP connection 6007 for outside:203.0.113.9/42007 (203.0.113.9/42007) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:06:20 fw01 : %ASA-6-302013: Built inbound TCP connection 6008 for outside:203.0.113.9/42008 (203.0.113.9/42008) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:06:30 fw01 : %ASA-6-302013: Built inbound TCP connection 6009 for outside:203.0.113.9/42009 (203.0.113.9/42009) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:06:40 fw01 : %ASA-6-302013: Built inbound TCP connection 6010 for outside:203.0.113.9/42010 (203.0.113.9/42010) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:06:50 fw01 : %ASA-6-302013: Built inbound TCP connection 6011 for outside:203.0.113.9/42011 (203.0.113.9/42011) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:07:00 fw01 : %ASA-6-302013: Built inbound TCP connection 6012 for outside:203.0.113.9/42012 (203.0.113.9/42012) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:07:10 fw01 : %ASA-6-302013: Built inbound TCP connection 6013 for outside:203.0.113.9/42013 (203.0.113.9/42013) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:07:20 fw01 : %ASA-6-302013: Built inbound TCP connection 6014 for outside:203.0.113.9/42014 (203.0.113.9/42014) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:07:30 fw01 : %ASA-6-302013: Built inbound TCP connection 6015 for outside:203.0.113.9/42015 (203.0.113.9/42015) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:07:40 fw01 : %ASA-6-302013: Built inbound TCP connection 6016 for outside:203.0.113.9/42016 (203.0.113.9/42016) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:07:50 fw01 : %ASA-6-302013: Built inbound TCP connection 6017 for outside:203.0.113.9/42017 (203.0.113.9/42017) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:08:00 fw01 : %ASA-6-302013: Built inbound TCP connection 6018 for outside:203.0.113.9/42018 (203.0.113.9/42018) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:08:10 fw01 : %ASA-6-302013: Built inbound TCP connection 6019 for outside:203.0.113.9/42019 (203.0.113.9/42019) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:08:20 fw01 : %ASA-6-302013: Built inbound TCP connection 6020 for outside:203.0.113.9/42020 (203.0.113.9/42020) to inside:10.0.0.30/22 (198.51.100.1/22)
+Nov 21 2026 10:11:40 fw01 : %ASA-4-400010: IPS:2000 ICMP Echo Reply from 192.0.2.44 to 10.0.0.20 on interface outside
+Nov 21 2026 10:11:45 fw01 : %ASA-4-733101: Host 203.0.113.5 is attacking. Current burst rate is 12 per second, max configured rate is 10; Current average rate is 5 per second, max configured rate is 5; Cumulative total count is 3021
+Nov 21 2026 10:11:50 fw01 : %ASA-2-106017: Deny IP due to Land Attack from 192.0.2.44 to 192.0.2.44
+Nov 21 2026 10:11:55 fw01 : %ASA-4-419002: Received duplicate TCP SYN from outside:192.0.2.44/43100 to inside:10.0.0.20/443 with different initial sequence number.
+Nov 21 2026 10:13:00 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42100 to outside:198.51.100.1/ssh for user "admin"
+Nov 21 2026 10:13:10 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42101 to outside:198.51.100.1/ssh for user "root"
+Nov 21 2026 10:13:20 fw01 : %ASA-6-113015: AAA user authentication Rejected : reason = Invalid password : local database : user = admin : user IP = 203.0.113.9
+Nov 21 2026 10:13:30 fw01 : %ASA-6-716039: Group <DfltGrpPolicy> User <jdoe> IP <198.51.100.99> Authentication: rejected, Session Type: WebVPN.
+Nov 21 2026 10:13:40 fw01 : %ASA-4-113039: Group <GroupPolicy_VPN> User <jdoe> IP <198.51.100.99> AnyConnect parent session started.
+Nov 21 2026 10:15:00 fw01 : %ASA-6-302013: Built outbound TCP connection 7001 for outside:198.51.100.66/4444 (198.51.100.66/4444) to inside:10.0.0.23/50999 (198.51.100.1/50999)
+Nov 21 2026 10:15:05 fw01 : %ASA-3-710003: TCP access denied by ACL from 203.0.113.5/41500 to outside:198.51.100.1/telnet
+Nov 21 2026 10:15:10 fw01 : %ASA-3-313001: Denied ICMP type=8, code=0 from 203.0.113.5 on interface outside
+Nov 21 2026 10:15:20 fw01 : %ASA-6-106100: access-list OUTSIDE_IN denied udp outside/203.0.113.5(41600) -> inside/10.0.0.20(161) hit-cnt 1 first hit [0x91c26a3, 0x0]
+Nov 21 2026 10:15:50 fw01 : %ASA-5-111008: User 'admin' executed the 'write memory' command.
+<166>:Nov 21 10:16:00 UTC: %FTD-6-305011: Built dynamic TCP translation from inside:10.0.0.41/52000 to outside:198.51.100.10/52000
