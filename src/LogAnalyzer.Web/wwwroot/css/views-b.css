@@ -151,30 +151,7 @@ code.lg-sample-line {
 /* ======================================================================= SOC 2 hub & escalations
    One quiet list; the memorable element is the owner pill on the right of each row. */
 
-/* Segmented filter (clear glass capsule) */
-.lg-segmented {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: .25rem;
-    padding: .3rem;
-    border-radius: 999px;
-    border: 1px solid var(--lg-hairline);
-    background: var(--lg-surface);
-    box-shadow: inset 0 1px 0 var(--lg-edge);
-    max-width: 100%;
-}
-.lg-segmented a {
-    padding: .35rem .85rem;
-    border-radius: 999px;
-    font-size: .85rem;
-    font-weight: 560;
-    color: var(--lg-text-2);
-    text-decoration: none;
-    white-space: nowrap;
-}
-.lg-segmented a:hover { color: var(--lg-text); background: var(--lg-surface-hover); }
-.lg-segmented a.active { color: #fff; background: rgb(var(--lg-accent-rgb)); box-shadow: 0 4px 14px rgba(var(--lg-accent-rgb), .35); }
-.lg-segmented a:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(var(--lg-accent-rgb), .55); }
+/* Segmented filter: defined in glass.css (also used by the rules page) */
 
 .lg-hub { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
 .lg-hub-row {
@@ -285,7 +262,6 @@ a.lg-hub-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 @media (max-width: 575.98px) {
     .lg-hub-row { grid-template-columns: auto minmax(0, 1fr); }
     .lg-hub-side { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; }
-    .lg-segmented { display: flex; }
 }
 
 @media (prefers-reduced-transparency: reduce) {

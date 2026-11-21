@@ -35,13 +35,58 @@ public static class RuleValidator
         CheckBacktracking(rule.Pattern, "Pattern", errors);
         CheckBacktracking(rule.PathPattern, "Path pattern", errors);
 
+        if (!Enum.IsDefined(rule.Kind))
+            errors.Add("Choose a rule kind.");
+        if (!Enum.IsDefined(rule.AppliesTo))
+            errors.Add("Choose the kind of log the rule applies to.");
+        if (!Enum.IsDefined(rule.Field))
+            errors.Add("Choose a field.");
+
         if (rule.Kind == RuleKind.Threshold && rule.WindowSeconds is not > 0)
             errors.Add("A threshold rule needs a time window in seconds.");
+        if (rule.Kind == RuleKind.DistinctCount && rule.WindowSeconds is not > 0)
+            errors.Add("A distinct-count rule needs a time window in seconds.");
         if (rule.Kind == RuleKind.Anomaly && rule.ScoreThreshold is not (>= 0.5 and <= 1.0))
             errors.Add("An anomaly rule needs a score threshold between 0.5 and 1.0.");
 
+        var firewall = rule.AppliesTo == LogSource.Firewall;
+        if (UsesField(rule))
+        {
+            if (firewall && !FirewallFields.Contains(rule.Field))
+                errors.Add("A firewall rule can inspect the message, threat name, firewall rule name, event type, " +
+                           "destination port or destination IP.");
+            else if (!firewall && !WebFields.Contains(rule.Field))
+                errors.Add("A web rule can inspect the URL, the user agent or the referrer.");
+        }
+        if (!firewall && (!string.IsNullOrWhiteSpace(rule.ActionFilter) || !string.IsNullOrWhiteSpace(rule.PortFilter)))
+            errors.Add("Action and port filters only apply to firewall rules.");
+        if (firewall && (rule.MethodFilter is not null || rule.StatusFilter is not null))
+            errors.Add("HTTP method and status filters only apply to web rules.");
+
         return errors.Distinct().ToList();
     }
+
+    /// <summary>Fields a web access log event has.</summary>
+    public static readonly IReadOnlySet<RuleField> WebFields =
+        new HashSet<RuleField> { RuleField.Url, RuleField.UserAgent, RuleField.Referrer };
+
+    /// <summary>Fields a firewall event has (the message is stored in the URL column, so it is offered as Message).</summary>
+    public static readonly IReadOnlySet<RuleField> FirewallFields = new HashSet<RuleField>
+    {
+        RuleField.Message, RuleField.ThreatName, RuleField.RuleName, RuleField.EventType,
+        RuleField.DestinationPort, RuleField.DestinationIp
+    };
+
+    /// <summary>
+    /// True when the rule reads <see cref="DetectionRule.Field"/>: signature and distinct-count rules always,
+    /// firewall threshold rules when they have a pattern (the pattern is matched on that field).
+    /// </summary>
+    public static bool UsesField(DetectionRule rule) => rule.Kind switch
+    {
+        RuleKind.Signature or RuleKind.DistinctCount => true,
+        RuleKind.Threshold => rule.AppliesTo == LogSource.Firewall && !string.IsNullOrWhiteSpace(rule.Pattern),
+        _ => false
+    };
 
     /// <summary>
     /// Rejects patterns that are too slow on adversarial input (ReDoS). The engine also has a 250 ms timeout
@@ -105,6 +150,22 @@ public sealed class RuleTester(AppDbContext db, AnomalyDetector anomaly)
         if (result.Errors.Count > 0)
             return result;
 
+        // Web rules only run on access logs and firewall rules only on firewall logs (as in DetectionEngine).
+        var source = await db.LogFiles.AsNoTracking().Where(f => f.Id == logFileId)
+            .Select(f => (LogSource?)f.Source).FirstOrDefaultAsync(ct);
+        if (source is null)
+        {
+            result.Errors.Add("The chosen log file does not exist any more.");
+            return result;
+        }
+        if (source != rule.AppliesTo)
+        {
+            result.Errors.Add(rule.AppliesTo == LogSource.Firewall
+                ? "This rule runs on firewall logs: choose a firewall log file to test it."
+                : "This rule runs on web access logs: choose a web access log file to test it.");
+            return result;
+        }
+
         var sw = Stopwatch.StartNew();
         var testRule = Clone(rule);
         var events = db.LogEvents.AsNoTracking()
@@ -112,7 +173,17 @@ public sealed class RuleTester(AppDbContext db, AnomalyDetector anomaly)
             .OrderBy(e => e.Timestamp).ThenBy(e => e.LineNumber)
             .Take(MaxEvents)
             .Select(e => new DetectionEvent(e.Id, e.ClientIp, e.Timestamp, e.Method, e.Url, e.StatusCode,
-                e.UserAgent, e.Referrer, e.ResponseSize))
+                e.UserAgent, e.Referrer, e.ResponseSize)
+            {
+                DestinationIp = e.DestinationIp,
+                SourcePort = e.SourcePort,
+                DestinationPort = e.DestinationPort,
+                Transport = e.Transport,
+                Action = e.Action,
+                EventType = e.EventType,
+                RuleName = e.RuleName,
+                ThreatName = e.ThreatName
+            })
             .AsAsyncEnumerable();
 
         IReadOnlyCollection<RuleHit> hits;
@@ -167,6 +238,9 @@ public sealed class RuleTester(AppDbContext db, AnomalyDetector anomaly)
         PathPattern = r.PathPattern,
         StatusFilter = r.StatusFilter,
         ScoreThreshold = r.ScoreThreshold,
+        AppliesTo = r.AppliesTo,
+        ActionFilter = r.ActionFilter,
+        PortFilter = r.PortFilter,
         IsEnabled = true
     };
 }

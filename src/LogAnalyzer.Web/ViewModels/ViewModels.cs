@@ -177,7 +177,7 @@ public record ReputationCardModel(LogAnalyzer.Web.Services.IThreatIntelProvider 
 
 // ---- Rule management ----
 
-public record LogFileOption(int Id, string FileName, int Lines);
+public record LogFileOption(int Id, string FileName, int Lines, LogSource Source = LogSource.WebAccess);
 
 public class RuleFormModel
 {
@@ -189,18 +189,27 @@ public class RuleFormModel
     [StringLength(1000)]
     public string? Description { get; set; }
 
-    [Display(Name = "Attack type")]
+    [Display(Name = "Attack type"), EnumDataType(typeof(AttackType))]
     public AttackType AttackType { get; set; }
+
+    [EnumDataType(typeof(Severity))]
     public Severity Severity { get; set; }
+
+    [EnumDataType(typeof(RuleKind))]
     public RuleKind Kind { get; set; }
 
-    // Signature
+    /// <summary>Web access logs or firewall logs: decides which fields and filters the rule can use.</summary>
+    [Display(Name = "Applies to"), EnumDataType(typeof(LogSource))]
+    public LogSource AppliesTo { get; set; } = LogSource.WebAccess;
+
+    // Signature (and the pattern field of firewall threshold / distinct-count rules)
+    [EnumDataType(typeof(RuleField))]
     public RuleField Field { get; set; } = RuleField.Url;
 
     [StringLength(2000)]
     public string? Pattern { get; set; }
 
-    // Threshold (and "minimum requests" for anomaly rules)
+    // Threshold (and "minimum requests" for anomaly rules, "different values" for distinct-count rules)
     [Range(1, 1_000_000)]
     public int? Threshold { get; set; }
 
@@ -216,6 +225,13 @@ public class RuleFormModel
     [Display(Name = "Status code"), Range(100, 599)]
     public int? StatusFilter { get; set; }
 
+    // Firewall filters
+    /// <summary>Ticked firewall actions (none = any action); stored as ActionFilter "Deny,Drop".</summary>
+    public List<FirewallAction> Actions { get; set; } = [];
+
+    [Display(Name = "Destination ports"), StringLength(200)]
+    public string? PortFilter { get; set; }
+
     // Anomaly
     [Display(Name = "Score threshold"), Range(0.5, 1.0)]
     public double? ScoreThreshold { get; set; }
@@ -229,20 +245,29 @@ public class RuleFormModel
     public List<LogFileOption> LogFiles { get; set; } = [];
     public LogAnalyzer.Web.Services.RuleTestResult? TestResult { get; set; }
 
-    /// <summary>Clears the fields that do not apply to the chosen kind, and trims text.</summary>
+    /// <summary>Actions offered as checkboxes (Unknown = no decision in the line, not useful as a filter).</summary>
+    public static readonly FirewallAction[] ActionChoices =
+        [FirewallAction.Allow, FirewallAction.Deny, FirewallAction.Drop, FirewallAction.Reject, FirewallAction.Alert];
+
+    /// <summary>Clears the fields that do not apply to the chosen kind and log source, and trims text.</summary>
     public void Normalize()
     {
+        var firewall = AppliesTo == LogSource.Firewall;
         Name = (Name ?? string.Empty).Trim();
         Description = string.IsNullOrWhiteSpace(Description) ? null : Description.Trim();
         Pattern = string.IsNullOrWhiteSpace(Pattern) ? null : Pattern;
         PathPattern = string.IsNullOrWhiteSpace(PathPattern) ? null : PathPattern;
         MethodFilter = string.IsNullOrWhiteSpace(MethodFilter) ? null : MethodFilter.Trim().ToUpperInvariant();
+        PortFilter = string.IsNullOrWhiteSpace(PortFilter) ? null : PortFilter.Trim();
 
-        if (Kind != RuleKind.Signature)
+        // Signature rules always have a pattern; on firewall logs threshold / distinct-count rules may add one as a filter.
+        if (Kind != RuleKind.Signature && !(firewall && Kind is RuleKind.Threshold or RuleKind.DistinctCount))
             Pattern = null;
-        if (Kind != RuleKind.Threshold)
-        {
+        if (Kind is not (RuleKind.Threshold or RuleKind.DistinctCount))
             WindowSeconds = null;
+        // HTTP filters only exist in web logs; on firewall logs a message filter is Field = Message + Pattern.
+        if (firewall || Kind != RuleKind.Threshold)
+        {
             MethodFilter = null;
             PathPattern = null;
             StatusFilter = null;
@@ -251,7 +276,25 @@ public class RuleFormModel
             Threshold = null;
         if (Kind != RuleKind.Anomaly)
             ScoreThreshold = null;
+
+        if (!firewall || Kind == RuleKind.Anomaly)
+        {
+            Actions = [];
+            PortFilter = null;
+        }
+        // Canonical text ("22,3389,5900-5902"); invalid text is kept so the validator can explain the problem.
+        if (LogAnalyzer.Web.Services.PortSet.TryParse(PortFilter, out var ports, out _))
+            PortFilter = ports?.ToString();
+
+        // A field the rule does not read falls back to the default of its log kind, so it is valid there.
+        var rule = new DetectionRule { Kind = Kind, AppliesTo = AppliesTo, Pattern = Pattern };
+        if (!LogAnalyzer.Web.Services.RuleValidator.UsesField(rule))
+            Field = firewall ? RuleField.Message : RuleField.Url;
     }
+
+    /// <summary>The ticked actions as stored in the rule ("Deny,Drop"), or null for any action.</summary>
+    public string? ActionFilter =>
+        Actions.Count == 0 ? null : string.Join(",", Actions.Where(Enum.IsDefined).Distinct().Order());
 
     public DetectionRule ToRule()
     {
@@ -267,6 +310,7 @@ public class RuleFormModel
         r.AttackType = AttackType;
         r.Severity = Severity;
         r.Kind = Kind;
+        r.AppliesTo = AppliesTo;
         r.Field = Field;
         r.Pattern = Pattern;
         r.Threshold = Threshold;
@@ -274,6 +318,8 @@ public class RuleFormModel
         r.MethodFilter = MethodFilter;
         r.PathPattern = PathPattern;
         r.StatusFilter = StatusFilter;
+        r.ActionFilter = ActionFilter;
+        r.PortFilter = PortFilter;
         r.ScoreThreshold = ScoreThreshold;
         r.IsEnabled = IsEnabled;
     }
@@ -286,6 +332,7 @@ public class RuleFormModel
         AttackType = r.AttackType,
         Severity = r.Severity,
         Kind = r.Kind,
+        AppliesTo = r.AppliesTo,
         Field = r.Field,
         Pattern = r.Pattern,
         Threshold = r.Threshold,
@@ -293,6 +340,10 @@ public class RuleFormModel
         MethodFilter = r.MethodFilter,
         PathPattern = r.PathPattern,
         StatusFilter = r.StatusFilter,
+        Actions = LogAnalyzer.Web.Services.ActionSet.TryParse(r.ActionFilter, out var actions, out _) && actions is not null
+            ? actions.Actions.ToList()
+            : [],
+        PortFilter = r.PortFilter,
         ScoreThreshold = r.ScoreThreshold,
         IsEnabled = r.IsEnabled
     };

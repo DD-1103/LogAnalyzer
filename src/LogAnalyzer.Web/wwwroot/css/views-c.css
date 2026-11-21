@@ -146,6 +146,37 @@
     .lg-switch, .lg-switch-knob { transition: none; }
 }
 
+/* Rules: kind of log a rule runs on (tinted chip, colours from tokens so both themes work) */
+.lg-chip-web {
+    color: rgb(var(--lg-teal-ink-rgb));
+    background: rgba(var(--lg-teal-rgb), .12);
+    border-color: rgba(var(--lg-teal-rgb), .3);
+}
+.lg-chip-firewall {
+    color: rgb(var(--lg-orange-ink-rgb));
+    background: rgba(var(--lg-orange-rgb), .12);
+    border-color: rgba(var(--lg-orange-rgb), .3);
+}
+.lg-chip-web .bi, .lg-chip-firewall .bi { color: inherit; }
+
+/* Count inside a segmented filter link */
+.lg-seg-count {
+    display: inline-block;
+    min-width: 1.5em;
+    margin-left: .2rem;
+    padding: 0 .4rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    background: var(--lg-surface-sunken);
+}
+.lg-segmented a.active .lg-seg-count { background: rgba(255, 255, 255, .25); }
+
+/* Rule form: firewall action checkboxes */
+.lg-check-row { display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; }
+.lg-check-row .form-check { margin: 0; }
+
 /* Flex children that may contain long text */
 .min-w-0 { min-width: 0; }
 

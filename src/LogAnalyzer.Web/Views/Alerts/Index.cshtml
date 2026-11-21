@@ -65,7 +65,7 @@
             <option value="">All</option>
             @foreach (var v in Enum.GetValues<AttackType>())
             {
-                if (Model.AttackType == v) { <option value="@v" selected>@v</option> } else { <option value="@v">@v</option> }
+                if (Model.AttackType == v) { <option value="@v" selected>@Format.AttackLabel(v)</option> } else { <option value="@v">@Format.AttackLabel(v)</option> }
             }
         </select>
     </div>

@@ -34,6 +34,14 @@ public sealed class CompiledRule
     public Regex? PathPattern { get; init; }
     public TimeSpan Window { get; init; }
 
+    /// <summary>Destination-port filter (firewall rules only; null = any port).</summary>
+    public PortSet? Ports { get; init; }
+
+    /// <summary>Firewall-action filter (firewall rules only; null = any action).</summary>
+    public ActionSet? Actions { get; init; }
+
+    public bool IsFirewall => Rule.AppliesTo == LogSource.Firewall;
+
     /// <summary>
     /// True when a pattern needs the backtracking engine (backreferences, lookarounds, atomic groups):
     /// only such rules can time out. All other rules use the linear-time NonBacktracking engine.
@@ -84,7 +92,9 @@ public sealed class RuleHit(int ruleId, string ip)
 /// <summary>
 /// Pure rule-matching logic shared by the detection engine, the rule tester and the unit tests.
 /// Signature rules match a regex on one event; threshold rules count matching events per IP
-/// inside a sliding time window. Events must be fed in timestamp order.
+/// inside a sliding time window; distinct-count rules (firewall) count the different values of a field
+/// (destination ports = port scan, destination IPs = network sweep) per source IP inside the window.
+/// Events must be fed in timestamp order.
 /// </summary>
 public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
 {
@@ -98,6 +108,7 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
     private readonly Dictionary<int, int> _timeouts = [];
     private readonly Dictionary<int, long> _skipped = [];
     private readonly Dictionary<(int RuleId, string Ip), SlidingWindow> _windows = [];
+    private readonly Dictionary<(int RuleId, string Ip), DistinctWindow> _distinctWindows = [];
 
     public IReadOnlyCollection<RuleHit> Hits => _hits.Values;
     public long EventsProcessed { get; private set; }
@@ -125,19 +136,27 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
     public void Process(DetectionEvent e)
     {
         EventsProcessed++;
-        var url = UrlDecoder.Decode(e.Url);
+        string? decodedUrl = null; // decoded only when a web rule needs it
 
         foreach (var r in rules)
         {
+            if (r.IsFirewall)
+            {
+                ProcessFirewall(r, e);
+                continue;
+            }
+
+            var url = decodedUrl ??= UrlDecoder.Decode(e.Url);
             if (r.Rule.Kind == RuleKind.Signature)
             {
                 var value = r.Rule.Field switch
                 {
                     RuleField.UserAgent => e.UserAgent ?? string.Empty,
                     RuleField.Referrer => UrlDecoder.Decode(e.Referrer),
-                    _ => url
+                    RuleField.Url => url,
+                    var other => FieldValue(other, e) // firewall fields: null on web events = no match
                 };
-                var outcome = r.Pattern is null ? MatchOutcome.NoMatch : Evaluate(r, r.Pattern, value);
+                var outcome = r.Pattern is null || value is null ? MatchOutcome.NoMatch : Evaluate(r, r.Pattern, value);
                 if (outcome != MatchOutcome.NoMatch)
                 {
                     var hit = GetHit(r.Rule.Id, e.ClientIp);
@@ -163,6 +182,109 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
             }
         }
     }
+
+    /// <summary>
+    /// Firewall rules: the action and port filters apply to every kind; text fields are matched as logged
+    /// (no URL decoding). Threshold and distinct-count rules work per source IP; events without a source are skipped.
+    /// </summary>
+    private void ProcessFirewall(CompiledRule r, DetectionEvent e)
+    {
+        if (r.Actions is not null && !r.Actions.Contains(e.Action))
+            return;
+        if (r.Ports is not null && !r.Ports.Contains(e.DestinationPort))
+            return;
+
+        switch (r.Rule.Kind)
+        {
+            case RuleKind.Signature:
+            {
+                var value = FieldValue(r.Rule.Field, e);
+                if (r.Pattern is null || value is null)
+                    return;
+                var outcome = Evaluate(r, r.Pattern, value);
+                if (outcome == MatchOutcome.NoMatch)
+                    return;
+                var hit = GetHit(r.Rule.Id, e.ClientIp);
+                hit.Add(e.Id, e.Timestamp);
+                if (outcome == MatchOutcome.Timeout)
+                    hit.TimedOutEvents++;
+                return;
+            }
+
+            case RuleKind.Threshold:
+            {
+                if (!HasSource(e) || !MatchesFirewallPatterns(r, e, FieldValue(r.Rule.Field, e)))
+                    return;
+                var key = (r.Rule.Id, e.ClientIp);
+                if (!_windows.TryGetValue(key, out var window))
+                    _windows[key] = window = new SlidingWindow();
+                window.Add(e.Timestamp, e.Id);
+                window.DropOlderThan(e.Timestamp - r.Window);
+                if (window.Count >= r.Rule.Threshold)
+                    window.FlushPending(GetHit(r.Rule.Id, e.ClientIp));
+                return;
+            }
+
+            case RuleKind.DistinctCount:
+            {
+                if (!HasSource(e))
+                    return;
+                var value = FieldValue(r.Rule.Field, e);
+                if (value is null || !MatchesFirewallPatterns(r, e, value))
+                    return;
+                var key = (r.Rule.Id, e.ClientIp);
+                if (!_distinctWindows.TryGetValue(key, out var window))
+                    _distinctWindows[key] = window = new DistinctWindow();
+                window.Add(e.Timestamp, e.Id, value);
+                window.DropOlderThan(e.Timestamp - r.Window);
+                // Enough different values (ports, hosts, ...) inside the window: every event in it is evidence.
+                if (window.Distinct >= r.Rule.Threshold)
+                    window.FlushPending(GetHit(r.Rule.Id, e.ClientIp));
+                return;
+            }
+        }
+    }
+
+    /// <summary>"-" (or nothing) means the line had no source address: it cannot be attributed to one attacker.</summary>
+    private static bool HasSource(DetectionEvent e) => !string.IsNullOrEmpty(e.ClientIp) && e.ClientIp != "-";
+
+    /// <summary>
+    /// Optional regexes of firewall threshold / distinct-count rules: the path pattern on the message, and the
+    /// pattern on the rule's field (e.g. Field EventType, Pattern ^auth$). A timeout counts as a match (fail-closed).
+    /// </summary>
+    private bool MatchesFirewallPatterns(CompiledRule r, DetectionEvent e, string? fieldValue)
+    {
+        if (r.PathPattern is not null && Evaluate(r, r.PathPattern, e.Url ?? string.Empty) == MatchOutcome.NoMatch)
+            return false;
+        if (r.Pattern is not null && (fieldValue is null || Evaluate(r, r.Pattern, fieldValue) == MatchOutcome.NoMatch))
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Raw text of a field (no URL decoding). For firewall events <see cref="DetectionEvent.Url"/> holds the message.
+    /// Null when the event does not have the field.
+    /// </summary>
+    public static string? FieldValue(RuleField field, DetectionEvent e) => field switch
+    {
+        RuleField.Url or RuleField.Message => e.Url,
+        RuleField.UserAgent => e.UserAgent,
+        RuleField.Referrer => e.Referrer,
+        RuleField.ThreatName => e.ThreatName,
+        RuleField.RuleName => e.RuleName,
+        RuleField.EventType => e.EventType,
+        RuleField.DestinationIp => e.DestinationIp,
+        RuleField.DestinationPort => e.DestinationPort is int p ? PortText(p) : null,
+        _ => null
+    };
+
+    private static readonly string?[] PortTexts = new string?[65536];
+
+    /// <summary>Port number as text, cached (a port scan produces millions of these).</summary>
+    private static string PortText(int port) =>
+        port is >= 0 and <= 65535
+            ? PortTexts[port] ??= port.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : port.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Keeps at most <paramref name="maxPerRule"/> alerts per rule (the sources with the most events). The evidence of
@@ -199,6 +321,10 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
         error = null;
         try
         {
+            if (!PortSet.TryParse(rule.PortFilter, out var ports, out error)
+                || !ActionSet.TryParse(rule.ActionFilter, out var actions, out error))
+                return null;
+
             var pattern = Build(rule.Pattern, out var patternBacktracks);
             var path = Build(rule.PathPattern, out var pathBacktracks);
             var compiled = new CompiledRule
@@ -207,7 +333,9 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
                 Pattern = pattern,
                 PathPattern = path,
                 Window = TimeSpan.FromSeconds(rule.WindowSeconds ?? 60),
-                Backtracking = patternBacktracks || pathBacktracks
+                Backtracking = patternBacktracks || pathBacktracks,
+                Ports = ports,
+                Actions = actions
             };
 
             error = rule.Kind switch
@@ -215,6 +343,10 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
                 RuleKind.Signature when compiled.Pattern is null => "A signature rule needs a pattern.",
                 RuleKind.Threshold when rule.Threshold is not > 0 => "A threshold rule needs a threshold above 0.",
                 RuleKind.Anomaly when rule.Threshold is not > 0 => "An anomaly rule needs a minimum request count above 0.",
+                RuleKind.Anomaly when rule.AppliesTo != LogSource.WebAccess => "Anomaly rules only run on web access logs.",
+                RuleKind.DistinctCount when rule.AppliesTo != LogSource.Firewall => "Distinct-count rules only run on firewall logs.",
+                RuleKind.DistinctCount when rule.Threshold is not >= 2 =>
+                    "A distinct-count rule needs a threshold of at least 2 different values.",
                 _ => null
             };
             return error is null ? compiled : null;
@@ -316,6 +448,61 @@ internal sealed class SlidingWindow
         if (Pending > Count)
             Pending = Count;
         // Reclaim memory now and then instead of shifting the list on every event.
+        if (_head > 1024 && _head > _items.Count / 2)
+        {
+            _items.RemoveRange(0, _head);
+            _head = 0;
+        }
+    }
+
+    /// <summary>Adds the pending (newest) events to the hit; afterwards the whole window is evidence.</summary>
+    public void FlushPending(RuleHit hit)
+    {
+        for (var i = _items.Count - Pending; i < _items.Count; i++)
+            hit.Add(_items[i].Id, _items[i].Ts);
+        Pending = 0;
+    }
+}
+
+/// <summary>
+/// Events of one (distinct-count rule, source IP) inside the time window, oldest first, with a value -> count map so
+/// the number of DIFFERENT values (ports, hosts, ...) is known in O(1). Like <see cref="SlidingWindow"/>,
+/// <see cref="Pending"/> counts the newest events that are not evidence yet, so each event is copied at most once.
+/// </summary>
+internal sealed class DistinctWindow
+{
+    private readonly List<(DateTimeOffset Ts, long Id, string Value)> _items = [];
+    private readonly Dictionary<string, int> _counts = new(StringComparer.Ordinal);
+    private int _head;
+
+    public int Count => _items.Count - _head;
+    public int Pending { get; private set; }
+
+    /// <summary>Number of different values among the events in the window.</summary>
+    public int Distinct => _counts.Count;
+
+    public void Add(DateTimeOffset ts, long id, string value)
+    {
+        _items.Add((ts, id, value));
+        _counts[value] = _counts.GetValueOrDefault(value) + 1;
+        Pending++;
+    }
+
+    /// <summary>Removes events older than <paramref name="cutoff"/> (the newest event always stays).</summary>
+    public void DropOlderThan(DateTimeOffset cutoff)
+    {
+        while (Count > 1 && _items[_head].Ts < cutoff)
+        {
+            var value = _items[_head].Value;
+            var left = _counts[value] - 1;
+            if (left == 0)
+                _counts.Remove(value);
+            else
+                _counts[value] = left;
+            _head++;
+        }
+        if (Pending > Count)
+            Pending = Count;
         if (_head > 1024 && _head > _items.Count / 2)
         {
             _items.RemoveRange(0, _head);

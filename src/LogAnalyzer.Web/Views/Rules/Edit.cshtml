@@ -3,6 +3,8 @@
     var isNew = Model.Id is null;
     ViewData["Title"] = isNew ? "New rule" : $"Edit {Model.Name}";
     var t = Model.TestResult;
+    var firewall = Model.AppliesTo == LogSource.Firewall;
+    var matchingFiles = Model.LogFiles.Count(f => f.Source == Model.AppliesTo);
 }
 
 @section Head {
@@ -23,6 +25,11 @@
     </div>
 </header>
 
+@*
+    data-show lists the combinations of log kind (w = web access, f = firewall) and rule kind
+    (0 Signature, 1 Threshold, 2 Anomaly, 3 Distinct count) an element belongs to; rule-form.js hides and
+    disables the others. data-sources on an option = the log kinds (0 web, 1 firewall) it is offered for.
+*@
 <form asp-action="Save" method="post">
     <input type="hidden" asp-for="Id" />
     <div asp-validation-summary="All" class="alert alert-danger lg-validation small mb-4"></div>
@@ -37,13 +44,25 @@
                             Basics
                         </h2>
                         <div class="row g-3">
-                            <div class="col-md-8">
+                            <div class="col-12">
                                 <label asp-for="Name" class="form-label small"></label>
                                 <input asp-for="Name" class="form-control" maxlength="150" />
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-6">
+                                <label asp-for="AppliesTo" class="form-label small"></label>
+                                <select asp-for="AppliesTo" class="form-select">
+                                    <option value="0" selected="@(Model.AppliesTo == LogSource.WebAccess)">Web access logs (Apache / Nginx)</option>
+                                    <option value="1" selected="@(Model.AppliesTo == LogSource.Firewall)">Firewall logs</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
                                 <label asp-for="Kind" class="form-label small">Kind</label>
-                                <select asp-for="Kind" asp-items="Html.GetEnumSelectList<RuleKind>()" class="form-select"></select>
+                                <select asp-for="Kind" class="form-select">
+                                    <option value="0" data-sources="0 1" selected="@(Model.Kind == RuleKind.Signature)">Signature (pattern in one event)</option>
+                                    <option value="1" data-sources="0 1" selected="@(Model.Kind == RuleKind.Threshold)">Threshold (many events from one IP)</option>
+                                    <option value="3" data-sources="1" selected="@(Model.Kind == RuleKind.DistinctCount)">Distinct count (scan detection)</option>
+                                    <option value="2" data-sources="0" selected="@(Model.Kind == RuleKind.Anomaly)">Anomaly (Isolation Forest)</option>
+                                </select>
                             </div>
                             <div class="col-12">
                                 <label asp-for="Description" class="form-label small"></label>
@@ -51,7 +70,20 @@
                             </div>
                             <div class="col-md-6">
                                 <label asp-for="AttackType" class="form-label small"></label>
-                                <select asp-for="AttackType" asp-items="Html.GetEnumSelectList<AttackType>()" class="form-select"></select>
+                                <select asp-for="AttackType" class="form-select">
+                                    <optgroup label="Web attacks">
+                                        @foreach (var a in Enum.GetValues<AttackType>().Where(a => !Format.IsNetworkAttack(a)))
+                                        {
+                                            <option value="@((int)a)" selected="@(Model.AttackType == a)">@Format.AttackLabel(a)</option>
+                                        }
+                                    </optgroup>
+                                    <optgroup label="Network / firewall">
+                                        @foreach (var a in Enum.GetValues<AttackType>().Where(Format.IsNetworkAttack))
+                                        {
+                                            <option value="@((int)a)" selected="@(Model.AttackType == a)">@Format.AttackLabel(a)</option>
+                                        }
+                                    </optgroup>
+                                </select>
                             </div>
                             <div class="col-md-6">
                                 <label asp-for="Severity" class="form-label small"></label>
@@ -66,55 +98,106 @@
                             What to match
                         </h2>
                         <div class="row g-3">
-                            @* ---- Signature ---- *@
-                            <div class="col-md-4" data-kind="0">
+                            @* ---- Field + pattern (signature; optional filter on firewall threshold / distinct count) ---- *@
+                            <div class="col-md-6" data-show="w0 f0 f1 f3">
                                 <label asp-for="Field" class="form-label small">Field</label>
-                                <select asp-for="Field" asp-items="Html.GetEnumSelectList<RuleField>()" class="form-select"></select>
+                                <select asp-for="Field" class="form-select">
+                                    @foreach (var f in Enum.GetValues<RuleField>())
+                                    {
+                                        var src = RuleValidator.FirewallFields.Contains(f) ? "1" : RuleValidator.WebFields.Contains(f) ? "0" : null;
+                                        if (src is null) { continue; }
+                                        <option value="@((int)f)" data-sources="@src" selected="@(Model.Field == f)">@Format.FieldLabel(f)</option>
+                                    }
+                                </select>
                             </div>
-                            <div class="col-12" data-kind="0">
+                            <div class="col-md-6 form-text align-self-end mb-2" data-show="f3">
+                                Destination port = port scan, destination IP = network sweep.
+                            </div>
+                            <div class="col-12" data-show="w0 f0 f1 f3">
                                 <label asp-for="Pattern" class="form-label small">Pattern (.NET regular expression)</label>
                                 <textarea asp-for="Pattern" rows="3" class="form-control font-monospace" maxlength="2000"></textarea>
-                                <div class="form-text">
+                                <div class="form-text" data-show="w0">
                                     Matched against the URL after URL-decoding (twice), or the raw user agent / referrer.
                                     Use <code>(?i)</code> for case-insensitive. Patterns that backtrack badly on long input are rejected.
                                 </div>
+                                <div class="form-text" data-show="f0">
+                                    Matched against the field as the firewall logged it (no decoding); events without the field never match.
+                                    <code>.+</code> on <em>Threat name</em> = every threat event. Use <code>(?i)</code> for case-insensitive.
+                                </div>
+                                <div class="form-text" data-show="f1 f3">
+                                    Optional: only events whose field matches are counted, e.g. <em>Event type</em> <code>^auth$</code>
+                                    for logins. Leave empty to count every event that passes the filters below.
+                                </div>
                             </div>
 
-                            @* ---- Threshold ---- *@
-                            <div class="col-md-4" data-kind="1">
-                                <label asp-for="Threshold" class="form-label small">Threshold (requests)</label>
+                            @* ---- Threshold (web and firewall) ---- *@
+                            <div class="col-md-4" data-show="w1 f1">
+                                <label for="Threshold" class="form-label small">Threshold (events per IP)</label>
                                 <input asp-for="Threshold" class="form-control" />
                             </div>
-                            <div class="col-md-4" data-kind="1">
+                            @* ---- Distinct count ---- *@
+                            <div class="col-md-4" data-show="f3">
+                                <label for="DistinctThreshold" class="form-label small">Different values (at least)</label>
+                                <input asp-for="Threshold" class="form-control" id="DistinctThreshold" min="2" />
+                            </div>
+                            <div class="col-md-4" data-show="w1 f1 f3">
                                 <label asp-for="WindowSeconds" class="form-label small"></label>
                                 <input asp-for="WindowSeconds" class="form-control" />
                             </div>
-                            <div class="col-md-4" data-kind="1">
+                            <div class="col-md-4" data-show="w1">
                                 <label asp-for="MethodFilter" class="form-label small"></label>
                                 <input asp-for="MethodFilter" class="form-control" placeholder="any" maxlength="16" />
                             </div>
-                            <div class="col-md-4" data-kind="1">
+                            <div class="col-md-4" data-show="w1">
                                 <label asp-for="StatusFilter" class="form-label small"></label>
                                 <input asp-for="StatusFilter" class="form-control" placeholder="any" />
                             </div>
-                            <div class="col-md-8" data-kind="1">
+                            <div class="col-md-8" data-show="w1">
                                 <label asp-for="PathPattern" class="form-label small"></label>
                                 <input asp-for="PathPattern" class="form-control font-monospace" placeholder="any path" maxlength="500" />
                             </div>
-                            <div class="col-12 form-text mt-0" data-kind="1">
+                            <div class="col-12 form-text mt-0" data-show="w1">
                                 Alert when one IP sends at least <em>Threshold</em> matching requests inside a sliding window.
+                            </div>
+                            <div class="col-12 form-text mt-0" data-show="f1">
+                                Alert when one source IP has at least <em>Threshold</em> events that pass the filters inside a sliding window.
+                            </div>
+                            <div class="col-12 form-text mt-0" data-show="f3">
+                                Alert when one source IP produces at least this many <em>different</em> values of the field inside
+                                the window. Repeated values count once; all events in the window become evidence.
+                            </div>
+
+                            @* ---- Firewall filters (signature, threshold, distinct count) ---- *@
+                            <fieldset class="col-12" data-show="f0 f1 f3">
+                                <legend class="form-label small mb-1">Firewall action <span class="text-body-secondary">(none ticked = any action)</span></legend>
+                                <div class="lg-check-row">
+                                    @foreach (var action in RuleFormModel.ActionChoices)
+                                    {
+                                        var id = "Action" + action;
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="Actions" value="@action" id="@id"
+                                                   checked="@Model.Actions.Contains(action)" />
+                                            <label class="form-check-label" for="@id">@action</label>
+                                        </div>
+                                    }
+                                </div>
+                            </fieldset>
+                            <div class="col-12" data-show="f0 f1 f3">
+                                <label asp-for="PortFilter" class="form-label small"></label>
+                                <input asp-for="PortFilter" class="form-control font-monospace" placeholder="any port, e.g. 22,3389,5900-5902" maxlength="200" />
+                                <div class="form-text">Destination ports and ranges, separated by commas (at most @PortSet.MaxEntries entries).</div>
                             </div>
 
                             @* ---- Anomaly ---- *@
-                            <div class="col-md-6" data-kind="2">
-                                <label asp-for="Threshold" class="form-label small">Minimum requests per IP</label>
+                            <div class="col-md-6" data-show="w2">
+                                <label for="AnomalyMinRequests" class="form-label small">Minimum requests per IP</label>
                                 <input asp-for="Threshold" class="form-control" id="AnomalyMinRequests" />
                             </div>
-                            <div class="col-md-6" data-kind="2">
+                            <div class="col-md-6" data-show="w2">
                                 <label asp-for="ScoreThreshold" class="form-label small"></label>
                                 <input asp-for="ScoreThreshold" class="form-control" step="0.01" min="0.5" max="1" />
                             </div>
-                            <div class="col-12 form-text mt-0" data-kind="2">
+                            <div class="col-12 form-text mt-0" data-show="w2">
                                 An Isolation Forest is trained on the behaviour of all IPs in the log file (request rate, error ratio,
                                 unique paths, URL length, special characters, …). IPs scoring at or above the threshold are flagged.
                                 0.5 ≈ normal, values near 1 = very unusual.
@@ -144,27 +227,26 @@
                         <span class="lg-icon lg-icon-sm lg-tint-green"><i class="bi bi-play-fill" aria-hidden="true"></i></span>
                         Test before saving
                     </h2>
-                    <p class="small text-body-secondary">Runs this rule, as currently typed, over one uploaded log file.</p>
-                    @if (Model.LogFiles.Count == 0)
+                    <p class="small text-body-secondary">Runs this rule, as currently typed, over one uploaded log file of the same kind.</p>
+                    <div id="NoTestFiles" class="lg-empty py-3 @(matchingFiles > 0 ? "d-none" : null)">
+                        <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i>
+                        <p class="mb-0">Upload and process a log file of this kind first.</p>
+                    </div>
+                    @if (Model.LogFiles.Count > 0)
                     {
-                        <div class="lg-empty py-3">
-                            <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i>
-                            <p class="mb-0">Upload and process a log file first.</p>
-                        </div>
-                    }
-                    else
-                    {
-                        <label asp-for="TestLogFileId" class="form-label small"></label>
-                        <div class="d-flex gap-2">
-                            <select asp-for="TestLogFileId" class="form-select form-select-sm">
-                                @foreach (var f in Model.LogFiles)
-                                {
-                                    <option value="@f.Id" selected="@(f.Id == Model.TestLogFileId)">#@f.Id @f.FileName (@f.Lines.ToString("N0") lines)</option>
-                                }
-                            </select>
-                            <button type="submit" name="intent" value="test" class="btn btn-sm btn-success text-nowrap">
-                                <i class="bi bi-play-fill" aria-hidden="true"></i> Test
-                            </button>
+                        <div id="TestPicker" class="@(matchingFiles == 0 ? "d-none" : null)">
+                            <label asp-for="TestLogFileId" class="form-label small"></label>
+                            <div class="d-flex gap-2">
+                                <select asp-for="TestLogFileId" class="form-select form-select-sm">
+                                    @foreach (var f in Model.LogFiles)
+                                    {
+                                        <option value="@f.Id" data-sources="@((int)f.Source)" selected="@(f.Id == Model.TestLogFileId)">#@f.Id @f.FileName (@f.Lines.ToString("N0") lines)</option>
+                                    }
+                                </select>
+                                <button type="submit" name="intent" value="test" class="btn btn-sm btn-success text-nowrap">
+                                    <i class="bi bi-play-fill" aria-hidden="true"></i> Test
+                                </button>
+                            </div>
                         </div>
                     }
 
@@ -218,31 +300,65 @@
         Sample matches <span class="lg-count">first @t.Samples.Count</span>
     </h2>
     <div class="table-responsive">
-        <table class="table table-sm small align-middle">
-            <thead>
-                <tr>
-                    <th scope="col">Line</th>
-                    <th scope="col">IP</th>
-                    <th scope="col">Method</th>
-                    <th scope="col">URL (decoded)</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">User agent</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var e in t.Samples)
-                {
+        @if (firewall)
+        {
+            <table class="table table-sm small align-middle">
+                <thead>
                     <tr>
-                        <td class="text-body-secondary">@e.LineNumber</td>
-                        <td class="font-monospace">@e.ClientIp</td>
-                        <td><span class="lg-chip">@e.Method</span></td>
-                        <td class="font-monospace text-break url-cell">@UrlDecoder.Decode(e.Url)</td>
-                        <td class="@Format.HttpStatusClass(e.StatusCode) fw-semibold">@e.StatusCode</td>
-                        <td class="text-body-secondary ua-cell" title="@e.UserAgent">@e.UserAgent</td>
+                        <th scope="col">Line</th>
+                        <th scope="col">Source</th>
+                        <th scope="col">Destination</th>
+                        <th scope="col">Action</th>
+                        <th scope="col">Event</th>
+                        <th scope="col">Message</th>
                     </tr>
-                }
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    @foreach (var e in t.Samples)
+                    {
+                        <tr>
+                            <td class="text-body-secondary">@e.LineNumber</td>
+                            <td class="font-monospace text-break">@e.ClientIp</td>
+                            <td class="font-monospace text-break">@e.DestinationIp@(e.DestinationPort is int port ? ":" + port : "")@(e.Transport is null ? "" : " " + e.Transport)</td>
+                            <td><span class="badge @Format.FirewallActionBadge(e.Action)">@(e.Action?.ToString() ?? "-")</span></td>
+                            <td class="text-break">
+                                @e.EventType
+                                @if (e.ThreatName is not null) { <div class="text-body-secondary">@e.ThreatName</div> }
+                            </td>
+                            <td class="text-break url-cell">@e.Url</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <table class="table table-sm small align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Line</th>
+                        <th scope="col">IP</th>
+                        <th scope="col">Method</th>
+                        <th scope="col">URL (decoded)</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">User agent</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var e in t.Samples)
+                    {
+                        <tr>
+                            <td class="text-body-secondary">@e.LineNumber</td>
+                            <td class="font-monospace">@e.ClientIp</td>
+                            <td><span class="lg-chip">@e.Method</span></td>
+                            <td class="font-monospace text-break url-cell">@UrlDecoder.Decode(e.Url)</td>
+                            <td class="@Format.HttpStatusClass(e.StatusCode) fw-semibold">@e.StatusCode</td>
+                            <td class="text-body-secondary ua-cell" title="@e.UserAgent">@e.UserAgent</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </div>
 }
 

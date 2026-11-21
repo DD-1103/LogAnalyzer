@@ -57,7 +57,58 @@ public static class Format
         AttackType.Scanner => "Scanner",
         AttackType.DirectoryEnumeration => "Directory enumeration",
         AttackType.Anomaly => "Anomaly",
+        AttackType.PortScan => "Port scan",
+        AttackType.NetworkSweep => "Network sweep",
+        AttackType.Intrusion => "Intrusion",
+        AttackType.BlockedTraffic => "Blocked traffic",
+        AttackType.SuspiciousOutbound => "Suspicious outbound",
+        AttackType.AuthenticationFailure => "Authentication failure",
         _ => type.ToString()
+    };
+
+    /// <summary>Attack types found in firewall logs (used to group the attack-type lists).</summary>
+    public static bool IsNetworkAttack(AttackType type) => type is AttackType.PortScan or AttackType.NetworkSweep
+        or AttackType.Intrusion or AttackType.BlockedTraffic or AttackType.SuspiciousOutbound or AttackType.AuthenticationFailure;
+
+    public static string FieldLabel(RuleField field) => field switch
+    {
+        RuleField.Url => "URL",
+        RuleField.UserAgent => "User agent",
+        RuleField.Referrer => "Referrer",
+        RuleField.Message => "Message",
+        RuleField.ThreatName => "Threat name",
+        RuleField.RuleName => "Firewall rule name",
+        RuleField.EventType => "Event type",
+        RuleField.DestinationPort => "Destination port",
+        RuleField.DestinationIp => "Destination IP",
+        _ => field.ToString()
+    };
+
+    public static string KindLabel(RuleKind kind) => kind switch
+    {
+        RuleKind.DistinctCount => "Distinct count",
+        _ => kind.ToString()
+    };
+
+    public static string SourceLabel(LogSource source) => source switch
+    {
+        LogSource.Firewall => "Firewall",
+        _ => "Web access"
+    };
+
+    /// <summary>Icon and chip class of the kind of log a rule or file belongs to.</summary>
+    public static (string Icon, string Chip) SourceStyle(LogSource source) => source switch
+    {
+        LogSource.Firewall => ("bi-bricks", "lg-chip-firewall"),
+        _ => ("bi-globe2", "lg-chip-web")
+    };
+
+    public static string FirewallActionBadge(FirewallAction? action) => action switch
+    {
+        FirewallAction.Allow => "text-bg-success",
+        FirewallAction.Deny or FirewallAction.Drop or FirewallAction.Reject => "text-bg-danger",
+        FirewallAction.Alert => "text-bg-warning",
+        _ => "text-bg-secondary"
     };
 
     public static string Percent(double value) => (value * 100).ToString("0.0") + "%";

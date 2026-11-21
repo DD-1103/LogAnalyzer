@@ -14,17 +14,31 @@ namespace LogAnalyzer.Web.Controllers;
 /// </summary>
 public class RulesController(AppDbContext db, IAuditLog audit, ILogger<RulesController> logger) : Controller
 {
+    /// <param name="source">Optional filter: "web" or "firewall" (all rules when empty).</param>
     [HttpGet]
-    public async Task<IActionResult> Index()
+    public async Task<IActionResult> Index(string? source)
     {
         // Clears the Rules nav badge for this user.
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         await db.Users.Where(u => u.Id == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(u => u.RulesSeenAt, DateTime.UtcNow));
 
-        var rules = await db.DetectionRules.AsNoTracking()
-            .OrderBy(r => r.Kind).ThenBy(r => r.Name)
-            .ToListAsync();
+        // Few rules: sorted in memory (AppliesTo is stored as text, so SQL would put "Firewall" before "WebAccess").
+        var all = (await db.DetectionRules.AsNoTracking().ToListAsync())
+            .OrderBy(r => r.AppliesTo).ThenBy(r => r.Kind).ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        LogSource? filter = source?.ToLowerInvariant() switch
+        {
+            "web" => LogSource.WebAccess,
+            "firewall" => LogSource.Firewall,
+            _ => null
+        };
+        ViewBag.Source = filter;
+        ViewBag.WebCount = all.Count(r => r.AppliesTo == LogSource.WebAccess);
+        ViewBag.FirewallCount = all.Count(r => r.AppliesTo == LogSource.Firewall);
+        ViewBag.Total = all.Count;
+        ViewBag.Enabled = all.Count(r => r.IsEnabled);
+        var rules = filter is null ? all : all.Where(r => r.AppliesTo == filter).ToList();
 
         ViewBag.AlertCounts = await db.Alerts
             .GroupBy(a => a.RuleId)
@@ -36,16 +50,40 @@ public class RulesController(AppDbContext db, IAuditLog audit, ILogger<RulesCont
 
     [HttpGet]
     [Authorize(Roles = Roles.Admin)]
-    public async Task<IActionResult> Create(RuleKind kind = RuleKind.Signature)
+    public async Task<IActionResult> Create(RuleKind kind = RuleKind.Signature, LogSource source = LogSource.WebAccess)
     {
+        if (!Enum.IsDefined(kind) || !Enum.IsDefined(source))
+            return BadRequest();
+        // Distinct-count rules only exist for firewall logs, anomaly rules only for web logs.
+        if (kind == RuleKind.DistinctCount)
+            source = LogSource.Firewall;
+        if (kind == RuleKind.Anomaly)
+            source = LogSource.WebAccess;
+        var firewall = source == LogSource.Firewall;
+
         var model = new RuleFormModel
         {
             Kind = kind,
+            AppliesTo = source,
             Severity = Severity.Medium,
-            WindowSeconds = kind == RuleKind.Threshold ? 60 : null,
-            Threshold = kind switch { RuleKind.Threshold => 20, RuleKind.Anomaly => 20, _ => null },
+            Field = kind switch
+            {
+                RuleKind.DistinctCount => RuleField.DestinationPort,
+                RuleKind.Signature when firewall => RuleField.ThreatName,
+                _ when firewall => RuleField.Message,
+                _ => RuleField.Url
+            },
+            WindowSeconds = kind switch { RuleKind.Threshold => firewall ? 300 : 60, RuleKind.DistinctCount => 60, _ => null },
+            Threshold = kind switch { RuleKind.Threshold => 20, RuleKind.Anomaly => 20, RuleKind.DistinctCount => 15, _ => null },
             ScoreThreshold = kind == RuleKind.Anomaly ? 0.62 : null,
-            AttackType = kind == RuleKind.Anomaly ? AttackType.Anomaly : AttackType.SqlInjection
+            AttackType = kind switch
+            {
+                RuleKind.Anomaly => AttackType.Anomaly,
+                RuleKind.DistinctCount => AttackType.PortScan,
+                RuleKind.Threshold when firewall => AttackType.BlockedTraffic,
+                RuleKind.Signature when firewall => AttackType.Intrusion,
+                _ => AttackType.SqlInjection
+            }
         };
         await FillLogFilesAsync(model);
         return View("Edit", model);
@@ -95,7 +133,7 @@ public class RulesController(AppDbContext db, IAuditLog audit, ILogger<RulesCont
         {
             db.DetectionRules.Add(rule);
             await db.SaveChangesAsync(ct);
-            await audit.WriteAsync("Rule.Create", rule.Name, $"{rule.Kind} {rule.AttackType} {rule.Severity}", ct);
+            await audit.WriteAsync("Rule.Create", rule.Name, $"{rule.AppliesTo} {rule.Kind} {rule.AttackType} {rule.Severity}", ct);
             logger.LogInformation("User {User} created rule {Rule}", User.Identity?.Name, rule.Name);
             TempData["Success"] = $"Rule \"{rule.Name}\" created. Re-run detection on a log file to apply it to existing data.";
         }
@@ -167,20 +205,30 @@ public class RulesController(AppDbContext db, IAuditLog audit, ILogger<RulesCont
         return RedirectToAction(nameof(Index));
     }
 
+    /// <summary>
+    /// Completed files of both kinds, each tagged with its source: the view offers only the files of the rule's kind
+    /// (rule-form.js switches the list when "Applies to" changes) and RuleTester refuses a file of the other kind.
+    /// </summary>
     private async Task FillLogFilesAsync(RuleFormModel model)
     {
         model.LogFiles = await db.LogFiles.AsNoTracking()
             .Where(f => f.Status == LogFileStatus.Completed)
             .OrderByDescending(f => f.UploadedAt)
-            .Select(f => new LogFileOption(f.Id, f.FileName, f.ParsedLines))
+            .Select(f => new LogFileOption(f.Id, f.FileName, f.ParsedLines, f.Source))
             .ToListAsync();
-        model.TestLogFileId ??= model.LogFiles.FirstOrDefault()?.Id;
+        if (model.TestLogFileId is int chosen && !model.LogFiles.Any(f => f.Id == chosen && f.Source == model.AppliesTo))
+            model.TestLogFileId = null;
+        model.TestLogFileId ??= model.LogFiles.FirstOrDefault(f => f.Source == model.AppliesTo)?.Id;
     }
 
     private static string Describe(DetectionRule r) => r.Kind switch
     {
         RuleKind.Signature => $"{r.Severity} {r.Field} ~ {r.Pattern}",
         RuleKind.Threshold => $"{r.Severity} >= {r.Threshold} in {r.WindowSeconds}s method={r.MethodFilter} status={r.StatusFilter} path={r.PathPattern}",
+        RuleKind.DistinctCount => $"{r.Severity} >= {r.Threshold} distinct {r.Field} in {r.WindowSeconds}s",
         _ => $"{r.Severity} min requests {r.Threshold}, score >= {r.ScoreThreshold}"
-    } + (r.IsEnabled ? "" : " (disabled)");
+    } + (r.AppliesTo == LogSource.Firewall
+        ? $" [firewall actions={r.ActionFilter ?? "any"} ports={r.PortFilter ?? "any"}" +
+          (r.Kind == RuleKind.Signature || r.Pattern is null ? "]" : $" {r.Field} ~ {r.Pattern}]")
+        : "") + (r.IsEnabled ? "" : " (disabled)");
 }

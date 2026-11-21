@@ -3,13 +3,15 @@
     ViewData["Title"] = "Detection rules";
     var counts = (Dictionary<int, int>)ViewBag.AlertCounts;
     var isAdmin = User.IsInRole(Roles.Admin);
-    var enabled = Model.Count(r => r.IsEnabled);
+    var source = (LogSource?)ViewBag.Source;
+    int total = ViewBag.Total, enabled = ViewBag.Enabled, webCount = ViewBag.WebCount, firewallCount = ViewBag.FirewallCount;
 
     // Icon tile per rule kind
     static (string Icon, string Tint) KindStyle(RuleKind kind) => kind switch
     {
         RuleKind.Signature => ("bi-fingerprint", "lg-tint-indigo"),
         RuleKind.Threshold => ("bi-speedometer2", "lg-tint-orange"),
+        RuleKind.DistinctCount => ("bi-diagram-3", "lg-tint-red"),
         _ => ("bi-stars", "lg-tint-teal")
     };
 }
@@ -22,8 +24,9 @@
     <div>
         <h1 class="lg-title">Detection rules</h1>
         <p class="lg-subtitle">
-            @enabled of @Model.Count rules are on. Signature rules match single requests, threshold rules count
-            requests per IP, and the anomaly rule learns what normal traffic looks like.
+            @enabled of @total rules are on. Web rules run on access logs, firewall rules on firewall logs.
+            Signature rules match single events, threshold rules count events per source, distinct-count rules
+            count different ports or hosts (scans), and the anomaly rule learns what normal web traffic looks like.
         </p>
     </div>
     @if (isAdmin)
@@ -34,19 +37,37 @@
                     <i class="bi bi-plus-lg" aria-hidden="true"></i> New rule
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
+                    <li><h2 class="dropdown-header">Web access logs</h2></li>
                     <li>
-                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Signature">
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Signature" asp-route-source="WebAccess">
                             <i class="bi bi-fingerprint" aria-hidden="true"></i> Signature: a pattern in one request
                         </a>
                     </li>
                     <li>
-                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Threshold">
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Threshold" asp-route-source="WebAccess">
                             <i class="bi bi-speedometer2" aria-hidden="true"></i> Threshold: many requests in a window
                         </a>
                     </li>
                     <li>
-                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Anomaly">
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Anomaly" asp-route-source="WebAccess">
                             <i class="bi bi-stars" aria-hidden="true"></i> Anomaly: Isolation Forest
+                        </a>
+                    </li>
+                    <li><hr class="dropdown-divider" /></li>
+                    <li><h2 class="dropdown-header">Firewall logs</h2></li>
+                    <li>
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Signature" asp-route-source="Firewall">
+                            <i class="bi bi-fingerprint" aria-hidden="true"></i> Signature: a pattern in one event
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="Threshold" asp-route-source="Firewall">
+                            <i class="bi bi-speedometer2" aria-hidden="true"></i> Threshold: many connections in a window
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" asp-action="Create" asp-route-kind="DistinctCount" asp-route-source="Firewall">
+                            <i class="bi bi-diagram-3" aria-hidden="true"></i> Distinct count: port scan / network sweep
                         </a>
                     </li>
                 </ul>
@@ -61,15 +82,34 @@
     }
 </header>
 
+<nav class="lg-segmented mb-3" aria-label="Filter rules by log kind">
+    <a asp-action="Index" class="@(source is null ? "active" : null)" aria-current="@(source is null ? "page" : null)">
+        All <span class="lg-seg-count">@total</span>
+    </a>
+    <a asp-action="Index" asp-route-source="web" class="@(source == LogSource.WebAccess ? "active" : null)"
+       aria-current="@(source == LogSource.WebAccess ? "page" : null)">
+        <i class="bi bi-globe2" aria-hidden="true"></i> Web access <span class="lg-seg-count">@webCount</span>
+    </a>
+    <a asp-action="Index" asp-route-source="firewall" class="@(source == LogSource.Firewall ? "active" : null)"
+       aria-current="@(source == LogSource.Firewall ? "page" : null)">
+        <i class="bi bi-bricks" aria-hidden="true"></i> Firewall <span class="lg-seg-count">@firewallCount</span>
+    </a>
+</nav>
+
 @if (Model.Count == 0)
 {
     <div class="card">
         <div class="lg-empty">
             <i class="bi bi-funnel" aria-hidden="true"></i>
-            <p>There are no detection rules yet.</p>
+            <p>@(source switch
+            {
+                LogSource.Firewall => "There are no firewall rules yet.",
+                LogSource.WebAccess => "There are no web access rules yet.",
+                _ => "There are no detection rules yet."
+            })</p>
             @if (isAdmin)
             {
-                <a asp-action="Create" class="btn btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Create the first rule</a>
+                <a asp-action="Create" asp-route-source="@(source ?? LogSource.WebAccess)" class="btn btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Create the first rule</a>
             }
         </div>
     </div>
@@ -93,10 +133,12 @@ else
                 {
                     var alertCount = counts.TryGetValue(r.Id, out var c) ? c : 0;
                     var (icon, tint) = KindStyle(r.Kind);
+                    var (sourceIcon, sourceChip) = Format.SourceStyle(r.AppliesTo);
+                    var firewall = r.AppliesTo == LogSource.Firewall;
                     <tr class="@(r.IsEnabled ? "" : "lg-row-off")">
                         <td>
                             <div class="d-flex align-items-start gap-3">
-                                <span class="lg-icon lg-icon-sm @tint" title="@r.Kind rule"><i class="bi @icon" aria-hidden="true"></i></span>
+                                <span class="lg-icon lg-icon-sm @tint" title="@Format.KindLabel(r.Kind) rule"><i class="bi @icon" aria-hidden="true"></i></span>
                                 <div class="min-w-0">
                                     <div class="fw-semibold">@r.Name</div>
                                     @if (!string.IsNullOrWhiteSpace(r.Description))
@@ -104,7 +146,10 @@ else
                                         <div class="small text-body-secondary">@r.Description</div>
                                     }
                                     <div class="d-flex flex-wrap gap-1 mt-1">
-                                        <span class="lg-chip">@r.Kind</span>
+                                        <span class="lg-chip @sourceChip" title="Runs on @(firewall ? "firewall" : "web access") logs">
+                                            <i class="bi @sourceIcon" aria-hidden="true"></i> @Format.SourceLabel(r.AppliesTo)
+                                        </span>
+                                        <span class="lg-chip">@Format.KindLabel(r.Kind)</span>
                                         <span class="lg-chip">@Format.AttackLabel(r.AttackType)</span>
                                     </div>
                                 </div>
@@ -115,21 +160,39 @@ else
                             @switch (r.Kind)
                             {
                                 case RuleKind.Signature:
-                                    <div class="text-body-secondary mb-1">Regex on <strong class="text-body">@r.Field</strong></div>
+                                    <div class="text-body-secondary mb-1">Regex on <strong class="text-body">@Format.FieldLabel(r.Field)</strong></div>
                                     <code class="text-break rule-pattern">@r.Pattern</code>
                                     break;
                                 case RuleKind.Threshold:
-                                    <div>At least <strong>@r.Threshold</strong> requests from one IP in <strong>@r.WindowSeconds s</strong></div>
+                                    <div>At least <strong>@r.Threshold</strong> @(firewall ? "events" : "requests") from one IP in <strong>@r.WindowSeconds s</strong></div>
                                     <div class="d-flex flex-wrap gap-1 mt-1">
                                         @if (r.MethodFilter is not null) { <span class="lg-chip">method @r.MethodFilter</span> }
                                         @if (r.StatusFilter is not null) { <span class="lg-chip">status @r.StatusFilter</span> }
-                                        @if (r.PathPattern is not null) { <span class="lg-chip">path <code>@r.PathPattern</code></span> }
+                                        @if (r.PathPattern is not null) { <span class="lg-chip">@(firewall ? "message" : "path") <code>@r.PathPattern</code></span> }
+                                        @if (firewall && r.Pattern is not null) { <span class="lg-chip">@Format.FieldLabel(r.Field).ToLowerInvariant() <code>@r.Pattern</code></span> }
                                     </div>
+                                    break;
+                                case RuleKind.DistinctCount:
+                                    <div>
+                                        At least <strong>@r.Threshold</strong> different <strong>@Format.FieldLabel(r.Field)</strong>
+                                        values from one IP in <strong>@r.WindowSeconds s</strong>
+                                    </div>
+                                    @if (r.Pattern is not null)
+                                    {
+                                        <div class="d-flex flex-wrap gap-1 mt-1"><span class="lg-chip">only <code>@r.Pattern</code></span></div>
+                                    }
                                     break;
                                 default:
                                     <div>Isolation Forest score at least <strong>@r.ScoreThreshold?.ToString("0.00")</strong></div>
                                     <div class="text-body-secondary">IPs with at least @r.Threshold requests, 11 behaviour features</div>
                                     break;
+                            }
+                            @if (firewall && (r.ActionFilter is not null || r.PortFilter is not null))
+                            {
+                                <div class="d-flex flex-wrap gap-1 mt-1">
+                                    @if (r.ActionFilter is not null) { <span class="lg-chip">action @r.ActionFilter.Replace(",", ", ")</span> }
+                                    @if (r.PortFilter is not null) { <span class="lg-chip">port @r.PortFilter.Replace(",", ", ")</span> }
+                                </div>
                             }
                         </td>
                         <td class="text-end">
