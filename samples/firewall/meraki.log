@@ -1,0 +1,64 @@
+<134>1 1795255200.123507000 mx-lab firewall src=10.0.0.21 dst=198.51.100.20 mac=00:00:5E:00:53:01 protocol=tcp sport=50211 dport=443 pattern: allow all
+<134>1 1795255237.123506901 mx-lab flows src=10.0.0.22 dst=198.51.100.21 mac=00:00:5E:00:53:01 protocol=udp sport=50112 dport=53 pattern: allow all
+<134>1 1795255274.123507001 mx-lab firewall src=10.0.0.21 dst=198.51.100.22 mac=00:00:5E:00:53:01 protocol=tcp sport=50212 dport=443 pattern: allow all
+<134>1 1795255311.123507789 mx-lab firewall src=192.168.1.15 dst=198.51.100.20 mac=00:00:5E:00:53:01 protocol=tcp sport=51000 dport=443 pattern: allow all
+<134>1 1795255348.123506902 mx-lab flows src=10.0.0.22 dst=198.51.100.21 mac=00:00:5E:00:53:01 protocol=udp sport=50113 dport=53 pattern: allow all
+<134>1 1795255385.123507790 mx-lab flows src=192.168.1.16 dst=198.51.100.23 mac=00:00:5E:00:53:01 protocol=tcp sport=51001 dport=80 pattern: allow all
+<134>1 1795255422.123507002 mx-lab firewall src=10.0.0.21 dst=198.51.100.20 mac=00:00:5E:00:53:01 protocol=tcp sport=50213 dport=443 pattern: allow all
+<134>1 1795255459.123507791 mx-lab firewall src=192.168.1.15 dst=198.51.100.24 mac=00:00:5E:00:53:01 protocol=tcp sport=51002 dport=443 pattern: allow all
+<134>1 1795255500.123456789 mx-lab events type=vpn_connectivity_change vpn_type='site-to-site' peer_contact='198.51.100.7:500' peer_ident='lab-peer' connectivity='true'
+<134>1 1795255800.123496789 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40000 dport=20 pattern: deny all
+<134>1 1795255802.123496790 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40001 dport=21 pattern: deny all
+<134>1 1795255804.123496791 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40002 dport=22 pattern: deny all
+<134>1 1795255806.123496792 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40003 dport=23 pattern: deny all
+<134>1 1795255808.123496793 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40004 dport=24 pattern: deny all
+<134>1 1795255810.123496794 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40005 dport=25 pattern: deny all
+<134>1 1795255812.123496795 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40006 dport=26 pattern: deny all
+<134>1 1795255814.123496796 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40007 dport=27 pattern: deny all
+<134>1 1795255816.123496797 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40008 dport=28 pattern: deny all
+<134>1 1795255818.123496798 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40009 dport=29 pattern: deny all
+<134>1 1795255820.123496799 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40010 dport=30 pattern: deny all
+<134>1 1795255822.123496800 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40011 dport=31 pattern: deny all
+<134>1 1795255824.123496801 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40012 dport=32 pattern: deny all
+<134>1 1795255826.123496802 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40013 dport=33 pattern: deny all
+<134>1 1795255828.123496803 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40014 dport=34 pattern: deny all
+<134>1 1795255830.123496804 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40015 dport=35 pattern: deny all
+<134>1 1795255832.123496805 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40016 dport=36 pattern: deny all
+<134>1 1795255834.123496806 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40017 dport=37 pattern: deny all
+<134>1 1795255836.123496807 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40018 dport=38 pattern: deny all
+<134>1 1795255838.123496808 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40019 dport=39 pattern: deny all
+<134>1 1795255840.123496809 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40020 dport=40 pattern: deny all
+<134>1 1795255842.123496810 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40021 dport=41 pattern: deny all
+<134>1 1795255844.123496811 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40022 dport=42 pattern: deny all
+<134>1 1795255846.123496812 mx-lab flows src=203.0.113.50 dst=10.0.0.5 mac=00:00:5E:00:53:01 protocol=tcp sport=40023 dport=43 pattern: deny all
+<134>1 1795256400.123506789 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50000 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256410.123506790 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50001 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256420.123506791 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50002 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256430.123506792 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50003 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256440.123506793 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50004 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256450.123506794 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50005 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256460.123506795 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50006 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256470.123506796 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50007 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256480.123506797 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50008 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256490.123506798 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50009 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256500.123506799 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50010 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256510.123506800 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50011 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256520.123506801 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50012 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256530.123506802 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50013 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256540.123506803 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50014 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256550.123506804 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50015 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256560.123506805 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50016 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256570.123506806 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50017 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256580.123506807 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50018 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256590.123506808 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50019 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256600.123506809 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50020 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795256610.123506810 mx-lab flows src=203.0.113.77 dst=10.0.0.10 mac=00:00:5E:00:53:01 protocol=tcp sport=50021 dport=22 pattern: allow (dst 10.0.0.10/32)
+<134>1 1795257000.123496901 mx-lab security_event ids_alerted signature=1:2006549:7 priority=1 timestamp=1795257000.098765 dhost=00:00:5E:00:53:02 direction=ingress protocol=tcp/ip src=192.0.2.66:40112 dst=10.0.0.5:80 decision=blocked message: ET WEB_SERVER SQL injection attempt
+<134>1 1795257020.123496902 mx-lab ids-alerts signature=1:2006550:7 priority=1 timestamp=1795257020.098765 dhost=00:00:5E:00:53:02 direction=ingress protocol=tcp/ip src=192.0.2.66:40113 dst=10.0.0.5:80 message: ET WEB_SERVER Directory traversal attempt
+<134>1 1795257040.123496903 mx-lab security_event ids_alerted signature=1:2006551:7 priority=1 timestamp=1795257040.098765 dhost=00:00:5E:00:53:02 direction=ingress protocol=tcp/ip src=192.0.2.66:40114 dst=10.0.0.5:80 decision=blocked message: ET WEB_SERVER Remote code execution attempt
+<134>1 1795257600.123508333 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user admin' remote_ip=192.0.2.99
+<134>1 1795257615.123508334 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user admin' remote_ip=192.0.2.99
+<134>1 1795257630.123508335 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user jdoe' remote_ip=192.0.2.99
+<134>1 1795258200.123505941 mx-lab flows src=10.0.0.23 dst=198.51.100.200 mac=00:00:5E:00:53:01 protocol=tcp sport=49152 dport=4444 pattern: allow all
+<134>1 1795258230.123505942 mx-lab flows src=10.0.0.23 dst=198.51.100.200 mac=00:00:5E:00:53:01 protocol=tcp sport=49153 dport=4444 pattern: allow all
+<134>1 1795258500.123456789 mx-lab events type=vpn_connectivity_change vpn_type='site-to-site' peer_contact='198.51.100.7:500' peer_ident='lab-peer' connectivity='true'

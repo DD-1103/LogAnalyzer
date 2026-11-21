@@ -1,0 +1,62 @@
+<134>Nov 21 10:00:00 gw-branch fwd[311]: time="2026-11-21 10:00:00" src_ip=10.0.0.21 src_port=50211 dst_ip=198.51.100.20 dst_port=443 proto=tcp action=accept rule="lan-to-wan" bytes_sent=1830 bytes_received=5120
+<134>Nov 21 10:00:37 gw-branch fwd[311]: time="2026-11-21 10:00:37" src_ip=10.0.0.22 src_port=50112 dst_ip=198.51.100.21 dst_port=53 proto=udp action=accept rule="lan-to-wan" bytes_sent=1840 bytes_received=5220
+<134>Nov 21 10:01:14 gw-branch fwd[311]: time="2026-11-21 10:01:14" src_ip=10.0.0.21 src_port=50212 dst_ip=198.51.100.22 dst_port=443 proto=tcp action=accept rule="lan-to-wan" bytes_sent=1850 bytes_received=5320
+<134>Nov 21 10:01:51 gw-branch fwd[311]: time="2026-11-21 10:01:51" src_ip=192.168.1.15 src_port=51000 dst_ip=198.51.100.20 dst_port=443 proto=tcp action=accept rule="lan-to-wan" bytes_sent=1860 bytes_received=5420
+<134>Nov 21 10:02:28 gw-branch fwd[311]: time="2026-11-21 10:02:28" src_ip=10.0.0.22 src_port=50113 dst_ip=198.51.100.21 dst_port=53 proto=udp action=accept rule="lan-to-wan" bytes_sent=1870 bytes_received=5520
+<134>Nov 21 10:03:05 gw-branch fwd[311]: time="2026-11-21 10:03:05" src_ip=192.168.1.16 src_port=51001 dst_ip=198.51.100.23 dst_port=80 proto=tcp action=accept rule="lan-to-wan" bytes_sent=1880 bytes_received=5620
+<134>Nov 21 10:03:42 gw-branch fwd[311]: time="2026-11-21 10:03:42" src_ip=10.0.0.21 src_port=50213 dst_ip=198.51.100.20 dst_port=443 proto=tcp action=accept rule="lan-to-wan" bytes_sent=1890 bytes_received=5720
+<134>Nov 21 10:04:19 gw-branch fwd[311]: time="2026-11-21 10:04:19" src_ip=192.168.1.15 src_port=51002 dst_ip=198.51.100.24 dst_port=443 proto=tcp action=accept rule="lan-to-wan" bytes_sent=1900 bytes_received=5820
+<134>Nov 21 10:10:00 gw-branch fwd[311]: time="2026-11-21 10:10:00" src_ip=203.0.113.50 src_port=40000 dst_ip=10.0.0.5 dst_port=20 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:02 gw-branch fwd[311]: time="2026-11-21 10:10:02" src_ip=203.0.113.50 src_port=40001 dst_ip=10.0.0.5 dst_port=21 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:04 gw-branch fwd[311]: time="2026-11-21 10:10:04" src_ip=203.0.113.50 src_port=40002 dst_ip=10.0.0.5 dst_port=22 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:06 gw-branch fwd[311]: time="2026-11-21 10:10:06" src_ip=203.0.113.50 src_port=40003 dst_ip=10.0.0.5 dst_port=23 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:08 gw-branch fwd[311]: time="2026-11-21 10:10:08" src_ip=203.0.113.50 src_port=40004 dst_ip=10.0.0.5 dst_port=24 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:10 gw-branch fwd[311]: time="2026-11-21 10:10:10" src_ip=203.0.113.50 src_port=40005 dst_ip=10.0.0.5 dst_port=25 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:12 gw-branch fwd[311]: time="2026-11-21 10:10:12" src_ip=203.0.113.50 src_port=40006 dst_ip=10.0.0.5 dst_port=26 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:14 gw-branch fwd[311]: time="2026-11-21 10:10:14" src_ip=203.0.113.50 src_port=40007 dst_ip=10.0.0.5 dst_port=27 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:16 gw-branch fwd[311]: time="2026-11-21 10:10:16" src_ip=203.0.113.50 src_port=40008 dst_ip=10.0.0.5 dst_port=28 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:18 gw-branch fwd[311]: time="2026-11-21 10:10:18" src_ip=203.0.113.50 src_port=40009 dst_ip=10.0.0.5 dst_port=29 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:20 gw-branch fwd[311]: time="2026-11-21 10:10:20" src_ip=203.0.113.50 src_port=40010 dst_ip=10.0.0.5 dst_port=30 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:22 gw-branch fwd[311]: time="2026-11-21 10:10:22" src_ip=203.0.113.50 src_port=40011 dst_ip=10.0.0.5 dst_port=31 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:24 gw-branch fwd[311]: time="2026-11-21 10:10:24" src_ip=203.0.113.50 src_port=40012 dst_ip=10.0.0.5 dst_port=32 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:26 gw-branch fwd[311]: time="2026-11-21 10:10:26" src_ip=203.0.113.50 src_port=40013 dst_ip=10.0.0.5 dst_port=33 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:28 gw-branch fwd[311]: time="2026-11-21 10:10:28" src_ip=203.0.113.50 src_port=40014 dst_ip=10.0.0.5 dst_port=34 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:30 gw-branch fwd[311]: time="2026-11-21 10:10:30" src_ip=203.0.113.50 src_port=40015 dst_ip=10.0.0.5 dst_port=35 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:32 gw-branch fwd[311]: time="2026-11-21 10:10:32" src_ip=203.0.113.50 src_port=40016 dst_ip=10.0.0.5 dst_port=36 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:34 gw-branch fwd[311]: time="2026-11-21 10:10:34" src_ip=203.0.113.50 src_port=40017 dst_ip=10.0.0.5 dst_port=37 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:36 gw-branch fwd[311]: time="2026-11-21 10:10:36" src_ip=203.0.113.50 src_port=40018 dst_ip=10.0.0.5 dst_port=38 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:38 gw-branch fwd[311]: time="2026-11-21 10:10:38" src_ip=203.0.113.50 src_port=40019 dst_ip=10.0.0.5 dst_port=39 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:40 gw-branch fwd[311]: time="2026-11-21 10:10:40" src_ip=203.0.113.50 src_port=40020 dst_ip=10.0.0.5 dst_port=40 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:42 gw-branch fwd[311]: time="2026-11-21 10:10:42" src_ip=203.0.113.50 src_port=40021 dst_ip=10.0.0.5 dst_port=41 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:44 gw-branch fwd[311]: time="2026-11-21 10:10:44" src_ip=203.0.113.50 src_port=40022 dst_ip=10.0.0.5 dst_port=42 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:10:46 gw-branch fwd[311]: time="2026-11-21 10:10:46" src_ip=203.0.113.50 src_port=40023 dst_ip=10.0.0.5 dst_port=43 proto=tcp action=drop rule="deny-inbound"
+<134>Nov 21 10:20:00 gw-branch fwd[311]: time="2026-11-21 10:20:00" src_ip=203.0.113.77 src_port=50000 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:20:10 gw-branch fwd[311]: time="2026-11-21 10:20:10" src_ip=203.0.113.77 src_port=50001 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:20:20 gw-branch fwd[311]: time="2026-11-21 10:20:20" src_ip=203.0.113.77 src_port=50002 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:20:30 gw-branch fwd[311]: time="2026-11-21 10:20:30" src_ip=203.0.113.77 src_port=50003 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:20:40 gw-branch fwd[311]: time="2026-11-21 10:20:40" src_ip=203.0.113.77 src_port=50004 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:20:50 gw-branch fwd[311]: time="2026-11-21 10:20:50" src_ip=203.0.113.77 src_port=50005 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:21:00 gw-branch fwd[311]: time="2026-11-21 10:21:00" src_ip=203.0.113.77 src_port=50006 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:21:10 gw-branch fwd[311]: time="2026-11-21 10:21:10" src_ip=203.0.113.77 src_port=50007 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:21:20 gw-branch fwd[311]: time="2026-11-21 10:21:20" src_ip=203.0.113.77 src_port=50008 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:21:30 gw-branch fwd[311]: time="2026-11-21 10:21:30" src_ip=203.0.113.77 src_port=50009 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:21:40 gw-branch fwd[311]: time="2026-11-21 10:21:40" src_ip=203.0.113.77 src_port=50010 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:21:50 gw-branch fwd[311]: time="2026-11-21 10:21:50" src_ip=203.0.113.77 src_port=50011 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:22:00 gw-branch fwd[311]: time="2026-11-21 10:22:00" src_ip=203.0.113.77 src_port=50012 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:22:10 gw-branch fwd[311]: time="2026-11-21 10:22:10" src_ip=203.0.113.77 src_port=50013 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:22:20 gw-branch fwd[311]: time="2026-11-21 10:22:20" src_ip=203.0.113.77 src_port=50014 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:22:30 gw-branch fwd[311]: time="2026-11-21 10:22:30" src_ip=203.0.113.77 src_port=50015 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:22:40 gw-branch fwd[311]: time="2026-11-21 10:22:40" src_ip=203.0.113.77 src_port=50016 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:22:50 gw-branch fwd[311]: time="2026-11-21 10:22:50" src_ip=203.0.113.77 src_port=50017 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:23:00 gw-branch fwd[311]: time="2026-11-21 10:23:00" src_ip=203.0.113.77 src_port=50018 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:23:10 gw-branch fwd[311]: time="2026-11-21 10:23:10" src_ip=203.0.113.77 src_port=50019 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:23:20 gw-branch fwd[311]: time="2026-11-21 10:23:20" src_ip=203.0.113.77 src_port=50020 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:23:30 gw-branch fwd[311]: time="2026-11-21 10:23:30" src_ip=203.0.113.77 src_port=50021 dst_ip=10.0.0.10 dst_port=22 proto=tcp action=accept rule="allow-ssh" bytes_sent=1500 bytes_received=2100
+<134>Nov 21 10:30:00 gw-branch fwd[311]: time="2026-11-21 10:30:00" type=ips src_ip=192.0.2.66 src_port=40112 dst_ip=10.0.0.5 dst_port=80 proto=tcp action=block signature="SQL injection attempt" rule="wan-to-dmz"
+<134>Nov 21 10:30:20 gw-branch fwd[311]: time="2026-11-21 10:30:20" type=ips src_ip=192.0.2.66 src_port=40113 dst_ip=10.0.0.5 dst_port=80 proto=tcp action=block signature="Directory traversal attempt" rule="wan-to-dmz"
+<134>Nov 21 10:30:40 gw-branch fwd[311]: time="2026-11-21 10:30:40" type=ips src_ip=192.0.2.66 src_port=40114 dst_ip=10.0.0.5 dst_port=80 proto=tcp action=block signature="Remote code execution attempt" rule="wan-to-dmz"
+<134>Nov 21 10:40:00 gw-branch fwd[311]: time="2026-11-21 10:40:00" event=login_failed user=admin src_ip=192.0.2.99 dst_ip=198.51.100.1 dst_port=443 action=deny msg="Admin login failed for admin"
+<134>Nov 21 10:40:15 gw-branch fwd[311]: time="2026-11-21 10:40:15" event=login_failed user=admin src_ip=192.0.2.99 dst_ip=198.51.100.1 dst_port=443 action=deny msg="Admin login failed for admin"
+<134>Nov 21 10:40:30 gw-branch fwd[311]: time="2026-11-21 10:40:30" event=login_failed user=jdoe src_ip=192.0.2.99 dst_ip=198.51.100.1 dst_port=443 action=deny msg="Admin login failed for jdoe"
+<134>Nov 21 10:50:00 gw-branch fwd[311]: time="2026-11-21 10:50:00" src_ip=10.0.0.23 src_port=49152 dst_ip=198.51.100.200 dst_port=4444 proto=tcp action=accept rule="lan-to-wan" bytes_sent=420 bytes_received=96
+<134>Nov 21 10:50:30 gw-branch fwd[311]: time="2026-11-21 10:50:30" src_ip=10.0.0.23 src_port=49153 dst_ip=198.51.100.200 dst_port=4444 proto=tcp action=accept rule="lan-to-wan" bytes_sent=420 bytes_received=96
