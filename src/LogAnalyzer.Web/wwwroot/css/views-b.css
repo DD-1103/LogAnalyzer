@@ -32,6 +32,8 @@
 @keyframes lg-float { from { transform: translateY(0); } to { transform: translateY(-6px); } }
 
 code.lg-sample-line {
+    white-space: pre-wrap;
+    word-break: break-all;
     display: block;
     padding: .75rem 1rem;
     border-radius: var(--lg-radius-md);
@@ -291,3 +293,12 @@ a.lg-hub-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 @media (prefers-reduced-transparency: reduce) {
     .lg-hub-row.is-decided { filter: none; }
 }
+
+/* ---- Firewall logs (2026-11-21): format picker, supported-format list, events table ---- */
+.lg-chip.lg-chip-sm { font-size: .7rem; padding: .08rem .5rem; vertical-align: .05em; }
+.lg-format-help > summary { cursor: pointer; color: var(--lg-text-2); }
+.lg-format-help > summary:hover { color: var(--lg-text); }
+.lg-format-list { columns: 2 14rem; column-gap: 1.5rem; list-style: none; padding-left: 0; }
+.lg-format-list li { break-inside: avoid; padding: .1rem 0; color: var(--lg-text-2); }
+.lg-format-list .bi { color: var(--lg-text-3); margin-right: .3rem; }
+.lg-fw-table td { vertical-align: top; }

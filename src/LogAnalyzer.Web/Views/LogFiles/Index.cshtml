@@ -83,6 +83,12 @@ else
                                 <span class="lg-icon lg-icon-sm @FileTint(f.Status)" aria-hidden="true"><i class="bi @FileIcon(f.Status)"></i></span>
                                 <div>
                                     <a asp-action="Details" asp-route-id="@f.Id" class="fw-semibold">@f.FileName</a>
+                                    @if (f.Format is not null)
+                                    {
+                                        <div class="small text-body-secondary text-break">
+                                            <i class="bi @FirewallFormat.SourceIcon(f.Source)" aria-hidden="true"></i> @f.Format
+                                        </div>
+                                    }
                                     @if (f.Status == LogFileStatus.Failed && f.ErrorMessage is not null)
                                     {
                                         <div class="lg-file-error">@f.ErrorMessage</div>

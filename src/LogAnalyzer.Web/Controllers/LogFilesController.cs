@@ -1,6 +1,7 @@
 using LogAnalyzer.Web.Data;
 using LogAnalyzer.Web.Models;
 using LogAnalyzer.Web.Services;
+using LogAnalyzer.Web.Services.LogFormats;
 using LogAnalyzer.Web.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -39,8 +40,16 @@ public class LogFilesController(
     [ValidateAntiForgeryToken]
     [RequestSizeLimit(MaxUploadBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = MaxUploadBytes)]
-    public async Task<IActionResult> Upload(IFormFile? file, CancellationToken ct)
+    public async Task<IActionResult> Upload(IFormFile? file, string? format, CancellationToken ct)
     {
+        // "auto" (default) = detect from the first lines; otherwise one of the registered format ids.
+        var requested = string.IsNullOrWhiteSpace(format) || format == LogFormatRegistry.AutoId ? null : LogFormatRegistry.Find(format)?.Id;
+        if (requested is null && !string.IsNullOrWhiteSpace(format) && format != LogFormatRegistry.AutoId)
+        {
+            ModelState.AddModelError(string.Empty, "Unknown log format.");
+            return View();
+        }
+
         if (file is null || file.Length == 0)
         {
             ModelState.AddModelError(string.Empty, "Choose a log file to upload.");
@@ -61,6 +70,7 @@ public class LogFilesController(
             SizeBytes = file.Length,
             UploadedById = userManager.GetUserId(User)!,
             UploadedByName = User.Identity?.Name,
+            RequestedFormat = requested,
             Status = LogFileStatus.Pending
         };
         db.LogFiles.Add(logFile);
@@ -80,7 +90,8 @@ public class LogFilesController(
         }
 
         await queue.EnqueueAsync(logFile.Id, ct);
-        await audit.WriteAsync("LogFile.Upload", $"#{logFile.Id} {logFile.FileName}", $"{file.Length:N0} bytes", ct);
+        await audit.WriteAsync("LogFile.Upload", $"#{logFile.Id} {logFile.FileName}",
+            $"{file.Length:N0} bytes, format {requested ?? LogFormatRegistry.AutoId}", ct);
         logger.LogInformation("User {User} uploaded {Name} ({Bytes} bytes) as log file {Id}",
             User.Identity?.Name, originalName, file.Length, logFile.Id);
 
@@ -89,7 +100,8 @@ public class LogFilesController(
     }
 
     [HttpGet]
-    public async Task<IActionResult> Details(int id, int page = 1, string? ip = null, int? status = null)
+    public async Task<IActionResult> Details(int id, int page = 1, string? ip = null, int? status = null,
+        FirewallAction? fwAction = null, int? dport = null)
     {
         var file = await db.LogFiles.AsNoTracking()
             .Include(f => f.UploadedBy)
@@ -102,6 +114,10 @@ public class LogFilesController(
             query = query.Where(e => e.ClientIp == ip.Trim());
         if (status.HasValue)
             query = query.Where(e => e.StatusCode == status.Value);
+        if (fwAction.HasValue)
+            query = query.Where(e => e.Action == fwAction.Value);
+        if (dport.HasValue)
+            query = query.Where(e => e.DestinationPort == dport.Value);
 
         var count = await query.CountAsync();
         var totalPages = Math.Max(1, (int)Math.Ceiling(count / (double)PageSize));
@@ -122,6 +138,8 @@ public class LogFilesController(
             FilteredCount = count,
             Ip = ip,
             Status = status,
+            FwAction = fwAction,
+            DestinationPort = dport,
             AlertCount = await db.Alerts.CountAsync(a => a.LogFileId == id)
         });
     }

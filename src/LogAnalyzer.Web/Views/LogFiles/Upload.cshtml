@@ -17,7 +17,7 @@
         <header class="lg-page-header">
             <div>
                 <h1 class="lg-title">Upload log file</h1>
-                <p class="lg-subtitle">The file is parsed in the background, then every enabled rule runs on it.</p>
+                <p class="lg-subtitle">Web server or firewall log. The format is detected automatically, the file is parsed in the background, then every enabled rule for that kind of log runs on it.</p>
             </div>
         </header>
 
@@ -27,19 +27,47 @@
 
                 <div class="lg-dropzone mb-4">
                     <span class="lg-icon lg-icon-lg lg-tint-blue" aria-hidden="true"><i class="bi bi-cloud-arrow-up-fill"></i></span>
-                    <p class="lg-dropzone-title">Choose an access log</p>
+                    <p class="lg-dropzone-title">Choose a log file</p>
                     <p class="lg-dropzone-hint">
-                        Apache or Nginx access logs in Common or Combined Log Format.
+                        Apache / Nginx access logs, or firewall logs (syslog exports or files written by the device).
                         Allowed: .log, .txt, .gz (max 500 MB).
                     </p>
-                    <label for="file" class="visually-hidden">Access log</label>
+                    <label for="file" class="visually-hidden">Log file</label>
                     <input type="file" id="file" name="file" class="form-control" accept=".log,.txt,.gz" required />
                 </div>
 
                 <div class="mb-4">
-                    <div class="form-label small">Expected line format</div>
-                    <code class="lg-sample-line">192.168.1.10 - - [07/Nov/2026:20:15:32 +0100] "GET /index.html HTTP/1.1" 200 5120 "-" "Mozilla/5.0 ..."</code>
+                    <label class="form-label small" for="format">Log format</label>
+                    <select id="format" name="format" class="form-select">
+                        <option value="@LogAnalyzer.Web.Services.LogFormats.LogFormatRegistry.AutoId" selected>Detect automatically (recommended)</option>
+                        @foreach (var group in FirewallFormat.UploadChoices())
+                        {
+                            <optgroup label="@(group.Key == LogSource.Firewall ? "Firewalls" : "Web servers")">
+                                @foreach (var format in group)
+                                {
+                                    <option value="@format.Id">@format.DisplayName</option>
+                                }
+                            </optgroup>
+                        }
+                    </select>
+                    <div class="form-text">
+                        Auto-detection reads the first 200 lines. Files from a syslog collector may mix several firewalls:
+                        every line is read with the format that understands it.
+                    </div>
                 </div>
+
+                <details class="mb-4 lg-format-help">
+                    <summary class="small">Supported formats (@LogAnalyzer.Web.Services.LogFormats.LogFormatRegistry.All.Count)</summary>
+                    <ul class="lg-format-list small mt-2 mb-2">
+                        @foreach (var format in LogAnalyzer.Web.Services.LogFormats.LogFormatRegistry.All.OrderBy(f => f.Source).ThenBy(f => f.DisplayName))
+                        {
+                            <li><i class="bi @FirewallFormat.SourceIcon(format.Source)" aria-hidden="true"></i> @format.DisplayName</li>
+                        }
+                    </ul>
+                    <div class="form-label small mb-1">Example lines</div>
+                    <code class="lg-sample-line mb-1">192.168.1.10 - - [07/Nov/2026:20:15:32 +0100] "GET /index.html HTTP/1.1" 200 5120 "-" "Mozilla/5.0 ..."</code>
+                    <code class="lg-sample-line">date=2026-11-21 time=10:00:00 devname="fw01" logid="0000000013" type="traffic" srcip=203.0.113.5 dstip=10.0.0.5 dstport=22 proto=6 action="deny"</code>
+                </details>
 
                 <div class="d-flex flex-wrap gap-2">
                     <button type="submit" class="btn btn-primary"><i class="bi bi-upload" aria-hidden="true"></i> Upload</button>

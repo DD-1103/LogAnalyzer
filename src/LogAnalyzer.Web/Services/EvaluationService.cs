@@ -49,7 +49,14 @@ public sealed class EvaluationService(AppDbContext db)
         ["traversal"] = AttackType.PathTraversal,
         ["bruteforce"] = AttackType.BruteForce,
         ["direnum"] = AttackType.DirectoryEnumeration,
-        ["scanner"] = AttackType.Scanner
+        ["scanner"] = AttackType.Scanner,
+        // Firewall logs (loganalyzer-tools generate-firewall)
+        ["portscan"] = AttackType.PortScan,
+        ["sweep"] = AttackType.NetworkSweep,
+        ["intrusion"] = AttackType.Intrusion,
+        ["flood"] = AttackType.BlockedTraffic,
+        ["c2"] = AttackType.SuspiciousOutbound,
+        ["authfail"] = AttackType.AuthenticationFailure
     };
 
     /// <summary>Longer labels are ignored (real labels are short words like "sqli").</summary>

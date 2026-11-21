@@ -1,0 +1,69 @@
+@model FirewallEventsViewModel
+@* Firewall / network events (log file page and alert evidence). Columns stay few so narrow screens stack them as cards. *@
+<div class="table-responsive">
+    <table class="table table-sm table-hover small align-middle lg-fw-table">
+        <thead>
+            <tr>
+                <th>Line</th>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Rule / threat</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var e in Model.Events)
+            {
+                <tr>
+                    <td class="text-body-secondary">@e.LineNumber</td>
+                    <td class="text-nowrap">@e.Timestamp.ToString("dd/MM HH:mm:ss")</td>
+                    <td><span class="badge @FirewallFormat.ActionBadge(e.Action)">@FirewallFormat.ActionLabel(e.Action)</span></td>
+                    <td class="font-monospace text-break">
+                        @if (Model.IpFilterFileId is int fileId && e.ClientIp != "-")
+                        {
+                            <a asp-controller="LogFiles" asp-action="Details" asp-route-id="@fileId" asp-route-ip="@e.ClientIp">@FirewallFormat.Endpoint(e.ClientIp, e.SourcePort)</a>
+                        }
+                        else
+                        {
+                            @FirewallFormat.Endpoint(e.ClientIp, e.SourcePort)
+                        }
+                    </td>
+                    <td class="font-monospace text-break">
+                        @FirewallFormat.Endpoint(e.DestinationIp, e.DestinationPort)
+                        @if (e.Transport is not null)
+                        {
+                            <span class="text-body-secondary">@e.Transport</span>
+                        }
+                    </td>
+                    <td class="text-break">
+                        @if (e.ThreatName is not null)
+                        {
+                            <span class="text-danger-emphasis fw-semibold">@e.ThreatName</span>
+                        }
+                        @if (e.RuleName is not null)
+                        {
+                            <span class="d-block text-body-secondary">@e.RuleName</span>
+                        }
+                        @if (e.ThreatName is null && e.RuleName is null)
+                        {
+                            <span class="text-body-secondary">-</span>
+                        }
+                    </td>
+                    <td class="text-break url-cell" title="@e.RawLine">
+                        @if (e.EventType is not null)
+                        {
+                            <span class="lg-chip lg-chip-sm me-1">@e.EventType</span>
+                        }
+                        @e.Url
+                        @if (e.Device is not null)
+                        {
+                            <span class="d-block text-body-secondary">@e.Device</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

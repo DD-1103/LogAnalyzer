@@ -2,6 +2,7 @@ using LogAnalyzer.Tools;
 
 // Command-line helpers for the evaluation chapter (RQ1-RQ3).
 //   generate     synthetic labelled access log of any size (performance test, RQ3)
+//   generate-firewall  synthetic labelled firewall log (FortiGate, Palo Alto, Cisco ASA, iptables or CEF)
 //   csic         convert the CSIC 2010 HTTP dataset to Combined Log Format + labels (RQ1)
 //   label-by-ip  label a lab log (DVWA + Kali) by attacker IP and tool user agent (RQ1/RQ2)
 //   bench        parse + detect a file in memory, without the database (RQ3)
@@ -12,6 +13,7 @@ try
     return parsed.Command switch
     {
         "generate" => Generator.Run(parsed),
+        "generate-firewall" => FirewallGenerator.Run(parsed),
         "csic" => CsicConverter.Run(parsed),
         "label-by-ip" => LabelByIp.Run(parsed),
         "bench" => await Bench.RunAsync(parsed),
@@ -34,6 +36,12 @@ static int Usage()
                        Synthetic Combined-format log with ground-truth labels: normal browsing, search-engine
                        crawlers, monitoring, and SQLi/XSS/traversal/brute-force/enumeration/scanner campaigns
                        (including evasive variants the default rules miss).
+
+          generate-firewall --lines 100000 --out fw.log [--format fortigate|paloalto|cisco-asa|iptables|cef]
+                       [--labels fw.labels.csv] [--attack-ratio 0.03] [--seed 42]
+                       Synthetic labelled firewall log (documentation IP ranges only): normal traffic, internet
+                       noise, a monitoring host, and port scans, sweeps, brute force, floods, C2 beacons, IPS
+                       events and failed logins (slow, evasive variants included).
 
           csic         --normal normalTrafficTest.txt --anomalous anomalousTrafficTest.txt --out csic.log
                        [--labels csic.labels.csv] [--body-as-query] [--seed 42]

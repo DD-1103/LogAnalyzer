@@ -60,6 +60,9 @@ public class LogFileDetailsViewModel
     public int FilteredCount { get; set; }
     public string? Ip { get; set; }
     public int? Status { get; set; }
+    /// <summary>Firewall files: filter by action and destination port.</summary>
+    public FirewallAction? FwAction { get; set; }
+    public int? DestinationPort { get; set; }
     public int AlertCount { get; set; }
 }
 

@@ -173,11 +173,7 @@ public sealed class ReportService(AppDbContext db)
                             box.Item().PaddingTop(3).Text("Sample evidence:").SemiBold();
                             foreach (var e in samples.GetValueOrDefault(a.Id) ?? [])
                             {
-                                var url = UrlDecoder.Decode(e.Url);
-                                if (url.Length > MaxUrlLength)
-                                    url = url[..MaxUrlLength] + "...";
-                                box.Item().Text($"line {e.LineNumber}  {e.Timestamp:dd/MM HH:mm:ss}  {e.Method} {url}  -> {e.StatusCode}")
-                                    .FontFamily(Fonts.CourierNew).FontSize(7.5f);
+                                box.Item().Text(EvidenceLine(e)).FontFamily(Fonts.CourierNew).FontSize(7.5f);
                             }
                         });
                     }
@@ -205,4 +201,25 @@ public sealed class ReportService(AppDbContext db)
 
     private static void BodyCell(IContainer cell, string text) =>
         cell.BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(3).Text(text);
+
+    /// <summary>One evidence line: request for web logs, connection for firewall logs.</summary>
+    internal static string EvidenceLine(LogEvent e)
+    {
+        string text;
+        if (e.Action is not null)
+        {
+            var target = Helpers.FirewallFormat.Endpoint(e.DestinationIp, e.DestinationPort);
+            var extra = e.ThreatName ?? e.RuleName;
+            text = $"{e.Method} {e.Transport} {Helpers.FirewallFormat.Endpoint(e.ClientIp, e.SourcePort)} -> {target}"
+                   + (extra is null ? "" : $"  [{extra}]");
+        }
+        else
+        {
+            var url = UrlDecoder.Decode(e.Url);
+            text = $"{e.Method} {url}  -> {e.StatusCode}";
+        }
+        if (text.Length > MaxUrlLength + 40)
+            text = text[..(MaxUrlLength + 40)] + "...";
+        return $"line {e.LineNumber}  {e.Timestamp:dd/MM HH:mm:ss}  {text}";
+    }
 }

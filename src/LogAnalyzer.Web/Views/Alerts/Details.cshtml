@@ -367,6 +367,12 @@
     Evidence
     <span class="lg-count">@Model.EvidenceShown.ToString("N0") of @a.EventCount.ToString("N0") events shown</span>
 </h2>
+@if (a.LogFile?.Source == LogSource.Firewall)
+{
+    <partial name="_FirewallEvents" model="new FirewallEventsViewModel(Model.Evidence, a.LogFileId)" />
+}
+else
+{
 <div class="table-responsive">
     <table class="table table-sm table-hover small align-middle">
         <thead>
@@ -394,3 +400,4 @@
         </tbody>
     </table>
 </div>
+}
