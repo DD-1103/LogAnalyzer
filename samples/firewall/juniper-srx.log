@@ -57,8 +57,12 @@ Nov 21 10:11:45 srx01 RT_IDP: IDP_ATTACK_LOG_EVENT: IDP: at 1795255905, SIG Atta
 Nov 21 10:11:50 srx01 RT_SCREEN: RT_SCREEN_TCP: TCP port scan! source: 203.0.113.5:41030, destination: 10.0.0.20:1024, zone name: untrust, interface name: ge-0/0/0.0, action: drop
 Nov 21 10:11:55 srx01 RT_SCREEN: RT_SCREEN_ICMP: ICMP flood! source: 192.0.2.44, destination: 10.0.0.20, zone name: untrust, interface name: ge-0/0/0.0, action: drop
 Nov 21 10:13:00 srx01 sshd[2101]: SSHD_LOGIN_FAILED: Login failed for user 'root' from host '203.0.113.9'
+Nov 21 10:13:00 srx01 sshd[2101]: SSHD_LOGIN_FAILED: Login failed for user 'root' from host '203.0.113.9'
+Nov 21 10:13:10 srx01 sshd[2102]: SSHD_LOGIN_FAILED: Login failed for user 'admin' from host '203.0.113.9'
 Nov 21 10:13:10 srx01 sshd[2102]: SSHD_LOGIN_FAILED: Login failed for user 'admin' from host '203.0.113.9'
 Nov 21 10:13:20 srx01 sshd[2103]: SSHD_LOGIN_FAILED: Login failed for user 'admin' from host '203.0.113.9'
+Nov 21 10:13:20 srx01 sshd[2103]: SSHD_LOGIN_FAILED: Login failed for user 'admin' from host '203.0.113.9'
+Nov 21 10:13:30 srx01 sshd[2104]: SSHD_LOGIN_FAILED: Login failed for user 'test' from host '203.0.113.9'
 Nov 21 10:13:30 srx01 sshd[2104]: SSHD_LOGIN_FAILED: Login failed for user 'test' from host '203.0.113.9'
 Nov 21 10:15:00 srx01 RT_FLOW: RT_FLOW_SESSION_CREATE: session created 10.0.0.23/50999->198.51.100.66/4444 0x0 None 10.0.0.23/50999->198.51.100.66/4444 0x0 N/A N/A N/A N/A 6 allow-out trust untrust 39000 N/A(N/A) ge-0/0/1.0 UNKNOWN UNKNOWN UNKNOWN N/A N/A -1 N/A N/A N/A
 Nov 21 10:15:50 srx01 mgd[3301]: UI_COMMIT: User 'admin' requested 'commit' operation (comment: none)

@@ -14,7 +14,8 @@
 
 ### Scope
 - In: Apache/Nginx access logs (Common/Combined Log Format); brute force, SQLi, XSS, path traversal/LFI, scanners, directory enumeration; GeoIP + reputation enrichment; dashboard, alerts with severity, roles (Admin/Analyst), reports.
-- Out: real-time blocking/WAF, non-HTTP logs (firewall, Windows events), **any real logs from AKSK or any employer** — only public datasets and self-generated lab data.
+- **Firewall logs added 2026-11-21 (Daniel's request; scope change still to be agreed with the supervisors before the evaluation chapter).**
+- Out: real-time blocking/WAF, other non-HTTP logs (Windows events), **any real logs from AKSK or any employer** — only public datasets and self-generated lab data (firewall samples are synthetic, documentation IP ranges only).
 
 ### Functional requirements (from proposal) — all implemented
 FR1 login + roles Admin/Analyst · FR2 upload .log/.txt/.gz · FR3 parse to structured events · FR4 rules in DB, admins add/edit/disable · FR5 alerts with type, severity, IP, evidence · FR6 GeoIP + reputation · FR7 dashboard (top IPs, over time, types, map) · FR8 search/filter · FR9 alert status workflow · FR10 PDF/CSV export.
@@ -54,6 +55,7 @@ LogAnalyzer/
 ├─ docs/evaluation-guide.md    (CSIC 2010, DVWA lab, RQ3 protocol, thesis tables)
 ├─ docs/security-audit/       REPORT.md (2026-11-17 full audit, score 7.5/10) + findings/NN-*.md (30 fix tickets)
 ├─ samples/  sample-access.log (2,933 lines) + sample-access.labels.csv
+│           firewall/<vendor>.log (21 synthetic samples, one per format) + README.md (sources, story per file)
 ├─ src/LogAnalyzer.Web/
 │   ├─ Program.cs  appsettings*.json  Properties/launchSettings.json
 │   ├─ App_Data/   (gitignored) uploads/{id}.log|.log.gz, dbip-city-lite-2026-11.mmdb
@@ -74,8 +76,8 @@ LogAnalyzer/
 │   └─ wwwroot/     css/glass.css (design system), css/site.css (app helpers), css/views-a|b|c.css (per view group),
 │                   js/theme-init.js (theme before paint), js/site.js (theme, glass light, ripple, reveal, count-up,
 │                   nav badges, js-confirm, js-autosubmit), js/dashboard.js (theme-aware charts), js/rule-form.js
-├─ tests/LogAnalyzer.Tests/    xUnit, 74 tests
-└─ tools/LogAnalyzer.Tools/    console app "loganalyzer-tools": generate, csic, label-by-ip, bench
+├─ tests/LogAnalyzer.Tests/    xUnit, 778 tests
+└─ tools/LogAnalyzer.Tools/    console app "loganalyzer-tools": generate, generate-firewall, detect, csic, label-by-ip, bench
 ```
 
 ## 5. Configuration
@@ -104,9 +106,9 @@ LogAnalyzer/
 
 ## 6. Database model (LogAnalyzerDb)
 - **AppUser** : IdentityUser + FullName, IsDisabled, **Tier** (Soc1/Soc2, analysts only, string), MustChangePassword, CreatedAt, LastLoginAt, AlertsSeenAt?, RulesSeenAt?
-- **LogFile**: Id, FileName, SizeBytes, UploadedAt, UploadedById (nullable, FK SetNull) + **UploadedByName** (e-mail kept after the account is deleted; `UploaderDisplay`), Status (Pending/Processing/Analyzing/Completed/Failed, string), TotalLines, ParsedLines, FailedLines, ErrorMessage, ProcessedAt, **ParseMilliseconds, DetectionMilliseconds**
-- **LogEvent**: Id(long), LogFileId, LineNumber, ClientIp, Timestamp(DateTimeOffset), Method, Url, Protocol, StatusCode, ResponseSize, Referrer, UserAgent, RawLine. Indexes on LogFileId, ClientIp, Timestamp.
-- **DetectionRule**: Name (unique), Description, AttackType, Severity, Kind (**Signature/Threshold/Anomaly**), Field, Pattern, Threshold (anomaly: min requests per IP), WindowSeconds, MethodFilter, PathPattern, StatusFilter, **ScoreThreshold** (anomaly), IsEnabled
+- **LogFile**: Id, FileName, SizeBytes, UploadedAt, UploadedById (nullable, FK SetNull) + **UploadedByName** (e-mail kept after the account is deleted; `UploaderDisplay`), Status (Pending/Processing/Analyzing/Completed/Failed, string), **Source** (WebAccess/Firewall), **Format** (detected format(s), e.g. "Cisco ASA / FTD + Linux netfilter ..."), **RequestedFormat** (upload choice, null = auto), TotalLines, ParsedLines, FailedLines, ErrorMessage, ProcessedAt, **ParseMilliseconds, DetectionMilliseconds**
+- **LogEvent**: Id(long), LogFileId, LineNumber, ClientIp, Timestamp(DateTimeOffset), Method, Url, Protocol, StatusCode, ResponseSize, Referrer, UserAgent, RawLine + firewall fields **DestinationIp, SourcePort, DestinationPort, Transport, Action (FirewallAction), EventType (traffic/threat/auth/vpn/url), RuleName, ThreatName, Device**. Firewall rows: ClientIp = source, Method = action word ("DENY"), Url = message, StatusCode 0 (`ParsedLine.Network`). Indexes on LogFileId, ClientIp, Timestamp.
+- **DetectionRule**: Name (unique), Description, AttackType, Severity, Kind (**Signature/Threshold/Anomaly/DistinctCount**), **AppliesTo** (WebAccess/Firewall), Field (web: Url/UserAgent/Referrer; firewall: Message/ThreatName/RuleName/EventType/DestinationPort/DestinationIp), Pattern, **ActionFilter** ("Deny,Drop"), **PortFilter** ("22,3389,5900-5902"), Threshold (anomaly: min requests per IP), WindowSeconds, MethodFilter, PathPattern, StatusFilter, **ScoreThreshold** (anomaly), IsEnabled
 - **Alert**: Title, RuleId, LogFileId, SourceIp, AttackType, Severity, Status, FirstSeen, LastSeen, EventCount, **Score, Details** (anomaly), **OriginalSeverity, SeverityNote** (GreyNoise downgrade), Notes, AssignedToId (= SOC 2 owner of an escalation), **EscalatedAt, EscalatedBy, EscalatedById (no FK), EscalationReason, ClaimedAt, Verdict (Malicious/FalsePositive/KeepMonitoring/Benign), VerdictAt, VerdictBy**, CreatedAt
 - **AlertComment**: AlertId (cascade), AuthorId (no FK) + AuthorName, Text, Kind (comment/escalation/claim/release/verdict), CreatedAt — activity timeline + second opinions
 - **Notification**: UserId (FK cascade), Title, Body, Link (app-relative only), Kind, CreatedAt, ReadAt (bell; only read ones can be deleted; retention 30 days read / 90 days all)
@@ -160,11 +162,20 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - `docs/evaluation-guide.md` = full protocol (datasets, DVWA VirtualBox lab, attack commands, labelling, thesis tables, threats to validity).
 
 ### Step 9 — Quality
-- 74 xUnit tests at step 9, 274 now (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
+- 74 xUnit tests at step 9, 778 now (parser, decoder, CSV, IsPublic, metrics, labels parsing, default rules positive/negative, threshold window, validator/ReDoS, Isolation Forest, anomaly detector, providers via fake `HttpMessageHandler`, throttle). Run `dotnet test`.
 - `SecurityHeadersMiddleware`: CSP `script-src 'self'` (since the audit fixes all libraries are self-hosted; no inline JS — all scripts in wwwroot/js; dashboard data in a `<script type="application/json">` block; inline `on*` handlers replaced by `js-confirm` / `js-autosubmit` classes), `style-src` allows `'unsafe-inline'` (style attributes), X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, COOP. Verified: injected inline script is blocked, charts and map still work.
 - Login rate limiter: 10 POSTs/min per IP → 429 (verified).
 - Audit entries for logins, logout, uploads, deletes, re-runs, evaluations, PDF, triage, CSV export, rule/user changes, threat-intel lookups/tests.
 - README.md.
+
+### Step 11 — Per-tab sessions + firewall logs (2026-11-21/22, branch `firewall-and-sessions`)
+- **Why only 2 users at once:** not a server limit - Identity had ONE sign-in cookie per browser, a login in another tab replaced it (normal + private window = 2). **Session slots** (`Services/SessionSlots.cs`): `/s/1` ... `/s/9` (no prefix = slot 0); middleware moves the prefix into PathBase (all links/redirects keep it), `SessionSlotCookieManager` = cookie per slot (`.AspNetCore.Identity.Application.s2`, path `/`) for all Identity schemes, TempData per slot, antiforgery cookie path `/` (token bound to the slot's user; a slot-1 token is rejected in slot 0 - verified). Return URLs must stay in the slot (`IsLocalToCurrentSlot`); notification links get the slot prefix (`AppLink`). UI: account menu "Sign in another account" (next free slot, new tab) + other sessions; slot chip next to the account button; tab title `[2] Dashboard · LogAnalyzer`; login hint. Logout still rotates the security stamp (ends that same user's other slots).
+- **Firewall formats** (`Services/LogFormats/`, found by reflection - add a vendor = one `ILogFormat` class): FortiGate, Palo Alto PAN-OS (CSV), Cisco ASA/FTD (per message id), Check Point (Log Exporter), Sophos SFOS, SonicWall, Juniper SRX (text + structured data), pfSense/OPNsense filterlog, Linux netfilter (iptables/UFW/firewalld/nftables/UniFi + sshd logins), Windows Defender Firewall (W3C header), WatchGuard, MikroTik, Huawei USG, Meraki MX, Stormshield, Zyxel, AWS VPC flow logs; vendor-neutral CEF, LEEF, JSON lines (ECS, Azure, GCP, AWS Network Firewall); generic key=value fallback (specificity 10). `SyslogEnvelope` strips RFC 3164/5424 headers (incl. Cisco `<166>:... UTC:`, MSGID). `ParseOutcome` Parsed/Skipped/Failed (headers and non-traffic device messages = Skipped, not failures).
+- **Detection of the format:** `LogFormatDetector` parses the first 200 lines with every format (most lines read wins, ties by Specificity, min 30%); `MultiFormatParser` tries the other formats of the same kind for lines the main one cannot read (syslog collectors mixing devices); upload page has a format picker (default auto). Formats were written from public vendor docs - not verified on real devices (doubts listed in the agents' notes: some WatchGuard/Meraki/Stormshield/Huawei auth events, PAN GLOBALPROTECT positions, Check Point field names).
+- **Firewall rules** (`DbSeeder.DefaultFirewallRules()`, seeded when no firewall rule exists): Port scan (DistinctCount DestinationPort >= 15 / 60 s), Network sweep (DistinctCount DestinationIp >= 20 / 120 s), Brute force on remote-access ports (>= 20 / 300 s), Flood of blocked connections (>= 100 Deny/Drop/Reject / 60 s), IPS/threat event (ThreatName), Connection to backdoor/C2 port (>= 1), Repeated failed logins (EventType auth, Deny/Reject, >= 5 / 300 s). `DistinctWindow` (linear), `PortSet`/`ActionSet` (`FirewallFilters.cs`). Rules page: All/Web/Firewall filter, form per log kind (`rule-form.js` `data-show="w0 f1"`), tester only offers files of the rule's kind. Web rules never run on firewall files and vice versa (`DetectionEngine` filters `AppliesTo == file.Source`).
+- **Views:** `_FirewallEvents` partial (action badge, source/destination with ports, rule/threat, message) on the file page (filters Action + destination port) and alert evidence; PDF evidence lines per kind; `FirewallFormat` helpers.
+- **Tools:** `generate-firewall --lines N --format fortigate|paloalto|cisco-asa|iptables|cef` (labels: portscan, sweep, bruteforce, flood, c2, intrusion, authfail; slow evasive variants + a benign monitoring host that pings 40 servers = deliberate false positive of the sweep rule); `detect --log file` (format + parsed/skipped/failed, offline). All 5 generator formats read 100%; all 21 samples detected with 0 failed lines and trigger port scan, brute force, threats, C2 and failed logins (verified in the app 2026-11-22).
+- Built with 4 parallel agents (worktrees): KV/structured parsers, positional parsers, detection + rules UI, sessions; merged and verified by the head agent.
 
 ### Step 10 — Liquid Glass UI redesign (2026-11-13, branch `ui-liquid-glass`)
 - iOS-style glass for the jury demo, every view restyled. Head agent built the design system + layout; three parallel agents (git worktrees) restyled view groups A (dashboard, account, error), B (log files, alerts), C (rules, threat intel, users, audit); merged and verified page by page.
@@ -212,7 +223,11 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 - **Threat intel (17, 24, 28):** rate-limit policy `ti-lookup` (30/min per user); daily budgets `Enrichment:*DailyBudget` (in memory, reset on restart); provider HttpClients without redirects, 1 MB max body. **`Enrichment:AutoLookup` is false by default** – set it to true (appsettings or user-secrets) for automatic lookups after each file (roadmap step 1); `RetentionDays` 90 + `DataRetentionWorker` (daily). Client IPs are stored canonically (`IpAddressPolicy.Canonical`).
 - **Framework (27, 22):** global `AutoValidateAntiforgeryToken`; every action needs an explicit `[HttpGet]`/`[HttpPost]` (a reflection test fails otherwise). Package versions are exact, `Directory.Build.props` enables lock files – add packages with `dotnet add package X --version x.y.z` and commit the updated `packages.lock.json`.
 - Others: labels CSV ≤ 20 MB, label ≤ 64 chars (20); rule delete blocked while a file is busy (23); alerts paging tie-breaker + `[EnumDataType]` (25); CSV/JS edge cases (30).
-- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs`, `HardeningFixTests.cs`, `UserManagementTests.cs`, `Soc2AndLookupTests.cs`, `VendorDashboardTests.cs` (274 total; EF InMemory for threat-intel/notification tests).
+- Tests: `SecurityFixTests.cs`, `ProcessingFixTests.cs`, `DetectionFixTests.cs`, `HardeningFixTests.cs`, `UserManagementTests.cs`, `Soc2AndLookupTests.cs`, `VendorDashboardTests.cs`, `SessionSlotTests.cs`, `FirewallDetectionTests.cs`, `FirewallKeyValueFormatTests.cs`, `FirewallPositionalFormatTests.cs`, `SyslogEnvelopeTests.cs`, `FirewallIntegrationFixTests.cs` (778 total; EF InMemory for threat-intel/notification tests).
+- `*.log` is gitignored: firewall samples are allowed by `!samples/firewall/*.log`; new samples elsewhere need `git add -f`.
+- `sqlcmd -h -1` output ends lines with `\r` in Git Bash - strip it (`tr -d '\r'`) before using ids in URLs.
+- New firewall vendor: one `ILogFormat` class in `Services/LogFormats` (public parameterless ctor), build events with `ParsedLine.Network(...)`, return Failed for other vendors' lines, Skipped for valid non-traffic lines; add a sample + tests (detector must still choose "combined" for `sample-access.log`).
+- Count-up numbers on stat cards look wrong in screenshots taken during the animation (e.g. 40 instead of 65) - check the DB, not the screenshot.
 
 ## 9. Decisions & advice already given
 - **Zimmerman tools / Chainsaw:** out of scope → possible future "Windows event log module" (needs supervisor approval).
@@ -232,6 +247,7 @@ Dashboard (stats, timeline, severity, types, map, top IPs, latest alerts), GeoIP
 ## 10. Roadmap (what's left)
 - **Security audit 2026-11-17:** `docs/security-audit/REPORT.md` – 0 critical, 2 High, 8 Medium, 16 Low, 4 Info. Fix order in REPORT §3; each `findings/NN-*.md` is a self-contained fix ticket ("Fix docs/security-audit/findings/NN-...md"). Update its Status line when fixed. **All 30 findings fixed** (branch `security-fixes`, merged into `main` and pushed on 2026-11-17 together with the Liquid Glass UI).
 0. **Before the jury demo:** change the admin password (Account → Change password) and run the `demo` profile. (UI redesign + audit fixes are on `main` since 2026-11-17; user management, SOC 2 hub, notifications and the threat-intel dashboard since 2026-11-18 (branch `user-management`). Branches `ui-liquid-glass`, `security-fixes`, `steps-5-9`, `user-management` can be deleted.)
+0b. **Firewall logs:** agree the scope change with the supervisors; evaluate the firewall rules with `loganalyzer-tools generate-firewall` (per format) + the Evaluate page (labels CSV), and if possible with a lab firewall (pfSense/OPNsense VM + Kali: nmap scan, hydra SSH) - never AKSK logs. Branch `firewall-and-sessions` (sessions + firewall) waits for review/merge into `main`.
 1. **API keys** (AbuseIPDB, GreyNoise, VirusTotal) with the university email → `dotnet user-secrets set ...` (+ `dotnet user-secrets set "Enrichment:AutoLookup" "true"` for automatic lookups) → Test button on each provider page → re-run detection on a file with public attacker IPs → check cards / dashboard / PDF / GreyNoise downgrades.
 2. **RQ3 end-to-end:** `loganalyzer-tools generate --lines 1000000 --out big.log`, upload in the app (100k / 500k / 1M / 2M, 3 runs each), read times on the file page; check delete of a 1M-line file (cascade delete may be slow — consider batched delete if it times out).
 3. **RQ1/RQ2 real data:** CSIC 2010 (download, `csic` command, both variants) and DVWA lab (VirtualBox: Ubuntu+Apache+DVWA, Kali, normal-traffic VM; nikto/gobuster/sqlmap/hydra + manual XSS/LFI; `label-by-ip`) → Evaluate page tables.

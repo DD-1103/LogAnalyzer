@@ -49,7 +49,10 @@ Nov 21 10:08:20 FBX-M370 801001AB02 firewall: msg_id="3000-0151" Allow 0-Externa
 Nov 21 10:11:40 FBX-M370 801001AB02 firewall: msg_id="3000-0150" Deny 0-External 1-Trusted 420 tcp 20 116 192.0.2.44 10.0.0.20 43001 80 offset 8 A 5000001 win 502 signature_id="1110107" signature_name="WEB SQL injection attempt -33" signature_cat="Web Attack" severity="4" (HTTP-proxy-00)
 Nov 21 10:11:45 FBX-M370 801001AB02 firewall: msg_id="3000-0150" Allow 0-External 1-Trusted 380 tcp 20 116 192.0.2.44 10.0.0.20 43002 80 offset 8 A 5000002 win 502 signature_id="1054837" signature_name="WEB Directory Traversal -8" signature_cat="Web Attack" severity="3" (HTTP-proxy-00)
 Nov 21 10:13:00 FBX-M370 801001AB02 admd: msg_id="3E00-0002" Authentication of Firebox user [admin@Firebox-DB] from 203.0.113.9 was rejected, password is incorrect
+Nov 21 10:13:00 FBX-M370 801001AB02 admd: msg_id="3E00-0002" Authentication of Firebox user [admin@Firebox-DB] from 203.0.113.9 was rejected, password is incorrect
 Nov 21 10:13:10 FBX-M370 801001AB02 admd: msg_id="3E00-0002" Authentication of Firebox user [admin@Firebox-DB] from 203.0.113.9 was rejected, password is incorrect
+Nov 21 10:13:10 FBX-M370 801001AB02 admd: msg_id="3E00-0002" Authentication of Firebox user [admin@Firebox-DB] from 203.0.113.9 was rejected, password is incorrect
+Nov 21 10:13:20 FBX-M370 801001AB02 admd: msg_id="3E00-0002" Authentication of Firebox user [status@Firebox-DB] from 203.0.113.9 was rejected, password is incorrect
 Nov 21 10:13:20 FBX-M370 801001AB02 admd: msg_id="3E00-0002" Authentication of Firebox user [status@Firebox-DB] from 203.0.113.9 was rejected, password is incorrect
 Nov 21 10:13:40 FBX-M370 801001AB02 admd: msg_id="3E00-0004" Authentication of Firebox user [admin@Firebox-DB] from 10.0.0.12 was accepted
 Nov 21 10:15:00 FBX-M370 801001AB02 firewall: msg_id="3000-0151" Allow 1-Trusted 0-External 52 tcp 20 127 10.0.0.23 198.51.100.66 50999 4444 offset 8 S 6000001 win 64240 (Outgoing-00)
