@@ -10,7 +10,7 @@ namespace LogAnalyzer.Web.Services.LogFormats;
 /// then IN= OUT= MAC= SRC= DST= LEN= ... PROTO= SPT= DPT=. The action comes from the prefix (no recognisable word =
 /// Unknown), the prefix is the rule name. The time comes from the syslog / journald header.
 /// </summary>
-public sealed class NetfilterFormat : ILogFormat
+public sealed partial class NetfilterFormat : ILogFormat
 {
     public string Id => "netfilter";
     public string DisplayName => "Linux netfilter (iptables / UFW / firewalld / nftables)";
@@ -18,13 +18,20 @@ public sealed class NetfilterFormat : ILogFormat
     public int Specificity => 100;
     public ILineParser CreateParser(LogParseContext context) => new Parser(context);
 
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"^(?:(?<ok>Accepted) (?:password|publickey|keyboard-interactive/pam) for |Failed (?:password|publickey|keyboard-interactive/pam) for (?:invalid user )?|Invalid user )(?<u>\S{1,64}) from (?<ip>[0-9A-Fa-f:.]+)(?: port (?<p>\d{1,5}))?",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex SshdLogin();
+
     private sealed class Parser(LogParseContext context) : ILineParser
     {
         public ParseOutcome Parse(string line, out ParsedLine? result)
         {
             result = null;
-            if (line.Length < 30 || !line.Contains("SRC=", StringComparison.Ordinal) || !line.Contains("DST=", StringComparison.Ordinal))
+            if (line.Length < 30)
                 return ParseOutcome.Failed;
+            if (!line.Contains("SRC=", StringComparison.Ordinal) || !line.Contains("DST=", StringComparison.Ordinal))
+                return line.Contains("sshd", StringComparison.Ordinal) ? Sshd(line, out result) : ParseOutcome.Failed;
             var env = SyslogEnvelope.Parse(line, context);
             var msg = env.Message;
 
@@ -69,6 +76,34 @@ public sealed class NetfilterFormat : ILogFormat
                           (type is null ? "" : $" (type {type}, code {code ?? "?"})");
             result = ParsedLine.Network(src, ts, action, message, dst, sport, dport, transport, "traffic", prefix, null, env.Host,
                 len is null ? null : Long(len));
+            return ParseOutcome.Parsed;
+        }
+
+        /// <summary>
+        /// OpenSSH login lines that Linux gateways write to the same syslog as the firewall ("sshd[123]: Failed password
+        /// for invalid user admin from 203.0.113.9 port 51234 ssh2", "Invalid user x from ...", "Accepted password for ...")
+        /// become authentication events (failed = Deny, accepted = Allow). Other sshd lines are skipped.
+        /// </summary>
+        private ParseOutcome Sshd(string line, out ParsedLine? result)
+        {
+            result = null;
+            var env = SyslogEnvelope.Parse(line, context);
+            if (env.AppName is null || !env.AppName.StartsWith("sshd", StringComparison.Ordinal))
+                return ParseOutcome.Failed;
+            // Junos writes "sshd: SSHD_LOGIN_FAILED: ..." - that is a Juniper line, read by its own format.
+            if (env.Message.StartsWith("SSHD_", StringComparison.Ordinal))
+                return ParseOutcome.Failed;
+            var m = SshdLogin().Match(env.Message);
+            if (!m.Success || !IsIp(m.Groups["ip"].Value))
+                return ParseOutcome.Skipped;
+            if (env.Timestamp is not { } ts)
+                return ParseOutcome.Failed;
+            var ok = m.Groups["ok"].Success;
+            var user = m.Groups["u"].Value;
+            int? sport = m.Groups["p"].Success ? Port(m.Groups["p"].Value) : null;
+            var message = ok ? $"sshd: accepted login for {user}" : $"sshd: failed login for {user}";
+            result = ParsedLine.Network(m.Groups["ip"].Value, ts, ok ? FirewallAction.Allow : FirewallAction.Deny, message,
+                null, sport, 22, "tcp", "auth", "sshd", null, env.Host);
             return ParseOutcome.Parsed;
         }
 

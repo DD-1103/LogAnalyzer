@@ -94,7 +94,7 @@ public static class FirewallGenerator
         var zones = e.Inbound ? "untrust,trust,ethernet1/1,ethernet1/2" : "trust,untrust,ethernet1/2,ethernet1/1";
         if (e.Kind == FwKind.Auth)
             // GLOBALPROTECT logs are complex; failed portal logins appear as SYSTEM-like lines that parsers may skip.
-            return $"1,{t},012801000001,SYSTEM,auth,2561,{t},,general,,0,0,general,high,\"authentication failed for user '{e.User}'. From: {e.Src}.\",{n},0x0,0,0,0,0,,PA-3220";
+            return $"1,{t},012801000001,SYSTEM,auth,2561,{t},vsys1,auth-fail,,0,0,general,medium,\"failed authentication for user '{e.User}'. Reason: Invalid username/password. auth profile 'GP-Auth', vsys 'vsys1', From: {e.Src}.\",{n},0x0,0,0,0,0,,PA-3220";
         if (e.Kind == FwKind.Threat)
             return $"1,{t},012801000001,THREAT,vulnerability,2561,{t},{e.Src},{e.Dst},0.0.0.0,0.0.0.0,allow-web,,,web-browsing,vsys1,{zones},Forward,{t},{n},1,{e.SrcPort},{e.DstPort},0,0,0x2000,{Proto(e)},reset-both,\"login.php\",{e.Threat}(91234),any,critical,client-to-server,{n},0x0,US,10.0.0.0-10.255.255.255,0";
         var action = e.Allowed ? "allow" : "deny";
@@ -114,6 +114,8 @@ public static class FirewallGenerator
             return e.Proto == "icmp"
                 ? $"{head} %ASA-3-313001: Denied ICMP type=8, code=0 from {e.Src} on interface {inIf}"
                 : $"{head} %ASA-4-106023: Deny {Proto(e)} src {inIf}:{e.Src}/{e.SrcPort} dst {outIf}:{e.Dst}/{e.DstPort} by access-group \"{inIf.ToUpperInvariant()}_IN\" [0x0, 0x0]";
+        if (e.Proto == "icmp")
+            return $"{head} %ASA-6-302020: Built {(e.Inbound ? "inbound" : "outbound")} ICMP connection for faddr {(e.Inbound ? e.Src : e.Dst)}/0 gaddr {(e.Inbound ? e.Dst : e.Src)}/0 laddr {(e.Inbound ? e.Dst : e.Src)}/0 type 8 code 0";
         var p = e.Proto.ToUpperInvariant();
         return $"{head} %ASA-6-302013: Built {(e.Inbound ? "inbound" : "outbound")} {p} connection {n} for {inIf}:{e.Src}/{e.SrcPort} ({e.Src}/{e.SrcPort}) to {outIf}:{e.Dst}/{e.DstPort} ({e.Dst}/{e.DstPort})";
     }

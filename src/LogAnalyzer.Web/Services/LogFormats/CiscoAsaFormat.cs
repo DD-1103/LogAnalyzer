@@ -32,6 +32,11 @@ public sealed partial class CiscoAsaFormat : ILogFormat
     [GeneratedRegex(@"^Built (?<dir>inbound|outbound) (?<p>TCP|UDP|SCTP) connection (?<id>\d+) for (?<a>\S+) (?:\([^)]*\) ){0,3}to (?<b>\S+)", RegexOptions.CultureInvariant)]
     private static partial Regex Built();
 
+    // 302020 / 302021: Built inbound ICMP connection for faddr 203.0.113.5/0 gaddr 10.0.0.5/0 laddr 10.0.0.5/0 type 8 code 0
+    //                  Teardown ICMP connection for faddr ... gaddr ... laddr ...
+    [GeneratedRegex(@"^(?<what>Built|Teardown) (?:(?<dir>inbound|outbound) )?(?<p>ICMP|ICMPv6) connection for faddr (?<f>[0-9A-Fa-f:.]+)/\d+(?:\(\S*\))? gaddr \S+ laddr (?<l>[0-9A-Fa-f:.]+)/\d+", RegexOptions.CultureInvariant)]
+    private static partial Regex IcmpConnection();
+
     // 302014 / 302016: Teardown TCP connection 123 for outside:a/p to inside:b/p duration 0:00:05 bytes 1234 TCP FINs
     [GeneratedRegex(@"^Teardown (?<p>TCP|UDP|SCTP) connection (?<id>\d+) for (?<a>\S+) (?:\([^)]*\) ){0,3}to (?<b>\S+) (?:\([^)]*\) ){0,3}duration (?<dur>\S+) bytes (?<bytes>\d+)", RegexOptions.CultureInvariant)]
     private static partial Regex Teardown();
@@ -185,6 +190,20 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 ev = m.Groups["dir"].Value == "inbound"
                     ? new Ev(a, b, ap, bp, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic")
                     : new Ev(b, a, bp, ap, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic");
+                return ParseOutcome.Parsed;
+            }
+            case 302020:
+            case 302021:
+            {
+                var m = IcmpConnection().Match(msg);
+                if (!m.Success || !IsIp(m.Groups["f"].Value) || !IsIp(m.Groups["l"].Value))
+                    return Fail(out ev);
+                // faddr = the outside (foreign) host; teardown lines carry no direction, the foreign side is taken as source
+                var outbound = m.Groups["dir"].Value == "outbound";
+                var proto = m.Groups["p"].Value == "ICMPv6" ? "ipv6-icmp" : "icmp";
+                ev = outbound
+                    ? new Ev(m.Groups["l"].Value, m.Groups["f"].Value, null, null, proto, FirewallAction.Allow, "traffic")
+                    : new Ev(m.Groups["f"].Value, m.Groups["l"].Value, null, null, proto, FirewallAction.Allow, "traffic");
                 return ParseOutcome.Parsed;
             }
             case 302014:

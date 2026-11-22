@@ -15,13 +15,16 @@ namespace LogAnalyzer.Web.Services.LogFormats;
 /// </summary>
 public sealed partial record SyslogEnvelope(int? Priority, DateTimeOffset? Timestamp, string? Host, string? AppName, string Message, string? StructuredData)
 {
+    /// <summary>RFC 5424 MSGID (e.g. Junos "RT_FLOW_SESSION_DENY"); null for BSD syslog or "-".</summary>
+    public string? MsgId { get; init; }
+
     // <PRI>1 TIMESTAMP HOST APP PROCID MSGID (SD|-) MSG
     [GeneratedRegex(@"^<(?<pri>\d{1,3})>1 (?<ts>\S+) (?<host>\S+) (?<app>\S+) (?<proc>\S+) (?<msgid>\S+) (?<rest>.*)$", RegexOptions.CultureInvariant)]
     private static partial Regex Rfc5424();
 
     // [<PRI>]TIMESTAMP HOST [TAG[pid]:] MSG ; TIMESTAMP = "Nov 21 10:00:00" | "Nov 21 2026 10:00:00" | ISO 8601
     [GeneratedRegex(
-        @"^(?:<(?<pri>\d{1,3})>)?\s*(?<ts>[A-Z][a-z]{2} {1,2}\d{1,2}(?: \d{4})? \d{2}:\d{2}:\d{2}(?:\.\d+)?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s*:?\s+(?<rest>.*)$",
+        @"^(?:<(?<pri>\d{1,3})>:?)?\s*(?<ts>[A-Z][a-z]{2} {1,2}\d{1,2}(?: \d{4})? \d{2}:\d{2}:\d{2}(?:\.\d+)?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)(?: (?<zone>UTC|GMT))?\s*:?\s+(?<rest>.*)$",
         RegexOptions.CultureInvariant)]
     private static partial Regex Rfc3164();
 
@@ -54,14 +57,19 @@ public sealed partial record SyslogEnvelope(int? Priority, DateTimeOffset? Times
                 rest = rest[1..];
             DateTimeOffset? ts = LogTime.TryParse(m.Groups["ts"].Value, context, out var t) ? t : null;
             var app = m.Groups["app"].Value;
-            return new SyslogEnvelope(int.Parse(m.Groups["pri"].Value), ts, Nil(m.Groups["host"].Value), Nil(app), rest, sd);
+            return new SyslogEnvelope(int.Parse(m.Groups["pri"].Value), ts, Nil(m.Groups["host"].Value), Nil(app), rest, sd)
+            {
+                MsgId = Nil(m.Groups["msgid"].Value)
+            };
         }
 
         m = Rfc3164().Match(line);
         if (m.Success)
         {
             int? pri = m.Groups["pri"].Success ? int.Parse(m.Groups["pri"].Value) : null;
-            DateTimeOffset? ts = LogTime.TryParse(m.Groups["ts"].Value, context, out var t) ? t : null;
+            // "Nov 21 10:00:00 UTC" (Cisco ASA / FTD): the zone word wins over the file's default offset.
+            var tsContext = m.Groups["zone"].Success ? context with { DefaultOffset = TimeSpan.Zero } : context;
+            DateTimeOffset? ts = LogTime.TryParse(m.Groups["ts"].Value, tsContext, out var t) ? t : null;
             var rest = m.Groups["rest"].Value;
             string? host = null, app = null;
 

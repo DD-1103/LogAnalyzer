@@ -14,6 +14,7 @@ try
     {
         "generate" => Generator.Run(parsed),
         "generate-firewall" => FirewallGenerator.Run(parsed),
+        "detect" => DetectFormat.Run(parsed),
         "csic" => CsicConverter.Run(parsed),
         "label-by-ip" => LabelByIp.Run(parsed),
         "bench" => await Bench.RunAsync(parsed),
@@ -42,6 +43,10 @@ static int Usage()
                        Synthetic labelled firewall log (documentation IP ranges only): normal traffic, internet
                        noise, a monitoring host, and port scans, sweeps, brute force, floods, C2 beacons, IPS
                        events and failed logins (slow, evasive variants included).
+
+          detect       --log fw.log [--show-failed 5]
+                       Shows which format the app detects for a file and how many lines it can read
+                       (same detector as the upload), with the first lines it could not read.
 
           csic         --normal normalTrafficTest.txt --anomalous anomalousTrafficTest.txt --out csic.log
                        [--labels csic.labels.csv] [--body-as-query] [--seed 42]
