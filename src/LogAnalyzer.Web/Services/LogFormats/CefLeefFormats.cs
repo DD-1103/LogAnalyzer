@@ -22,10 +22,18 @@ internal static class StructuredRecord
             return true;
         }
         envelope = SyslogEnvelope.Parse(line, context);
+        // The record must be the message itself, not text inside another program's message (a user name, a URL).
         var inner = envelope.Message.IndexOf(marker, StringComparison.Ordinal);
-        record = inner >= 0 ? envelope.Message[inner..] : line[index..];
+        if (!envelope.RecordStartsAt(inner))
+            return false;
+        record = envelope.Message[inner..];
         return true;
     }
+
+    /// <summary>The message itself is a CEF / LEEF record (not merely a URL or user name that contains "CEF:").</summary>
+    public static bool IsCefOrLeef(SyslogEnvelope envelope) =>
+        envelope.RecordStartsAt(envelope.Message.IndexOf("CEF:", StringComparison.Ordinal))
+        || envelope.RecordStartsAt(envelope.Message.IndexOf("LEEF:", StringComparison.Ordinal));
 
     /// <summary>"threat" (IPS / malware / ...), "auth" (logins) or "traffic".</summary>
     public static string EventType(string? category, string? name, string? threatName)
@@ -135,8 +143,9 @@ public sealed class CefFormat : ILogFormat
             var eventType = StructuredRecord.EventType(category, name, threat);
             if (eventType == "threat")
                 threat ??= name.Length > 0 ? name : signatureId;
-            var action = StructuredRecord.ActionFor(eventType, TryAction(Kv.Get("act")) ?? TryAction(Kv.Get("deviceAction")),
-                Kv.Get("outcome"), name);
+            // fw_action: SonicWall ArcSight format; ZYnote: Zyxel ("ACCESS BLOCK", the plain format's note field)
+            var action = StructuredRecord.ActionFor(eventType, TryAction(Kv.Get("act")) ?? TryAction(Kv.Get("deviceAction"))
+                ?? TryAction(Kv.Get("fw_action")) ?? ZyxelFormat.NoteAction(Kv.Get("ZYnote")), Kv.Get("outcome"), name);
             var src = FirewallFields.Source(Kv);
             var dst = Destination(Kv);
             var transport = TransportOf(Kv);
@@ -241,7 +250,7 @@ public sealed class LeefFormat : ILogFormat
                 return true;
             var hex = spec.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? spec[2..]
                 : spec.StartsWith("x", StringComparison.OrdinalIgnoreCase) ? spec[1..] : ReadOnlySpan<char>.Empty;
-            if (hex.Length is 2 or 4 && int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code) && code > 0)
+            if (hex.Length is >= 1 and <= 4 && int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var code) && code > 0)
             {
                 delimiter = (char)code;
                 return true;
@@ -287,8 +296,7 @@ public static class JavaTime
         var pattern = net.ToString().Replace("t", "tt", StringComparison.Ordinal);
         if (!DateTime.TryParseExact(v, pattern, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var local))
             return false;
-        timestamp = new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), offset ?? context.DefaultOffset);
-        return true;
+        return LogTime.TryLocal(local, offset ?? context.DefaultOffset, out timestamp);
     }
 
     /// <summary>Cuts "Z", "+0100", "+01:00", " UTC" / " CET" from the end of the value.</summary>

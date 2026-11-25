@@ -78,12 +78,17 @@ public static class LogTime
         "yyyyMMddHHmmss", "MM/dd/yyyy HH:mm:ss", "dd.MM.yyyy HH:mm:ss"
     ];
 
-    private static readonly string[] YearlessFormats = ["MMM d HH:mm:ss", "MMM dd HH:mm:ss", "MMM d HH:mm:ss.FFFFFF", "MMM dd HH:mm:ss.FFFFFF"];
+    private static readonly string[] YearlessFormats =
+        ["yyyy MMM d HH:mm:ss", "yyyy MMM dd HH:mm:ss", "yyyy MMM d HH:mm:ss.FFFFFF", "yyyy MMM dd HH:mm:ss.FFFFFF"];
+
+    /// <summary>Time stamps outside this range are device errors or forged (date arithmetic on them would overflow).</summary>
+    private const int MinYear = 1970, MaxYear = 2100;
 
     /// <summary>
     /// ISO 8601 with offset or "Z", the common local formats above (interpreted with
     /// <see cref="LogParseContext.DefaultOffset"/>), syslog "Nov 21 10:00:00" (year from the reference time; a date
-    /// more than a day in the future is moved to the previous year) and Unix epoch seconds / milliseconds.
+    /// more than a day in the future is moved to the previous year, "Feb 29" to the last leap year) and Unix epoch
+    /// seconds / milliseconds. Only the years 1970 to 2100 are accepted. Never throws.
     /// </summary>
     public static bool TryParse(string? value, LogParseContext context, out DateTimeOffset timestamp)
     {
@@ -93,8 +98,8 @@ public static class LogTime
         var v = string.Join(' ', value.Trim().Trim('"').Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
         // Unix epoch (AWS VPC flow logs, Meraki "1700000000.123", JSON exports)
-        if (v.Length is >= 9 and <= 17 && double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var epoch)
-            && v.All(c => char.IsDigit(c) || c == '.'))
+        if (v.Length is >= 9 and <= 17 && v.All(c => char.IsAsciiDigit(c) || c == '.')
+            && double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var epoch))
         {
             var ms = epoch > 1e11 ? epoch : epoch * 1000;
             if (ms is > 0 and < 4102444800000)   // before 2100
@@ -102,29 +107,61 @@ public static class LogTime
                 timestamp = DateTimeOffset.FromUnixTimeMilliseconds((long)ms);
                 return true;
             }
-            return false;
+            // "20261121100000" is no epoch: the local formats below may read it
         }
 
-        // With an explicit offset or Z
-        if ((v.EndsWith('Z') || HasOffset(v)) &&
-            DateTimeOffset.TryParse(v, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out timestamp))
+        // With an explicit offset or Z (a value without a date such as "10:00:00Z" would be completed with today)
+        if ((v.EndsWith('Z') || HasOffset(v)) && HasYear(v) &&
+            DateTimeOffset.TryParse(v, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out var zoned)
+            && InRange(zoned.UtcDateTime))
+        {
+            timestamp = zoned;
             return true;
+        }
 
         if (DateTime.TryParseExact(v, LocalFormats, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var local))
-        {
-            timestamp = new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), context.DefaultOffset);
-            return true;
-        }
+            return TryLocal(local, context.DefaultOffset, out timestamp);
 
-        if (DateTime.TryParseExact(v, YearlessFormats, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var noYear))
+        // 2000 = a leap year, so "Feb 29" can be read whatever the current year is
+        if (DateTime.TryParseExact("2000 " + v, YearlessFormats, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out var noYear))
         {
-            var reference = context.ReferenceTime.ToOffset(context.DefaultOffset);
-            var guess = new DateTimeOffset(reference.Year, noYear.Month, Math.Min(noYear.Day, DateTime.DaysInMonth(reference.Year, noYear.Month)),
-                noYear.Hour, noYear.Minute, noYear.Second, context.DefaultOffset).AddTicks(noYear.Ticks % TimeSpan.TicksPerSecond);
-            if (guess > reference.AddDays(1))
-                guess = guess.AddYears(-1);
-            timestamp = guess;
-            return true;
+            var reference = context.ReferenceTime;
+            for (var year = reference.Year + 1; year >= Math.Max(MinYear, reference.Year - 8); year--)
+            {
+                if (year > MaxYear || noYear.Day > DateTime.DaysInMonth(year, noYear.Month))
+                    continue;
+                var candidate = new DateTime(year, noYear.Month, noYear.Day).Add(noYear.TimeOfDay);
+                if (TryLocal(candidate, context.DefaultOffset, out var guess) && guess - reference <= TimeSpan.FromDays(1))
+                {
+                    timestamp = guess;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>A local date and time with an offset; false outside the years 1970 to 2100 (the constructor would throw at the edges).</summary>
+    public static bool TryLocal(DateTime local, TimeSpan offset, out DateTimeOffset timestamp)
+    {
+        timestamp = default;
+        if (!InRange(local) || offset.Ticks % TimeSpan.TicksPerMinute != 0 || offset.Duration() > TimeSpan.FromHours(14))
+            return false;
+        timestamp = new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), offset);
+        return true;
+    }
+
+    private static bool InRange(DateTime t) => t.Year is >= MinYear and <= MaxYear;
+
+    /// <summary>Contains a four-digit year (not just the digits of a "+0200" offset).</summary>
+    private static bool HasYear(string v)
+    {
+        var run = 0;
+        for (var i = 0; i < v.Length - 5; i++)   // not the digits of a "+0200" offset
+        {
+            run = char.IsAsciiDigit(v[i]) ? run + 1 : 0;
+            if (run == 4)
+                return true;
         }
         return false;
     }
@@ -138,6 +175,6 @@ public static class LogTime
         if ((tail[0] == '+' || tail[0] == '-') && tail[3] == ':')
             return true;
         var t5 = v[^5..];
-        return (t5[0] == '+' || t5[0] == '-') && t5[1..].All(char.IsDigit) && v.Contains(':');
+        return (t5[0] == '+' || t5[0] == '-') && t5[1..].All(char.IsAsciiDigit) && v.Contains(':');
     }
 }

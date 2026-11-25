@@ -25,6 +25,7 @@ public sealed class AwsVpcFlowFormat : ILogFormat
 
     private sealed class Parser(LogParseContext context) : ILineParser
     {
+        private const int MaxFields = 128;   // all documented fields (versions 2 to 12) are more than 64
         private string[] _names = DefaultFields;
         private Dictionary<string, int> _ix = Index(DefaultFields);
         private bool _custom;
@@ -33,7 +34,7 @@ public sealed class AwsVpcFlowFormat : ILogFormat
         {
             result = null;
             var t = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (t.Length < 5 || t.Length > 64)
+            if (t.Length < 5 || t.Length > MaxFields)
                 return ParseOutcome.Failed;
             if (IsHeader(t))
             {
@@ -59,8 +60,8 @@ public sealed class AwsVpcFlowFormat : ILogFormat
             if (status is "NODATA" or "SKIPDATA")
                 return ParseOutcome.Skipped;
 
-            var src = Get(t, "srcaddr");
-            var dst = Get(t, "dstaddr");
+            var src = Get(t, "srcaddr") ?? Get(t, "pkt-srcaddr");
+            var dst = Get(t, "dstaddr") ?? Get(t, "pkt-dstaddr");
             if (!IsIp(src) || !IsIp(dst))
                 return ParseOutcome.Failed;
             var actionWord = Get(t, "action");
@@ -103,8 +104,8 @@ public sealed class AwsVpcFlowFormat : ILogFormat
                 var n = raw.Trim('$', '{', '}');
                 if (n.Length == 0 || !n.All(c => c is >= 'a' and <= 'z' or '-' or '_' or >= '0' and <= '9'))
                     return false;
-                hasSrc |= n == "srcaddr";
-                hasDst |= n == "dstaddr";
+                hasSrc |= n is "srcaddr" or "pkt-srcaddr";
+                hasDst |= n is "dstaddr" or "pkt-dstaddr";
             }
             return hasSrc && hasDst;
         }

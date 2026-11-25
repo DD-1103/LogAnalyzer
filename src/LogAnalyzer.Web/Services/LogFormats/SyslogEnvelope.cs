@@ -19,23 +19,24 @@ public sealed partial record SyslogEnvelope(int? Priority, DateTimeOffset? Times
     public string? MsgId { get; init; }
 
     // <PRI>1 TIMESTAMP HOST APP PROCID MSGID (SD|-) MSG
-    [GeneratedRegex(@"^<(?<pri>\d{1,3})>1 (?<ts>\S+) (?<host>\S+) (?<app>\S+) (?<proc>\S+) (?<msgid>\S+) (?<rest>.*)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^<(?<pri>[0-9]{1,3})>1 (?<ts>\S+) (?<host>\S+) (?<app>\S+) (?<proc>\S+) (?<msgid>\S+) (?<rest>.*)\z", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex Rfc5424();
 
-    // [<PRI>]TIMESTAMP HOST [TAG[pid]:] MSG ; TIMESTAMP = "Nov 21 10:00:00" | "Nov 21 2026 10:00:00" | ISO 8601
+    // [<PRI>]TIMESTAMP HOST [TAG[pid]:] MSG ; TIMESTAMP = "Nov 21 10:00:00" | "Nov 21 2026 10:00:00" |
+    // "Nov 21 10:00:00 2026" (Zyxel) | ISO 8601 (with "T" or a space), then an optional zone word (Cisco)
     [GeneratedRegex(
-        @"^(?:<(?<pri>\d{1,3})>:?)?\s*(?<ts>[A-Z][a-z]{2} {1,2}\d{1,2}(?: \d{4})? \d{2}:\d{2}:\d{2}(?:\.\d+)?|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)(?: (?<zone>UTC|GMT))?\s*:?\s+(?<rest>.*)$",
-        RegexOptions.CultureInvariant)]
+        @"^(?:<(?<pri>[0-9]{1,3})>:?)?\s*(?<ts>[A-Z][a-z]{2} {1,2}[0-9]{1,2}(?: [0-9]{4})? [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?|[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:?[0-9]{2})?)(?: (?<year>20[0-9]{2})(?= ))?(?: (?<zone>UTC|GMT|WES?T|BST|CES?T|EES?T|MSK|[ECMP][SD]T)(?=[ :]))?\s*:?\s+(?<rest>.*)\z",
+        RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex Rfc3164();
 
     // Host followed by an optional "tag[pid]:" or "tag:" - the host must not look like a vendor message start.
-    [GeneratedRegex(@"^(?<host>[A-Za-z0-9][\w.\-:]*)\s+(?<rest>.*)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?<host>[A-Za-z0-9][\w.\-:]*)\s+(?<rest>.*)\z", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex HostThenRest();
 
-    [GeneratedRegex(@"^(?<tag>[A-Za-z][\w\-./]{0,47})(?:\[(?<pid>\d+)\])?:\s?(?<msg>.*)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?<tag>[A-Za-z][\w\-./]{0,47})(?:\[(?<pid>[0-9]+)\])?:\s?(?<msg>.*)\z", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex Tag();
 
-    [GeneratedRegex(@"^<(?<pri>\d{1,3})>(?<rest>.*)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^<(?<pri>[0-9]{1,3})>(?<rest>.*)\z", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex PriOnly();
 
     public static SyslogEnvelope Parse(string line, LogParseContext context)
@@ -67,9 +68,13 @@ public sealed partial record SyslogEnvelope(int? Priority, DateTimeOffset? Times
         if (m.Success)
         {
             int? pri = m.Groups["pri"].Success ? int.Parse(m.Groups["pri"].Value) : null;
-            // "Nov 21 10:00:00 UTC" (Cisco ASA / FTD): the zone word wins over the file's default offset.
-            var tsContext = m.Groups["zone"].Success ? context with { DefaultOffset = TimeSpan.Zero } : context;
-            DateTimeOffset? ts = LogTime.TryParse(m.Groups["ts"].Value, tsContext, out var t) ? t : null;
+            // "Nov 21 10:00:00 UTC" / "CEST" (Cisco ASA / FTD): the zone word wins over the file's default offset.
+            var tsContext = m.Groups["zone"].Success && FirewallTime.TryOffset(m.Groups["zone"].Value, out var zone)
+                ? context with { DefaultOffset = zone } : context;
+            var tsText = m.Groups["ts"].Value;
+            if (m.Groups["year"].Success && char.IsAsciiLetter(tsText[0]))
+                tsText = tsText.Insert(tsText.LastIndexOf(' '), " " + m.Groups["year"].Value);
+            DateTimeOffset? ts = LogTime.TryParse(tsText, tsContext, out var t) ? t : null;
             var rest = m.Groups["rest"].Value;
             string? host = null, app = null;
 
@@ -99,6 +104,52 @@ public sealed partial record SyslogEnvelope(int? Priority, DateTimeOffset? Times
             return new SyslogEnvelope(int.Parse(m.Groups["pri"].Value), null, null, null, m.Groups["rest"].Value.TrimStart(), null);
 
         return new SyslogEnvelope(null, null, null, null, line, null);
+    }
+
+    /// <summary>
+    /// Programs that are not a firewall but write attacker-controlled text (user names, URLs) to the same syslog. A
+    /// firewall record found inside such a message is forged ("Invalid user %ASA-4-106023: Deny ...").
+    /// </summary>
+    private static readonly HashSet<string> OtherPrograms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sshd", "sshd-session", "dropbear", "sudo", "su", "login", "cron", "crond", "systemd", "systemd-logind", "nginx", "httpd",
+        "apache", "apache2", "lighttpd", "caddy", "haproxy", "squid", "traefik", "postfix", "dovecot", "exim", "sendmail", "named",
+        "dnsmasq", "unbound", "dhcpd", "mysqld", "mariadbd", "postgres", "vsftpd", "proftpd", "pure-ftpd", "telnetd", "in.telnetd",
+        "xinetd", "smbd", "fail2ban", "audit", "auditd", "openvpn", "pppd", "radiusd", "freeradius", "php", "php-fpm", "tomcat"
+    };
+
+    /// <summary>True when the line was written by one of the <see cref="OtherPrograms"/>.</summary>
+    public bool FromOtherProgram =>
+        AppName is { } app && (OtherPrograms.Contains(app) || app.StartsWith("postfix/", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// True when a vendor record that starts at <paramref name="index"/> of <see cref="Message"/> is the message itself:
+    /// only a few header words (second time stamp, host, serial number) and no quotes in front of it, and not written
+    /// by another program. Guards against records smuggled in through a user name or URL.
+    /// </summary>
+    public bool RecordStartsAt(int index, int maxWords = 6)
+    {
+        if (index < 0 || index > 200 || FromOtherProgram)
+            return false;
+        // after a program tag the record follows (nearly) directly: "host CiscoASA[999]: %ASA-..."
+        var limit = AppName is null ? maxWords : Math.Min(maxWords, 2);
+        var words = 0;
+        var inWord = false;
+        for (var i = 0; i < Math.Min(index, Message.Length); i++)
+        {
+            var c = Message[i];
+            if (c is '"' or '\'' or '=')
+                return false;
+            if (char.IsWhiteSpace(c))
+                inWord = false;
+            else if (!inWord)
+            {
+                inWord = true;
+                if (++words > limit)
+                    return false;
+            }
+        }
+        return true;
     }
 
     private static string? Nil(string v) => v == "-" ? null : v;

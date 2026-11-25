@@ -35,8 +35,14 @@ public sealed class MikroTikFormat : ILogFormat
                 return ParseOutcome.Failed;
             var env = SyslogEnvelope.Parse(line, context);
             var msg = env.Message;
+            if (env.FromOtherProgram)
+                return ParseOutcome.Failed;
 
-            if (firewall)
+            // The topics decide, not the text: a login failure names a user, and a user may be called "a: in:ether1 ...".
+            var space = msg.IndexOf(' ');
+            var topics = space > 0 && IsTopicList(msg[..space]) ? msg[..space] : null;
+            if (firewall && !msg.StartsWith("login failure", StringComparison.Ordinal)
+                && (topics is null || topics.Split(',').Contains("firewall")))
             {
                 // "router1 input: in:ether1 ..." - the syslog parser takes the chain for a tag; put it back
                 if (!msg.Contains(": in:", StringComparison.Ordinal) && env.AppName is { } chainTag && msg.StartsWith("in:", StringComparison.Ordinal))
@@ -45,10 +51,8 @@ public sealed class MikroTikFormat : ILogFormat
             }
 
             // "system,error,critical login failure for user admin from 203.0.113.9 via ssh"
-            var space = msg.IndexOf(' ');
-            if (space <= 0 || !IsTopicList(msg[..space]) || env.Timestamp is null)
+            if (topics is null || env.Timestamp is null)
                 return ParseOutcome.Failed;
-            var topics = msg[..space];
             var text = msg[(space + 1)..].Trim();
             if (!topics.StartsWith("system", StringComparison.Ordinal) && !topics.Contains("account", StringComparison.Ordinal))
                 return ParseOutcome.Skipped;
@@ -59,7 +63,9 @@ public sealed class MikroTikFormat : ILogFormat
                 action = FirewallAction.Allow;
             else
                 return ParseOutcome.Skipped;
-            var ip = WordAfter(text, " from ");
+            // the last "from": the user name in front of it may contain another one
+            var at = text.LastIndexOf(" from ", StringComparison.Ordinal);
+            var ip = at < 0 ? null : WordAfter(text[at..], " from ");
             if (!IsIp(ip))
                 return ParseOutcome.Skipped;
             result = ParsedLine.Network(ip, env.Timestamp.Value, action, Short(text), null, null, null, null, "auth", null, null, env.Host);

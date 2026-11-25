@@ -30,16 +30,41 @@ public sealed class JuniperSrxFormat : ILogFormat
                 return ParseOutcome.Failed;
             var env = SyslogEnvelope.Parse(line, context);
 
-            if (line.Contains("RT_FLOW_SESSION_", StringComparison.Ordinal))
-                return Flow(line, env, out result);
-            if (line.Contains("IDP_ATTACK_LOG_EVENT", StringComparison.Ordinal))
+            // The event tag decides (MSGID, program or first word of the message), never text further on: a user name in
+            // a login failure may contain "RT_FLOW_SESSION_DENY: session denied ...".
+            var tag = EventTag(env);
+            if (tag.StartsWith("RT_FLOW_SESSION_", StringComparison.Ordinal))
+                return Flow(tag, env, out result);
+            if (tag.StartsWith("IDP_ATTACK_LOG_EVENT", StringComparison.Ordinal))
                 return Idp(env, out result);
-            if (line.Contains("RT_SCREEN_", StringComparison.Ordinal))
+            if (tag.StartsWith("RT_SCREEN_", StringComparison.Ordinal))
                 return Screen(env, out result);
-            if (line.Contains("Login failed for user", StringComparison.Ordinal))
+            if (tag.StartsWith("SSHD_LOGIN_FAILED", StringComparison.Ordinal) || tag.StartsWith("LOGIN_FAILED", StringComparison.Ordinal)
+                || env.Message.StartsWith("Login failed for user", StringComparison.Ordinal))
                 return LoginFailed(env, out result);
             return HasJunosTag(env) ? ParseOutcome.Skipped : ParseOutcome.Failed;
         }
+
+        /// <summary>"RT_FLOW_SESSION_DENY" from the RFC 5424 MSGID, the program tag or the start of the message; "" when there is none.</summary>
+        private static string EventTag(SyslogEnvelope env)
+        {
+            if (IsTag(env.MsgId))
+                return env.MsgId!;
+            var msg = env.Message.AsSpan().TrimStart();
+            var end = 0;
+            while (end < msg.Length && end < 64 && (msg[end] is >= 'A' and <= 'Z' or '_' || char.IsAsciiDigit(msg[end])))
+                end++;
+            if (end < msg.Length && msg[end] is ':' or ' ')
+            {
+                var word = msg[..end].ToString();
+                if (IsTag(word))
+                    return word;
+            }
+            return IsTag(env.AppName) ? env.AppName! : "";
+        }
+
+        private static bool IsTag(string? t) => t is not null && t.Length > 3 && JunosTagPrefixes.Any(p => t.StartsWith(p, StringComparison.Ordinal))
+                                                && t.All(c => c is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_');
 
         private static bool LooksJunos(string line)
         {
@@ -52,8 +77,6 @@ public sealed class JuniperSrxFormat : ILogFormat
         /// <summary>The syslog tag or the first word of the message is a Junos event tag ("UI_CMDLINE_READ_LINE:").</summary>
         private static bool HasJunosTag(SyslogEnvelope env)
         {
-            static bool IsTag(string? t) => t is not null && t.Length > 3 && JunosTagPrefixes.Any(p => t.StartsWith(p, StringComparison.Ordinal))
-                                            && t.All(c => c is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_');
             if (IsTag(env.AppName))
                 return true;
             var colon = env.Message.IndexOf(':');
@@ -64,12 +87,13 @@ public sealed class JuniperSrxFormat : ILogFormat
         }
 
         // ---------- RT_FLOW ----------
-        private ParseOutcome Flow(string line, SyslogEnvelope env, out ParsedLine? result)
+        private static ParseOutcome Flow(string tag, SyslogEnvelope env, out ParsedLine? result)
         {
             result = null;
-            var kind = line.Contains("RT_FLOW_SESSION_DENY", StringComparison.Ordinal) ? "deny"
-                : line.Contains("RT_FLOW_SESSION_CREATE", StringComparison.Ordinal) ? "create"
-                : line.Contains("RT_FLOW_SESSION_CLOSE", StringComparison.Ordinal) ? "close" : null;
+            // also the logical-system variants "RT_FLOW_SESSION_DENY_LS"
+            var kind = tag.StartsWith("RT_FLOW_SESSION_DENY", StringComparison.Ordinal) ? "deny"
+                : tag.StartsWith("RT_FLOW_SESSION_CREATE", StringComparison.Ordinal) ? "create"
+                : tag.StartsWith("RT_FLOW_SESSION_CLOSE", StringComparison.Ordinal) ? "close" : null;
             if (kind is null)
                 return HasJunosTag(env) ? ParseOutcome.Skipped : ParseOutcome.Failed;
             if (env.Timestamp is not { } ts)
@@ -276,9 +300,11 @@ public sealed class JuniperSrxFormat : ILogFormat
                 actionWord = Between(msg, "action: ", ",");
                 protoId = Between(msg, "protocol-id: ", ",");
             }
-            if (!TrySplitColonPort(srcText, out var src, out var sport))
+            attack = attack?.Trim().TrimEnd('!');
+            // "Dst IP session limit! destination: ..." names only the destination
+            var hasSource = TrySplitColonPort(srcText, out var src, out var sport);
+            if (!TrySplitColonPort(dstText, out var dst, out var dport) && !hasSource)
                 return ParseOutcome.Failed;
-            TrySplitColonPort(dstText, out var dst, out var dport);
             var upper = attack?.ToUpperInvariant() ?? "";
             var proto = upper.StartsWith("TCP") || upper.Contains("SYN") ? "tcp"
                 : upper.StartsWith("UDP") ? "udp"
@@ -307,11 +333,13 @@ public sealed class JuniperSrxFormat : ILogFormat
             if (env.Timestamp is not { } ts)
                 return ParseOutcome.Failed;
             var msg = env.Message;
-            var host = Between(msg, "from host ", " ")?.Trim('\'', '"', '.');
+            // the last "from host": the user name in front of it may contain another one
+            var at = msg.LastIndexOf("from host ", StringComparison.Ordinal);
+            var host = at < 0 ? null : Between(msg[at..], "from host ", " ")?.Trim('\'', '"', '.');
             if (!IsIp(host))
                 return HasJunosTag(env) ? ParseOutcome.Skipped : ParseOutcome.Failed;
             var tag = msg.IndexOf("Login failed", StringComparison.Ordinal);
-            result = ParsedLine.Network(host, ts, FirewallAction.Deny, Short(msg[tag..]), null, null, null, null, "auth", null, null, env.Host);
+            result = ParsedLine.Network(host, ts, FirewallAction.Deny, Short(msg[Math.Max(0, tag)..]), null, null, null, null, "auth", null, null, env.Host);
             return ParseOutcome.Parsed;
         }
 

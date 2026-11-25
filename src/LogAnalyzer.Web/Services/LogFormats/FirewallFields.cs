@@ -1,6 +1,4 @@
 ﻿using System.Globalization;
-using System.Net;
-using System.Net.Sockets;
 using System.Text;
 using LogAnalyzer.Web.Models;
 
@@ -102,14 +100,11 @@ public static class FirewallFields
         return (s ?? 0) + (r ?? 0);
     }
 
-    /// <summary>True for a literal IPv4 (dotted quad) or IPv6 address.</summary>
+    /// <summary>True for a literal IPv4 (dotted quad) or IPv6 address (a zone id is allowed: "fe80::1%eth0").</summary>
     public static bool IsIp(ReadOnlySpan<char> value)
     {
-        if (value.Length is < 2 or > 64 || value.IndexOfAny('[', ']') >= 0)
-            return false;
-        if (!IPAddress.TryParse(value, out var address))
-            return false;
-        return address.AddressFamily == AddressFamily.InterNetworkV6 ? value.Contains(':') : value.Count('.') == 3;
+        var zone = value.IndexOf('%');
+        return ParsedLine.IsIpLiteral(zone > 0 && value[..zone].Contains(':') ? value[..zone] : value);
     }
 
     /// <summary>

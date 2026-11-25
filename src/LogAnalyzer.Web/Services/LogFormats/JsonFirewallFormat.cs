@@ -50,7 +50,8 @@ public sealed class JsonFirewallFormat : ILogFormat
             JsonDocument document;
             try
             {
-                document = JsonDocument.Parse(text, Options);
+                // through bytes: unpaired surrogates become U+FFFD instead of an exception
+                document = JsonDocument.Parse(System.Text.Encoding.UTF8.GetBytes(text), Options);
             }
             catch (JsonException)
             {
@@ -75,7 +76,10 @@ public sealed class JsonFirewallFormat : ILogFormat
                     {
                         if (Kv.Count >= KeyValueLine.MaxPairs)
                             return;
-                        Flatten(property.Value, path is null ? property.Name : path + "." + property.Name);
+                        var name = NameOf(property);
+                        if (name is null || name.Length + (path?.Length ?? 0) >= MaxPathLength)
+                            continue;
+                        Flatten(property.Value, path is null ? name : path + "." + name);
                     }
                     break;
                 case JsonValueKind.Array:
@@ -97,9 +101,37 @@ public sealed class JsonFirewallFormat : ILogFormat
             }
         }
 
+        private const int MaxPathLength = 256;
+
+        // "\ud800" without its partner is valid JSON text but no valid string: GetString / Name throw. One such value
+        // (a user agent) must not make the whole event unreadable.
+        private static string? NameOf(JsonProperty property)
+        {
+            try
+            {
+                return property.Name;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+
+        private static string TextOf(JsonElement e)
+        {
+            try
+            {
+                return e.GetString() ?? "";
+            }
+            catch (InvalidOperationException)
+            {
+                return e.GetRawText().Trim('"');
+            }
+        }
+
         private static string? Scalar(JsonElement e) => e.ValueKind switch
         {
-            JsonValueKind.String => e.GetString(),
+            JsonValueKind.String => TextOf(e),
             JsonValueKind.Number => e.GetRawText(),
             JsonValueKind.True => "true",
             JsonValueKind.False => "false",
@@ -109,10 +141,17 @@ public sealed class JsonFirewallFormat : ILogFormat
         private void Add(string path, string value)
         {
             var (field, priority) = ResolvePath(path);
+            // A client chooses its HTTP headers: repeated paths and fields without a meaning must not use up the room
+            // for the addresses that follow them.
+            if ((field == KvField.None && Kv.Count >= KeyValueLine.MaxPairs / 2) || Kv.Has(path))
+                return;
             Kv.AddResolved(path, value, field, priority);
         }
 
-        /// <summary>Full dotted path, else the last two segments (+5), else the last segment (+10).</summary>
+        /// <summary>
+        /// Full dotted path, else the last two segments (+5), else the last segment (+10); one more per level, so
+        /// "event.src_ip" wins over an HTTP header that a client named "src_ip" ("event.http.headers.src_ip").
+        /// </summary>
         internal static (KvField Field, byte Priority) ResolvePath(string path)
         {
             var hit = KvAliases.Resolve(path);
@@ -121,15 +160,16 @@ public sealed class JsonFirewallFormat : ILogFormat
             var last = path.LastIndexOf('.');
             if (last < 0)
                 return hit;
+            var depth = Math.Min(path.AsSpan().Count('.'), 64);
             var previous = last > 0 ? path.LastIndexOf('.', last - 1) : -1;
             if (previous >= 0)
             {
                 hit = KvAliases.Resolve(path.AsSpan(previous + 1));
                 if (hit.Field != KvField.None)
-                    return (hit.Field, (byte)(hit.Priority + 5));
+                    return (hit.Field, (byte)(hit.Priority + 5 + depth));
             }
             hit = KvAliases.Resolve(path.AsSpan(last + 1));
-            return hit.Field != KvField.None ? (hit.Field, (byte)(hit.Priority + 10)) : hit;
+            return hit.Field != KvField.None ? (hit.Field, (byte)(hit.Priority + 10 + depth)) : hit;
         }
 
         private ParseOutcome Interpret(DateTimeOffset? envelopeTime, string? envelopeHost, out ParsedLine? result)
@@ -187,6 +227,8 @@ public sealed class JsonFirewallFormat : ILogFormat
             // Guard against other JSON logs: an address alone is not a firewall event.
             var firewallLike = dst.Ip is not null || action is not null || dst.Port is not null || transport is not null || isThreat || isAuth;
             if ((src.Ip is null && dst.Ip is null) || !firewallLike)
+                return ParseOutcome.Failed;
+            if (action is null && !isThreat && !isAuth && LooksLikeWebRequest())
                 return ParseOutcome.Failed;
             var time = FirewallTime.FromFields(Kv, Context) ?? envelopeTime;
             if (time is null)

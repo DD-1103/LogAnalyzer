@@ -86,8 +86,10 @@ public static class LogFormatDetector
 
 /// <summary>
 /// Parses a file with its detected format; a line that format cannot read is tried with the other formats of the same
-/// kind (a syslog collector often mixes several firewalls in one file). The format that read the last fallback line is
-/// tried first next time. <see cref="UsedFormats"/> names every format that produced events.
+/// kind (a syslog collector often mixes several firewalls in one file). An event (Parsed) of any of them wins over a
+/// Skipped answer of another one; a line the main format skips itself is only given to vendor and structured formats,
+/// not to the generic key=value reader. Among equally specific formats the one that read the last fallback line is
+/// tried first. <see cref="UsedFormats"/> names every format that produced events.
 /// </summary>
 public sealed class MultiFormatParser
 {
@@ -96,11 +98,14 @@ public sealed class MultiFormatParser
     private readonly Dictionary<string, int> _used = new(StringComparer.Ordinal);
 
     public MultiFormatParser(ILogFormat primary, LogParseContext context, bool allowFallback = true)
+        : this(primary, context, allowFallback ? LogFormatRegistry.OfSource(primary.Source).Where(f => f.Id != primary.Id) : [])
+    {
+    }
+
+    public MultiFormatParser(ILogFormat primary, LogParseContext context, IEnumerable<ILogFormat> fallbacks)
     {
         _primary = (primary, primary.CreateParser(context));
-        _fallbacks = allowFallback
-            ? LogFormatRegistry.OfSource(primary.Source).Where(f => f.Id != primary.Id).Select(f => (f, f.CreateParser(context))).ToList()
-            : [];
+        _fallbacks = fallbacks.Select(f => (f, f.CreateParser(context))).ToList();
     }
 
     public ILogFormat Primary => _primary.Format;
@@ -110,31 +115,46 @@ public sealed class MultiFormatParser
 
     public ParseOutcome Parse(string line, out ParsedLine? result)
     {
-        var outcome = LogFormatDetector.SafeParse(_primary.Parser, line, out result);
-        if (outcome != ParseOutcome.Failed)
+        var primary = LogFormatDetector.SafeParse(_primary.Parser, line, out result);
+        if (primary == ParseOutcome.Parsed)
         {
-            if (outcome == ParseOutcome.Parsed)
-                Count(_primary.Format);
-            return outcome;
+            Count(_primary.Format);
+            return primary;
         }
 
+        var best = primary;
         for (var i = 0; i < _fallbacks.Count; i++)
         {
             var (format, parser) = _fallbacks[i];
-            outcome = LogFormatDetector.SafeParse(parser, line, out result);
-            if (outcome == ParseOutcome.Failed)
+            if (primary == ParseOutcome.Skipped && format.Specificity < MinSpecificityOverSkipped)
                 continue;
-            if (i > 0)
-            {
-                _fallbacks.RemoveAt(i);
-                _fallbacks.Insert(0, (format, parser));
-            }
+            var outcome = LogFormatDetector.SafeParse(parser, line, out result);
             if (outcome == ParseOutcome.Parsed)
+            {
+                MoveForward(i);
                 Count(format);
-            return outcome;
+                return outcome;
+            }
+            if (outcome == ParseOutcome.Skipped)
+                best = ParseOutcome.Skipped;
         }
         result = null;
-        return ParseOutcome.Failed;
+        return best;
+    }
+
+    private const int MinSpecificityOverSkipped = 50;
+
+    /// <summary>Most recently used first, but never in front of a more specific format.</summary>
+    private void MoveForward(int index)
+    {
+        var entry = _fallbacks[index];
+        var target = index;
+        while (target > 0 && _fallbacks[target - 1].Format.Specificity <= entry.Format.Specificity)
+            target--;
+        if (target == index)
+            return;
+        _fallbacks.RemoveAt(index);
+        _fallbacks.Insert(target, entry);
     }
 
     /// <summary>"Fortinet FortiGate" or "Fortinet FortiGate + Cisco ASA / FTD" (most events first), max 300 chars.</summary>

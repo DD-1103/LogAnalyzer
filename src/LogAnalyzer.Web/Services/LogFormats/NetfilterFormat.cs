@@ -18,10 +18,21 @@ public sealed partial class NetfilterFormat : ILogFormat
     public int Specificity => 100;
     public ILineParser CreateParser(LogParseContext context) => new Parser(context);
 
+    // The part sshd writes itself before the user name, and after the last " from " (address, port, "ssh2[: key]").
     [System.Text.RegularExpressions.GeneratedRegex(
-        @"^(?:(?<ok>Accepted) (?:password|publickey|keyboard-interactive/pam) for |Failed (?:password|publickey|keyboard-interactive/pam) for (?:invalid user )?|Invalid user )(?<u>\S{1,64}) from (?<ip>[0-9A-Fa-f:.]+)(?: port (?<p>\d{1,5}))?",
+        @"^(?:(?<ok>Accepted) [a-z\-/]{1,40} for |Failed [a-z\-/]{1,40} for (?:invalid user )?|Invalid user )",
         System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
-    private static partial System.Text.RegularExpressions.Regex SshdLogin();
+    private static partial System.Text.RegularExpressions.Regex SshdLoginStart();
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"^(?<ip>[0-9A-Fa-f:.]{2,45})(?: port (?<p>[0-9]{1,5}))?(?: ssh2(?:: .*)?)?\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex SshdLoginEnd();
+
+    // rsyslog / syslog-ng: "message repeated 5 times: [ Failed password for root from 203.0.113.9 port 4444 ssh2]"
+    [System.Text.RegularExpressions.GeneratedRegex(@"^message repeated (?<n>[0-9]{1,6}) times: \[ ?(?<m>.*)\]\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex RepeatedMessage();
 
     private sealed class Parser(LogParseContext context) : ILineParser
     {
@@ -30,9 +41,15 @@ public sealed partial class NetfilterFormat : ILogFormat
             result = null;
             if (line.Length < 30)
                 return ParseOutcome.Failed;
-            if (!line.Contains("SRC=", StringComparison.Ordinal) || !line.Contains("DST=", StringComparison.Ordinal))
-                return line.Contains("sshd", StringComparison.Ordinal) ? Sshd(line, out result) : ParseOutcome.Failed;
+            var packet = line.Contains("SRC=", StringComparison.Ordinal) && line.Contains("DST=", StringComparison.Ordinal);
+            if (!packet && !line.Contains("sshd", StringComparison.Ordinal))
+                return ParseOutcome.Failed;
             var env = SyslogEnvelope.Parse(line, context);
+            // The program decides, not the text: an sshd user may be called "IN= SRC=10.0.0.1 DST=10.0.0.2".
+            if (env.AppName?.StartsWith("sshd", StringComparison.Ordinal) == true)
+                return Sshd(env, out result);
+            if (!packet || env.FromOtherProgram)
+                return ParseOutcome.Failed;
             var msg = env.Message;
 
             var inIdx = FindKey(msg, "IN=");
@@ -82,27 +99,38 @@ public sealed partial class NetfilterFormat : ILogFormat
         /// <summary>
         /// OpenSSH login lines that Linux gateways write to the same syslog as the firewall ("sshd[123]: Failed password
         /// for invalid user admin from 203.0.113.9 port 51234 ssh2", "Invalid user x from ...", "Accepted password for ...")
-        /// become authentication events (failed = Deny, accepted = Allow). Other sshd lines are skipped.
+        /// become authentication events (failed = Deny, accepted = Allow). The user name is attacker-controlled (it may be
+        /// empty or "root from 10.0.0.1 port 22"), so the LAST "from address port" is the source. A "message repeated N
+        /// times" line is one event with the count in its message. Other sshd lines are skipped.
         /// </summary>
-        private ParseOutcome Sshd(string line, out ParsedLine? result)
+        private static ParseOutcome Sshd(SyslogEnvelope env, out ParsedLine? result)
         {
             result = null;
-            var env = SyslogEnvelope.Parse(line, context);
-            if (env.AppName is null || !env.AppName.StartsWith("sshd", StringComparison.Ordinal))
-                return ParseOutcome.Failed;
             // Junos writes "sshd: SSHD_LOGIN_FAILED: ..." - that is a Juniper line, read by its own format.
             if (env.Message.StartsWith("SSHD_", StringComparison.Ordinal))
                 return ParseOutcome.Failed;
-            var m = SshdLogin().Match(env.Message);
-            if (!m.Success || !IsIp(m.Groups["ip"].Value))
+            var text = env.Message.TrimEnd();
+            var repeated = RepeatedMessage().Match(text);
+            if (repeated.Success)
+                text = repeated.Groups["m"].Value.TrimEnd();
+            var start = SshdLoginStart().Match(text);
+            if (!start.Success)
+                return ParseOutcome.Skipped;
+            var rest = " " + text[start.Length..];
+            var from = rest.LastIndexOf(" from ", StringComparison.Ordinal);
+            var end = from < 0 ? null : SshdLoginEnd().Match(rest[(from + 6)..]);
+            if (end is not { Success: true } || !IsIp(end.Groups["ip"].Value))
                 return ParseOutcome.Skipped;
             if (env.Timestamp is not { } ts)
                 return ParseOutcome.Failed;
-            var ok = m.Groups["ok"].Success;
-            var user = m.Groups["u"].Value;
-            int? sport = m.Groups["p"].Success ? Port(m.Groups["p"].Value) : null;
-            var message = ok ? $"sshd: accepted login for {user}" : $"sshd: failed login for {user}";
-            result = ParsedLine.Network(m.Groups["ip"].Value, ts, ok ? FirewallAction.Allow : FirewallAction.Deny, message,
+            var ok = start.Groups["ok"].Success;
+            var user = Short(rest[..from].Trim(), 64);
+            if (user.Length == 0)
+                user = "(empty user name)";
+            int? sport = end.Groups["p"].Success ? Port(end.Groups["p"].Value) : null;
+            var message = (ok ? $"sshd: accepted login for {user}" : $"sshd: failed login for {user}")
+                          + (repeated.Success ? $" (message repeated {repeated.Groups["n"].Value} times)" : "");
+            result = ParsedLine.Network(end.Groups["ip"].Value, ts, ok ? FirewallAction.Allow : FirewallAction.Deny, message,
                 null, sport, 22, "tcp", "auth", "sshd", null, env.Host);
             return ParseOutcome.Parsed;
         }
