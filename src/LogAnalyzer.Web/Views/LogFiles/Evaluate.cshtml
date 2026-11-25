@@ -33,7 +33,15 @@
                 <span class="lg-icon lg-tint-indigo" aria-hidden="true"><i class="bi bi-clipboard-data"></i></span>
                 <p class="mb-0 text-body-secondary">
                     The CSV needs two columns: <code>line,label</code>. Use <code>normal</code> for benign lines and an attack name
-                    (<code>sqli</code>, <code>xss</code>, <code>traversal</code>, <code>bruteforce</code>, <code>direnum</code>, <code>scanner</code>) for malicious ones.
+                    @if (f.Source == LogSource.Firewall)
+                    {
+                        <text>(<code>portscan</code>, <code>sweep</code>, <code>bruteforce</code>, <code>flood</code>, <code>intrusion</code>, <code>c2</code>, <code>authfail</code>)</text>
+                    }
+                    else
+                    {
+                        <text>(<code>sqli</code>, <code>xss</code>, <code>traversal</code>, <code>bruteforce</code>, <code>direnum</code>, <code>scanner</code>)</text>
+                    }
+                    for malicious ones.
                 </p>
             </div>
         </div>
@@ -171,7 +179,9 @@
                 </div>
                 <p class="lg-note">
                     Per-type FP counts lines flagged by that rule type but labelled as a different (or no) attack.
-                    Example: sqlmap requests are labelled <code>sqli</code> but also match the scanner user-agent rule.
+                    @(f.Source == LogSource.Firewall
+                        ? "Example: a port scan with many blocked connections is labelled portscan but also matches the flood rule."
+                        : "Example: sqlmap requests are labelled sqli but also match the scanner user-agent rule.")
                 </p>
             </div></div>
         </div>
@@ -206,7 +216,9 @@
         </table>
     </div>
     <p class="lg-note">
-        Anomaly alerts are per IP, so all requests of a flagged IP count as flagged. If the anomaly rule is disabled,
-        its row is empty. Re-run detection after changing rules, then evaluate again.
+        @(f.Source == LogSource.Firewall
+            ? "Anomaly detection runs on web access logs only, so its row is empty for firewall logs."
+            : "Anomaly alerts are per IP, so all requests of a flagged IP count as flagged. If the anomaly rule is disabled, its row is empty.")
+        Re-run detection after changing rules, then evaluate again.
     </p>
 }

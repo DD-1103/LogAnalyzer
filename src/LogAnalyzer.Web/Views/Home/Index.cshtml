@@ -73,7 +73,12 @@
                 </div>
                 <div>
                     <div class="lg-stat-value" data-countup>@Model.Events.ToString("N0")</div>
-                    <div class="lg-stat-meta">HTTP requests in the logs</div>
+                    <div class="lg-stat-meta">@(scopedFile?.Source switch
+                    {
+                        LogSource.Firewall => "Firewall events in this log",
+                        LogSource.WebAccess => "HTTP requests in this log",
+                        _ => "HTTP requests and firewall events"
+                    })</div>
                 </div>
             </div>
         </div>
@@ -101,7 +106,7 @@
                 </div>
                 <div>
                     <div class="lg-stat-value" data-countup>@Model.EnabledRules.ToString("N0")</div>
-                    <div class="lg-stat-meta">Signature, threshold and anomaly</div>
+                    <div class="lg-stat-meta">Signature, threshold, count and anomaly</div>
                 </div>
             </div>
         </a>
@@ -114,19 +119,19 @@
         <div class="card h-100"><div class="card-body">
             <h2 class="lg-section-title">
                 <span class="lg-icon lg-icon-sm lg-tint-blue" aria-hidden="true"><i class="bi bi-graph-up"></i></span>
-                Requests over time
+                Events over time
             </h2>
             @if (Model.HourLabels.Count == 0)
             {
                 <div class="lg-empty">
                     <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i>
-                    <p>No traffic yet. Upload an access log to see requests per hour.</p>
+                    <p>No traffic yet. Upload a web server or firewall log to see events per hour.</p>
                     <a asp-controller="LogFiles" asp-action="Upload" class="btn btn-primary btn-sm">Upload a log file</a>
                 </div>
             }
             else
             {
-                <div class="chart-box lg-chart-tall"><canvas id="chartTimeline" aria-label="Requests per hour, all and malicious" role="img"></canvas></div>
+                <div class="chart-box lg-chart-tall"><canvas id="chartTimeline" aria-label="Events per hour, all and malicious" role="img"></canvas></div>
             }
         </div></div>
     </div>
@@ -157,7 +162,7 @@
         <div class="card h-100"><div class="card-body">
             <h2 class="lg-section-title">
                 <span class="lg-icon lg-icon-sm lg-tint-red" aria-hidden="true"><i class="bi bi-bar-chart-fill"></i></span>
-                Malicious requests by attack type
+                Malicious events by attack type
             </h2>
             @if (Model.ByAttackType.Count == 0)
             {
@@ -168,7 +173,7 @@
             }
             else
             {
-                <div class="chart-box lg-chart-tall"><canvas id="chartTypes" aria-label="Malicious requests by attack type" role="img"></canvas></div>
+                <div class="chart-box lg-chart-tall"><canvas id="chartTypes" aria-label="Malicious events by attack type" role="img"></canvas></div>
             }
         </div></div>
     </div>
@@ -228,7 +233,7 @@
                             <tr>
                                 <th>Attacker</th>
                                 <th>Attack types</th>
-                                <th class="text-end">Requests</th>
+                                <th class="text-end">Events</th>
                                 <th>Max</th>
                             </tr>
                         </thead>

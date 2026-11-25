@@ -382,7 +382,11 @@ public class AlertsController(AppDbContext db, UserManager<AppUser> userManager,
         if (status.HasValue) query = query.Where(a => a.Status == status.Value);
         if (severity.HasValue) query = query.Where(a => a.Severity == severity.Value);
         if (attackType.HasValue) query = query.Where(a => a.AttackType == attackType.Value);
-        if (!string.IsNullOrWhiteSpace(ip)) query = query.Where(a => a.SourceIp == ip.Trim());
+        if (!string.IsNullOrWhiteSpace(ip))
+        {
+            var address = IpAddressPolicy.Canonical(ip.Trim());   // alerts hold the canonical form
+            query = query.Where(a => a.SourceIp == address);
+        }
         if (logFileId.HasValue) query = query.Where(a => a.LogFileId == logFileId.Value);
         // Escalated by SOC 1 and still open: the SOC 2 work queue.
         if (escalated) query = query.Where(a => a.EscalatedAt != null

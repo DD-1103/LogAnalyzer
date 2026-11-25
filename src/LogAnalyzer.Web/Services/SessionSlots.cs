@@ -94,17 +94,22 @@ public static class SessionSlots
     /// <summary>
     /// A return URL is followed only when it is local (like Url.IsLocalUrl: "/x", not "//host", "/\host" or absolute)
     /// and stays in the session slot of this request: a sign-in in slot 2 never lands on a page of slot 0 or 3,
-    /// where a different user may be signed in.
+    /// where a different user may be signed in. The check is made on the path as browser and server will read it:
+    /// percent-encoding is decoded, and paths that are rewritten after the check ("..", "." or "\", also encoded) are
+    /// refused. Only printable ASCII is accepted (a Location header cannot hold anything else).
     /// </summary>
     public static bool IsLocalToCurrentSlot(HttpRequest request, string? url)
     {
-        if (!IsLocalPath(url))
+        if (!IsLocalPath(url) || url!.Any(c => c is < '!' or > '~'))
             return false;
-        var path = url!.Split('?', '#')[0];
+        var path = Uri.UnescapeDataString(url!.Split('?', '#')[0]);
+        if (!IsLocalPath(path) || path.Contains('\\') || path.Split('/').Any(s => s is "." or ".."))
+            return false;
         var pathBase = request.PathBase.Value ?? "";
         if (pathBase.Length > 0)
         {
-            if (!path.StartsWith(pathBase, StringComparison.OrdinalIgnoreCase))
+            // Case-sensitive like TryParse: "/S/2" is not slot 2.
+            if (!path.StartsWith(pathBase, StringComparison.Ordinal))
                 return false;
             if (path.Length > pathBase.Length && path[pathBase.Length] != '/')
                 return false;

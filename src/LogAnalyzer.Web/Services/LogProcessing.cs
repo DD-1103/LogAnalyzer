@@ -199,11 +199,11 @@ public sealed class LogProcessingWorker(
         // Which format? The one chosen on upload, otherwise detected from the first lines (web access log or one of
         // the firewall formats). Time stamps without a year/zone are read relative to the upload (UTC).
         var context = new LogParseContext(new DateTimeOffset(DateTime.SpecifyKind(file.UploadedAt, DateTimeKind.Utc)), TimeSpan.Zero);
-        var format = LogFormatRegistry.Find(file.RequestedFormat);
+        var requested = LogFormatRegistry.Find(file.RequestedFormat);
+        var format = requested;
         if (format is null)
         {
-            var sample = await ReadSampleAsync(path, file.FileName, limits, ct);
-            format = LogFormatDetector.Detect(sample, context).Format;
+            format = await DetectFormatAsync(path, file.FileName, limits, context, ct);
             logger.LogInformation("Log file {Id}: detected format {Format}", id, format?.DisplayName ?? "(none)");
         }
         var recognised = format is not null;
@@ -288,7 +288,26 @@ public sealed class LogProcessingWorker(
             await bulk.WriteToServerAsync(table, ct);
 
         var parseMs = sw.ElapsedMilliseconds;
-        var formatText = recognised ? parser.Describe() : null;
+        var formatText = parsed > 0 || (recognised && total == 0) ? parser.Describe() : null;
+
+        // Nothing readable: Failed with an explanation, not "Completed" with 0 events (which looks like a clean log).
+        if (parsed == 0 && total > 0)
+        {
+            var looksLike = requested is null ? null : await DetectFormatAsync(path, file.FileName, limits, context, ct);
+            var message = LogImport.FailureMessage(total, parsed, requested, looksLike);
+            await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
+                .SetProperty(f => f.Format, (string?)null)
+                .SetProperty(f => f.Status, LogFileStatus.Failed)
+                .SetProperty(f => f.ErrorMessage, message)
+                .SetProperty(f => f.TotalLines, total)
+                .SetProperty(f => f.ParsedLines, 0)
+                .SetProperty(f => f.FailedLines, failed)
+                .SetProperty(f => f.ParseMilliseconds, parseMs)
+                .SetProperty(f => f.ProcessingAttempts, 0), ct);
+            logger.LogWarning("Log file {Id}: none of the {Total} lines could be parsed", id, total);
+            return;
+        }
+
         await db.LogFiles.Where(f => f.Id == id).ExecuteUpdateAsync(s => s
             .SetProperty(f => f.Format, formatText)
             .SetProperty(f => f.Status, LogFileStatus.Analyzing)
@@ -370,20 +389,13 @@ public sealed class LogProcessingWorker(
         return new BoundedLineReader(new StreamReader(input), limits.MaxLineLength);
     }
 
-    /// <summary>The first non-empty lines of the file, for format detection.</summary>
-    private static async Task<List<string>> ReadSampleAsync(string path, string fileName, ProcessingOptions limits, CancellationToken ct)
+    /// <summary>Format of the first lines of the file (see <see cref="LogImport.DetectAsync"/>), null when none fits.</summary>
+    private static async Task<ILogFormat?> DetectFormatAsync(string path, string fileName, ProcessingOptions limits,
+        LogParseContext context, CancellationToken ct)
     {
-        var sample = new List<string>(LogFormatDetector.SampleLines);
         await using var fileStream = File.OpenRead(path);
         using var reader = OpenReader(fileStream, fileName, limits);
-        var read = 0;
-        while (sample.Count < LogFormatDetector.SampleLines && read++ < LogFormatDetector.SampleLines * 20
-               && await reader.ReadLineAsync(ct) is { } line)
-        {
-            if (!line.TooLong && !string.IsNullOrWhiteSpace(line.Text))
-                sample.Add(line.Text);
-        }
-        return sample;
+        return (await LogImport.DetectAsync(reader, context, ct)).Format;
     }
 
     /// <summary>Deletes a file and all its data in batches (the request only marks it Deleting).</summary>
@@ -455,6 +467,5 @@ public sealed class LogProcessingWorker(
         return t;
     }
 
-    private static string? Cut(string? value, int max) =>
-        value is null || value.Length <= max ? value : value[..max];
+    private static string? Cut(string? value, int max) => LogImport.Cut(value, max);
 }

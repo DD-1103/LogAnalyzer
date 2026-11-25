@@ -213,6 +213,13 @@ public static class Format
         };
     }
 
+    /// <summary>"01:02:03", with the days in front from 24 hours on ("2 d 01:02:03").</summary>
+    public static string Duration(TimeSpan value)
+    {
+        var time = value.Duration();
+        return (time.Days > 0 ? $"{time.Days} d " : "") + time.ToString(@"hh\:mm\:ss");
+    }
+
     public static string TimeAgo(DateTime utc)
     {
         var d = DateTime.UtcNow - utc;

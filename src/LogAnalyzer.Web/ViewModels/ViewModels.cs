@@ -64,6 +64,7 @@ public class LogFileDetailsViewModel
     public FirewallAction? FwAction { get; set; }
     public int? DestinationPort { get; set; }
     public int AlertCount { get; set; }
+    public bool Filtered => !string.IsNullOrWhiteSpace(Ip) || Status.HasValue || FwAction.HasValue || DestinationPort.HasValue;
 }
 
 public class EvaluationViewModel

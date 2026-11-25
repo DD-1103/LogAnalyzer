@@ -44,6 +44,7 @@ public class LogFilesController(
     {
         // "auto" (default) = detect from the first lines; otherwise one of the registered format ids.
         var requested = string.IsNullOrWhiteSpace(format) || format == LogFormatRegistry.AutoId ? null : LogFormatRegistry.Find(format)?.Id;
+        ViewData["Format"] = requested;   // keeps the choice when the form is shown again
         if (requested is null && !string.IsNullOrWhiteSpace(format) && format != LogFormatRegistry.AutoId)
         {
             ModelState.AddModelError(string.Empty, "Unknown log format.");
@@ -56,7 +57,8 @@ public class LogFilesController(
             return View();
         }
 
-        var originalName = Path.GetFileName(file.FileName);
+        // "filename*=" may hold encoded line breaks: cleaned before the name is stored, logged and audited.
+        var originalName = AuditLog.Clean(Path.GetFileName(file.FileName))!;
         var extension = Path.GetExtension(originalName).ToLowerInvariant();
         if (!AllowedExtensions.Contains(extension))
         {
@@ -109,9 +111,18 @@ public class LogFilesController(
         if (file is null)
             return NotFound();
 
+        // Filters of the other kind of log are ignored (the form does not show them, so they would hide all events).
+        if (file.Source == LogSource.Firewall)
+            status = null;
+        else
+            (fwAction, dport) = (null, null);
+
         var query = db.LogEvents.AsNoTracking().Where(e => e.LogFileId == id);
         if (!string.IsNullOrWhiteSpace(ip))
-            query = query.Where(e => e.ClientIp == ip.Trim());
+        {
+            var address = IpAddressPolicy.Canonical(ip.Trim());   // events hold the canonical form
+            query = query.Where(e => e.ClientIp == address);
+        }
         if (status.HasValue)
             query = query.Where(e => e.StatusCode == status.Value);
         if (fwAction.HasValue)
@@ -200,7 +211,8 @@ public class LogFilesController(
         }
 
         await using var stream = labels.OpenReadStream();
-        var parsed = EvaluationService.ParseLabels(stream, maxLine: Math.Max(1, file.TotalLines));
+        var lastEventLine = await db.LogEvents.Where(e => e.LogFileId == id).MaxAsync(e => (int?)e.LineNumber, ct) ?? 0;
+        var parsed = EvaluationService.ParseLabels(stream, LogImport.MaxLabelLine(file, lastEventLine));
         if (parsed.Count == 0)
         {
             ModelState.AddModelError(string.Empty, "No labels found. Expected lines like: 15,sqli");

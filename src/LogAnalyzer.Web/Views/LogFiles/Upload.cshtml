@@ -39,13 +39,13 @@
                 <div class="mb-4">
                     <label class="form-label small" for="format">Log format</label>
                     <select id="format" name="format" class="form-select">
-                        <option value="@LogAnalyzer.Web.Services.LogFormats.LogFormatRegistry.AutoId" selected>Detect automatically (recommended)</option>
+                        <option value="@LogAnalyzer.Web.Services.LogFormats.LogFormatRegistry.AutoId">Detect automatically (recommended)</option>
                         @foreach (var group in FirewallFormat.UploadChoices())
                         {
                             <optgroup label="@(group.Key == LogSource.Firewall ? "Firewalls" : "Web servers")">
                                 @foreach (var format in group)
                                 {
-                                    <option value="@format.Id">@format.DisplayName</option>
+                                    <option value="@format.Id" selected="@(ViewData["Format"] as string == format.Id)">@format.DisplayName</option>
                                 }
                             </optgroup>
                         }
