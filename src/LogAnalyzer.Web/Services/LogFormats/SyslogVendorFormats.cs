@@ -30,8 +30,7 @@ public sealed class CheckPointFormat : ILogFormat
                 return ParseOutcome.Failed;
             var envelope = SyslogEnvelope.Parse(line, Context);
             var text = envelope.StructuredData is null ? envelope.Message : envelope.StructuredData + " " + envelope.Message;
-            KeyValueReader.Read(text, Kv);
-            var product = Kv.Get("product");
+            var product = ReadRecord(envelope, text) ? Kv.Get("product") : null;
             if (product is null || !(Kv.Has("origin") || Kv.Has("orig") || Kv.Has("loguid") || Kv.Has("originsicname")))
                 return ParseOutcome.Failed;
 
@@ -86,8 +85,8 @@ public sealed class CheckPointFormat : ILogFormat
             if (ParseTime(value) is { } ts)
                 return ts;
             return DateTime.TryParseExact(value.Trim(), ["dMMMyyyy H:mm:ss", "ddMMMyyyy H:mm:ss"], CultureInfo.InvariantCulture,
-                DateTimeStyles.None, out var local)
-                ? new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), Context.DefaultOffset)
+                DateTimeStyles.None, out var local) && LogTime.TryLocal(local, Context.DefaultOffset, out var stamp)
+                ? stamp
                 : null;
         }
     }
@@ -124,12 +123,7 @@ public sealed class HuaweiFormat : ILogFormat
             var envelope = SyslogEnvelope.Parse(line, Context);
             var message = envelope.Message;
             var start = message.IndexOf("%%", StringComparison.Ordinal);
-            if (start < 0)
-            {
-                message = line;
-                start = line.IndexOf("%%", StringComparison.Ordinal);
-            }
-            if (!TryHeader(message, start, out var module, out var mnemonic, out var bodyStart))
+            if (!envelope.RecordStartsAt(start) || !TryHeader(message, start, out var module, out var mnemonic, out var bodyStart))
                 return ParseOutcome.Failed;
 
             var body = message[bodyStart..].Trim();
@@ -236,8 +230,8 @@ public sealed class MerakiFormat : ILogFormat
 
     private static readonly HashSet<string> Types = new(StringComparer.Ordinal)
     {
-        "flows", "firewall", "vpn_firewall", "cellular_firewall", "bridge_anyconnect_client_vpn_firewall", "l7_firewall",
-        "ids-alerts", "security_event", "urls", "events", "airmarshal_events", "port_forwarding"
+        "flows", "firewall", "vpn_firewall", "cellular_firewall", "bridge_anyconnect_client_vpn_firewall", "l7_firewall", "gp_firewall",
+        "ip_flow_start", "ip_flow_end", "ids-alerts", "security_event", "urls", "events", "airmarshal_events", "port_forwarding"
     };
 
     private sealed class Parser(LogParseContext context) : FirewallLineParser(context)
@@ -256,16 +250,16 @@ public sealed class MerakiFormat : ILogFormat
             }
 
             // Free text after the pairs: "pattern: deny all", "message: ET SCAN ...", "request: GET http://..."
+            // The first marker wins: what follows is free text and may contain the other words.
             var tail = (string?)null;
             var kvText = rest;
             foreach (var marker in (ReadOnlySpan<string>)["pattern:", "message:", "request:"])
             {
                 var i = rest.IndexOf(marker, StringComparison.Ordinal);
-                if (i >= 0 && (i == 0 || rest[i - 1] == ' '))
+                if (i >= 0 && i < kvText.Length && (i == 0 || rest[i - 1] == ' '))
                 {
                     kvText = rest[..i];
                     tail = rest[(i + marker.Length)..].Trim();
-                    break;
                 }
             }
             KeyValueReader.Read(kvText, Kv);
@@ -301,7 +295,8 @@ public sealed class MerakiFormat : ILogFormat
                     var text = rest;
                     if (!LooksLikeAuth(text))
                         return Build(out result, time, FirewallAction.Unknown, src, dst, transport, "event", null, null, null, host);
-                    if (src.Ip is null && IpAfter(text, " from ") is { } from)
+                    // "msg= 'Peer IP=203.0.113.9Peer port[8748] AAA[8]: ...'" (documented with and without the space)
+                    if (src.Ip is null && (IpPrefixAfter(text, "Peer IP=") ?? IpAfter(text, " from ")) is { } from)
                         src = new Endpoint(from, null, null);
                     var failed = LooksLikeFailure(text);
                     return Build(out result, time, failed ? FirewallAction.Deny : FirewallAction.Allow, src, dst, transport, "auth",
@@ -309,8 +304,10 @@ public sealed class MerakiFormat : ILogFormat
                 }
                 default:
                 {
-                    // flows / firewall / vpn_firewall / ...: "pattern: allow all", newer firmware also "flows deny src=..."
-                    var action = TryAction(FirstWord(tail)) ?? TryAction(firstWord) ?? FirewallAction.Unknown;
+                    // flows / firewall / vpn_firewall / ...: "pattern: allow all" (also "1 all" = allow, "0 all" = deny),
+                    // access points "flows deny src=...", l7_firewall / gp_firewall "decision=blocked"
+                    var action = PatternAction(FirstWord(tail)) ?? TryAction(Kv.Get("decision")) ?? TryAction(firstWord)
+                                 ?? (type is "ip_flow_start" or "ip_flow_end" ? FirewallAction.Allow : FirewallAction.Unknown);
                     return Build(out result, time, action, src, dst, transport, "traffic", null, tail, null, host);
                 }
             }
@@ -362,6 +359,26 @@ public sealed class MerakiFormat : ILogFormat
             var end = t.IndexOf(' ');
             var word = end < 0 ? t : t[..end];
             return word.Contains('=') ? null : word;
+        }
+
+        private static FirewallAction? PatternAction(string? word) => word switch
+        {
+            "1" => FirewallAction.Allow,
+            "0" => FirewallAction.Deny,
+            _ => TryAction(word)
+        };
+
+        /// <summary>The address right after <paramref name="marker"/>, even when other text follows without a space.</summary>
+        private static string? IpPrefixAfter(string text, string marker)
+        {
+            var i = text.IndexOf(marker, StringComparison.Ordinal);
+            if (i < 0)
+                return null;
+            var start = i + marker.Length;
+            var end = start;
+            while (end < text.Length && end - start < 45 && (char.IsAsciiHexDigit(text[end]) || text[end] is '.' or ':'))
+                end++;
+            return Ip(text[start..end]);
         }
 
         private static string? IpAfter(string text, string marker)

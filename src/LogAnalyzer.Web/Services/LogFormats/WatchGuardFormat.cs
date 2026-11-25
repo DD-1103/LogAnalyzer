@@ -8,10 +8,12 @@ namespace LogAnalyzer.Web.Services.LogFormats;
 /// 1-Trusted 60 tcp 20 64 203.0.113.5 10.0.0.5 51234 22 offset 10 S 123456 win 64240 (Unhandled External Packet-00)</c>.
 /// Traffic lines are positional: action, source / destination interface, [packet length], protocol, [header length,
 /// TTL], source, destination, [ports], extra fields, then the policy in parentheses. A <c>signature_name="..."</c>
-/// makes it an IPS event; "Authentication of ... user [...] from IP was rejected / accepted" an authentication event.
-/// Other Fireware messages (msg_id present) are skipped.
+/// makes it an IPS event; "Authentication of ... user [...] from IP was rejected / accepted" (1100-0004 / 1100-0005) and
+/// "Management user admin from IP logged in / log in attempt was rejected" (3E00-xxxx) are authentication events;
+/// the attack alarms (3000-0152 ...: "PORT scan attack against A from B detected.") are threat events.
+/// Other Fireware messages (msg_id present) are skipped. Checked against the Fireware v12.7 Log Catalog.
 /// </summary>
-public sealed class WatchGuardFormat : ILogFormat
+public sealed partial class WatchGuardFormat : ILogFormat
 {
     public string Id => "watchguard";
     public string DisplayName => "WatchGuard Firebox";
@@ -24,6 +26,20 @@ public sealed class WatchGuardFormat : ILogFormat
         "tcp", "udp", "icmp", "igmp", "gre", "esp", "ah", "icmpv6", "ipv6-icmp", "sctp", "ospf", "pim", "ip"
     };
 
+    // The result sshd-style at the end: " from 203.0.113.9 was rejected", " logged in", " log in attempt was rejected". The
+    // last match counts, the user name in front of it is attacker-controlled.
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @" from (?<ip>[0-9A-Fa-f:.]{2,45}) (?<r>was accepted|was rejected|logged in|log ?in attempt was rejected|login attempt was rejected|rejected)",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex LoginResult();
+
+    // "SYN flood attack against D from S detected.", "IPv4 source route attack from S detected.", "DDOS from client S detected.",
+    // "IP spoofing: Traffic detected from S to D."
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"^(?<name>[A-Za-z0-9 ]{2,40}?) ?(?:attack |: ?Traffic detected |)(?:against (?:server )?(?<d>[0-9A-Fa-f:.]{2,45}) )?(?:from (?:client )?(?<s>[0-9A-Fa-f:.]{2,45}) )?(?:to (?<d2>[0-9A-Fa-f:.]{2,45}))?(?: ?detected|\.)",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex AttackAlarm();
+
     private sealed class Parser(LogParseContext context) : ILineParser
     {
         public ParseOutcome Parse(string line, out ParsedLine? result)
@@ -35,7 +51,7 @@ public sealed class WatchGuardFormat : ILogFormat
             var env = SyslogEnvelope.Parse(line, context);
             var msg = env.Message;
             var m = msg.IndexOf("msg_id=\"", StringComparison.Ordinal);
-            if (m < 0)
+            if (!env.RecordStartsAt(m, 3))
                 return ParseOutcome.Failed;
             var idEnd = msg.IndexOf('"', m + 8);
             if (idEnd < 0 || idEnd - (m + 8) is < 4 or > 12)
@@ -48,16 +64,17 @@ public sealed class WatchGuardFormat : ILogFormat
             var body = msg[(idEnd + 1)..].Trim();
             var device = env.Host;
 
-            // Authentication of Firebox user [admin@Firebox-DB] from 203.0.113.9 was rejected, password is incorrect
-            if (body.Contains("Authentication of", StringComparison.OrdinalIgnoreCase) || body.Contains(" login ", StringComparison.OrdinalIgnoreCase))
-                return Auth(body, msgId, ts, device, out result);
-
+            // The first word decides, not text further on (an application name or URL may say "Authentication of").
             var t = Tokens(body);
-            if (t.Length < 5)
-                return ParseOutcome.Skipped;
-            var word = t[0];
+            var word = t.Length == 0 ? "" : t[0];
             var action = Action(word);
             if (action == FirewallAction.Unknown)
+            {
+                if (LoginResult().IsMatch(body))
+                    return Auth(body, msgId, ts, device, out result);
+                return msgId.StartsWith("3000-", StringComparison.Ordinal) ? Alarm(body, msgId, ts, device, out result) : ParseOutcome.Skipped;
+            }
+            if (t.Length < 5)
                 return ParseOutcome.Skipped;
 
             var p = -1;
@@ -102,23 +119,27 @@ public sealed class WatchGuardFormat : ILogFormat
         private static ParseOutcome Auth(string body, string msgId, DateTimeOffset ts, string? device, out ParsedLine? result)
         {
             result = null;
-            var from = body.IndexOf(" from ", StringComparison.Ordinal);
-            if (from < 0)
+            var m = LoginResult().Matches(body).LastOrDefault(x => IsIp(x.Groups["ip"].Value));
+            if (m is null)
                 return ParseOutcome.Skipped;
-            var rest = body[(from + 6)..];
-            var space = rest.IndexOf(' ');
-            var ip = (space < 0 ? rest : rest[..space]).TrimEnd(',', '.');
-            if (!IsIp(ip))
-                return ParseOutcome.Skipped;
-            FirewallAction action;
-            if (body.Contains("rejected", StringComparison.OrdinalIgnoreCase) || body.Contains("failed", StringComparison.OrdinalIgnoreCase))
-                action = FirewallAction.Deny;
-            else if (body.Contains("accepted", StringComparison.OrdinalIgnoreCase) || body.Contains("succeeded", StringComparison.OrdinalIgnoreCase)
-                     || body.Contains("logged in", StringComparison.OrdinalIgnoreCase))
-                action = FirewallAction.Allow;
-            else
-                return ParseOutcome.Skipped;
+            var ip = m.Groups["ip"].Value;
+            var action = m.Groups["r"].Value.Contains("rejected", StringComparison.Ordinal) ? FirewallAction.Deny : FirewallAction.Allow;
             result = ParsedLine.Network(ip, ts, action, Short($"{body} [msg_id {msgId}]"), null, null, null, null, "auth", null, null, device);
+            return ParseOutcome.Parsed;
+        }
+
+        private static ParseOutcome Alarm(string body, string msgId, DateTimeOffset ts, string? device, out ParsedLine? result)
+        {
+            result = null;
+            var m = AttackAlarm().Match(body);
+            var src = m.Success && IsIp(m.Groups["s"].Value) ? m.Groups["s"].Value : null;
+            var dstText = m.Groups["d"].Success ? m.Groups["d"].Value : m.Groups["d2"].Value.TrimEnd('.');
+            var dst = IsIp(dstText) ? dstText : null;
+            if (src is null && dst is null)
+                return ParseOutcome.Skipped;
+            var action = body.Contains("dropped since", StringComparison.Ordinal) ? FirewallAction.Drop : FirewallAction.Alert;
+            result = ParsedLine.Network(src, ts, action, Short($"{body} [msg_id {msgId}]"), dst, null, null, null, "threat", null,
+                m.Groups["name"].Value, device);
             return ParseOutcome.Parsed;
         }
 

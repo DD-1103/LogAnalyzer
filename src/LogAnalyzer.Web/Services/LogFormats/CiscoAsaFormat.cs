@@ -21,32 +21,37 @@ public sealed partial class CiscoAsaFormat : ILogFormat
     public ILineParser CreateParser(LogParseContext context) => new Parser(context);
 
     // %ASA-4-106023: / %FTD-session-6-302013: (the optional word is written by some FTD versions)
-    [GeneratedRegex(@"^%(?<fam>ASA|FTD|PIX|FWSM)-(?:[a-z]{1,16}-)?(?<lvl>[0-7])-(?<id>\d{6}):?\s?", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^%(?<fam>ASA|FTD|PIX|FWSM|NGIPS)-(?:[a-z]{1,16}-)?(?<lvl>[0-7])-(?<id>[0-9]{6}):?\s?", RegexOptions.CultureInvariant)]
     private static partial Regex TagRegex();
 
     // 106100: access-list OUTSIDE_IN denied tcp outside/203.0.113.5(51234) -> inside/10.0.0.5(22) hit-cnt 1 first hit [...]
-    [GeneratedRegex(@"^access-list (?<acl>\S+) (?<act>permitted|denied|est-allowed) (?<p>\w+) (?<si>[^/\s]+)/(?<s>[^(\s]+)\((?<sp>\d+)\)(?: \([^)]*\))? -> (?<di>[^/\s]+)/(?<d>[^(\s]+)\((?<dp>\d+)\)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^access-list (?<acl>\S+) (?<act>permitted|denied|est-allowed) (?<p>\w+) (?<si>[^/\s]+)/(?<s>[^(\s]+)\((?<sp>\d+)\)(?: ?\([^)]*\))* ?-> ?(?<di>[^/\s]+)/(?<d>[^(\s]+)\((?<dp>\d+)\)", RegexOptions.CultureInvariant)]
     private static partial Regex AccessList();
 
-    // 302013 / 302015: Built inbound TCP connection 123 for outside:a/p (a/p) to inside:b/p (b/p)
-    [GeneratedRegex(@"^Built (?<dir>inbound|outbound) (?<p>TCP|UDP|SCTP) connection (?<id>\d+) for (?<a>\S+) (?:\([^)]*\) ){0,3}to (?<b>\S+)", RegexOptions.CultureInvariant)]
+    // 302013 / 302015: Built inbound [Probe ]TCP connection 123 for outside:a/p (a/p)(idfw user) to inside:b/p (b/p)(idfw user) (user)
+    [GeneratedRegex(@"^Built (?<dir>inbound|outbound) (?:Probe )?(?<p>TCP|UDP|SCTP) connection (?<id>\d+) for (?<a>[^\s(]+)(?: ?\([^)]*\))* to (?<b>[^\s(]+)", RegexOptions.CultureInvariant)]
     private static partial Regex Built();
 
     // 302020 / 302021: Built inbound ICMP connection for faddr 203.0.113.5/0 gaddr 10.0.0.5/0 laddr 10.0.0.5/0 type 8 code 0
     //                  Teardown ICMP connection for faddr ... gaddr ... laddr ...
-    [GeneratedRegex(@"^(?<what>Built|Teardown) (?:(?<dir>inbound|outbound) )?(?<p>ICMP|ICMPv6) connection for faddr (?<f>[0-9A-Fa-f:.]+)/\d+(?:\(\S*\))? gaddr \S+ laddr (?<l>[0-9A-Fa-f:.]+)/\d+", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?<what>Built|Teardown) (?:(?<dir>inbound|outbound) )?(?<p>ICMP|ICMPv6) connection for faddr (?<f>[0-9A-Fa-f:.]+)/(?<fid>\d+)(?: ?\([^)]*\))* gaddr [^\s(]+(?: ?\([^)]*\))* laddr (?<l>[0-9A-Fa-f:.]+)/(?<lid>\d+)", RegexOptions.CultureInvariant)]
     private static partial Regex IcmpConnection();
 
     // 302014 / 302016: Teardown TCP connection 123 for outside:a/p to inside:b/p duration 0:00:05 bytes 1234 TCP FINs
-    [GeneratedRegex(@"^Teardown (?<p>TCP|UDP|SCTP) connection (?<id>\d+) for (?<a>\S+) (?:\([^)]*\) ){0,3}to (?<b>\S+) (?:\([^)]*\) ){0,3}duration (?<dur>\S+) bytes (?<bytes>\d+)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^Teardown (?:Probe )?(?<p>TCP|UDP|SCTP) connection (?<id>\d+) for (?<a>[^\s(]+)(?: ?\([^)]*\))* to (?<b>[^\s(]+)(?: ?\([^)]*\))* duration (?<dur>\S+) bytes (?<bytes>\d+)", RegexOptions.CultureInvariant)]
     private static partial Regex Teardown();
+
+    // src outside:a/p(idfw user) dst inside:b/p(idfw user): text in parentheses (user names) is not searched for addresses
+    [GeneratedRegex(@" src (?<s>[^\s(]{1,120})(?: ?\([^)]{0,200}\)){0,4} dst (?<d>[^\s(]{1,120})", RegexOptions.CultureInvariant)]
+    private static partial Regex SrcDstPair();
 
     // 4000nn: IPS:2004 ICMP Echo Request from 203.0.113.5 to 10.0.0.5 on interface outside
     [GeneratedRegex(@"^IPS:(?<sig>\d+) (?<name>[^\r\n]{1,200}?) from (?<s>[0-9A-Fa-f:.]+) to (?<d>[0-9A-Fa-f:.]+) on interface (?<if>\S+)", RegexOptions.CultureInvariant)]
     private static partial Regex Ips();
 
     // Group <g> User <u> IP <ip> ... (VPN / WebVPN messages)
-    [GeneratedRegex(@"^Group <(?<g>[^>]*)> User <(?<u>[^>]*)> IP <(?<ip>[0-9A-Fa-f:.]+)> ?(?<rest>.*)$", RegexOptions.CultureInvariant)]
+    // (greedy user: the last "> IP <...>" is the real one, a user name may contain "> IP <10.0.0.1")
+    [GeneratedRegex(@"^Group <(?<g>[^>]*)> User <(?<u>.*)> IP <(?<ip>[0-9A-Fa-f:.]+)> ?(?<rest>[^<]*)", RegexOptions.CultureInvariant)]
     private static partial Regex GroupUserIp();
 
     private static readonly Dictionary<string, int> Services = new(StringComparer.OrdinalIgnoreCase)
@@ -57,6 +62,11 @@ public sealed partial class CiscoAsaFormat : ILogFormat
 
     private sealed class Parser(LogParseContext context) : ILineParser
     {
+        // Connection (number and addresses) -> "the first address (for ...) is the initiator", from the Built message of the same file:
+        // Teardown messages carry no direction.
+        private const int MaxConnections = 65_536;
+        private readonly Dictionary<string, bool> _initiatorFirst = new(StringComparer.Ordinal);
+
         public ParseOutcome Parse(string line, out ParsedLine? result)
         {
             result = null;
@@ -69,16 +79,37 @@ public sealed partial class CiscoAsaFormat : ILogFormat
             var id = int.Parse(tag.Groups["id"].Value, CultureInfo.InvariantCulture);
             var msg = line[(idx + tag.Length)..].Trim();
 
+            // The tag must be the message itself, not text inside another program's message (user name, user agent).
+            var env = SyslogEnvelope.Parse(line[..idx].Trim() + " %", context);
+            if (!env.RecordStartsAt(env.Message.Length - 1))
+                return ParseOutcome.Failed;
+
             var outcome = Dispatch(id, msg, out var ev);
             if (outcome != ParseOutcome.Parsed || ev is null)
                 return outcome;
+            if (ev.Connection is { } connection)
+                ev = Direction(id, connection, ev);
 
-            var prefix = line[..idx];
-            if (!TryPrefixTime(prefix, out var ts, out var host))
+            if (!TryPrefixTime(line[..idx], env, out var ts, out var host))
                 return ParseOutcome.Failed;
             result = ParsedLine.Network(ev.Src, ts, ev.Action, Short(CleanMessage(msg)), ev.Dst, ev.SrcPort, ev.DstPort,
                 ev.Proto, ev.Type, ev.Rule, ev.Threat, host, ev.Bytes);
             return ParseOutcome.Parsed;
+        }
+
+        /// <summary>Remembers the direction of a Built message, applies it to the Teardown message of the same connection.</summary>
+        private Ev Direction(int id, string connection, Ev ev)
+        {
+            if (id is 302013 or 302015)
+            {
+                if (_initiatorFirst.Count >= MaxConnections)
+                    _initiatorFirst.Clear();
+                _initiatorFirst[connection] = ev.InitiatorFirst;
+                return ev;
+            }
+            if (!_initiatorFirst.Remove(connection, out var first) || first == ev.InitiatorFirst)
+                return ev;
+            return ev with { Src = ev.Dst, Dst = ev.Src, SrcPort = ev.DstPort, DstPort = ev.SrcPort, InitiatorFirst = first };
         }
 
         private static int FindTag(string line)
@@ -87,7 +118,7 @@ public sealed partial class CiscoAsaFormat : ILogFormat
             while (i >= 0 && i + 5 < line.Length)
             {
                 var s = line.AsSpan(i + 1);
-                if (s.StartsWith("ASA-") || s.StartsWith("FTD-") || s.StartsWith("PIX-") || s.StartsWith("FWSM-"))
+                if (s.StartsWith("ASA-") || s.StartsWith("FTD-") || s.StartsWith("PIX-") || s.StartsWith("FWSM-") || s.StartsWith("NGIPS-"))
                     return i;
                 i = line.IndexOf('%', i + 1);
             }
@@ -95,18 +126,16 @@ public sealed partial class CiscoAsaFormat : ILogFormat
         }
 
         /// <summary>Time stamp from the syslog header or the ASA's own "Nov 21 2026 10:00:00" / ":Nov 21 10:00:00 UTC:".</summary>
-        private bool TryPrefixTime(string prefix, out DateTimeOffset ts, out string? host)
+        private bool TryPrefixTime(string prefix, SyslogEnvelope env, out DateTimeOffset ts, out string? host)
         {
             host = null;
             ts = default;
             var p = prefix.Trim();
             if (p.Length == 0)
                 return false;
-            var utc = p.Contains(" UTC", StringComparison.Ordinal) || p.Contains(" GMT", StringComparison.Ordinal);
-            var env = SyslogEnvelope.Parse(p + " %", context);
             if (env.Timestamp is { } t)
             {
-                ts = utc ? new DateTimeOffset(t.DateTime, TimeSpan.Zero) : t;
+                ts = t;
                 host = env.Host;
                 return true;
             }
@@ -118,14 +147,8 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 if (gt > 0)
                     s = s[(gt + 1)..];
             }
-            s = s.Trim().Trim(':').Trim();
-            foreach (var zone in new[] { " UTC", " GMT" })
-                if (s.EndsWith(zone, StringComparison.Ordinal))
-                    s = s[..^zone.Length];
-            if (!LogTime.TryParse(s, context, out var parsed))
-                return false;
-            ts = utc ? new DateTimeOffset(parsed.DateTime, TimeSpan.Zero) : parsed;
-            return true;
+            // a zone word at the end ("UTC", "CEST") is read by FirewallTime
+            return FirewallTime.TryParse(s.Trim().Trim(':').Trim(), context, out ts);
         }
 
         private static string CleanMessage(string msg)
@@ -137,7 +160,14 @@ public sealed partial class CiscoAsaFormat : ILogFormat
     }
 
     private sealed record Ev(string? Src, string? Dst, int? SrcPort, int? DstPort, string? Proto, FirewallAction Action,
-        string Type, string? Rule = null, string? Threat = null, long? Bytes = null);
+        string Type, string? Rule = null, string? Threat = null, long? Bytes = null)
+    {
+        /// <summary>Connection number of a Built / Teardown message.</summary>
+        public string? Connection { get; init; }
+
+        /// <summary>Built / Teardown: the address after "for" is the source.</summary>
+        public bool InitiatorFirst { get; init; }
+    }
 
     private static ParseOutcome Dispatch(int id, string msg, out Ev? ev)
     {
@@ -159,7 +189,8 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 return FromTo(msg, Word(msg, 2), FirewallAction.Deny, "traffic", out ev);
             case 106010:   // Deny inbound tcp src outside:a/p dst inside:b/p
             case 106014:   // Deny inbound icmp src outside:a dst inside:b (type 8, code 0)
-                return SrcDst(msg, Word(msg, 2), FirewallAction.Deny, "traffic", null, out ev);
+                // "Deny inbound protocol 47 src ..." names the protocol by number
+                return SrcDst(msg, Word(msg, 2) == "protocol" ? Word(msg, 3) : Word(msg, 2), FirewallAction.Deny, "traffic", null, out ev);
             case 106015:   // Deny TCP (no connection) from a/p to b/p flags RST on interface outside
                 return FromTo(msg, Word(msg, 1), FirewallAction.Deny, "traffic", out ev);
             case 106017:   // Deny IP due to Land Attack from a to b
@@ -186,10 +217,12 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 var m = Built().Match(msg);
                 if (!m.Success || !TrySplitSlash(m.Groups["a"].Value, out var a, out var ap) || !TrySplitSlash(m.Groups["b"].Value, out var b, out var bp))
                     return Fail(out ev);
-                // "for" = the lower-security side; outbound = initiated from the "to" side
+                // "for" = the lower-security (outside) address. Cisco: "inbound" = initiated from the outside,
+                // "outbound" = initiated from the inside, i.e. from the "to" address.
                 ev = m.Groups["dir"].Value == "inbound"
-                    ? new Ev(a, b, ap, bp, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic")
+                    ? new Ev(a, b, ap, bp, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic") { InitiatorFirst = true }
                     : new Ev(b, a, bp, ap, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic");
+                ev = ev with { Connection = ConnectionKey(m) };
                 return ParseOutcome.Parsed;
             }
             case 302020:
@@ -198,8 +231,11 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 var m = IcmpConnection().Match(msg);
                 if (!m.Success || !IsIp(m.Groups["f"].Value) || !IsIp(m.Groups["l"].Value))
                     return Fail(out ev);
-                // faddr = the outside (foreign) host; teardown lines carry no direction, the foreign side is taken as source
-                var outbound = m.Groups["dir"].Value == "outbound";
+                // faddr = the outside (foreign) host: source of inbound, destination of outbound messages (Cisco format lines).
+                // Teardown lines carry no direction: the side that has the ICMP identifier sent the request.
+                var outbound = m.Groups["dir"].Success
+                    ? m.Groups["dir"].Value == "outbound"
+                    : m.Groups["what"].Value == "Teardown" && m.Groups["fid"].Value == "0" && m.Groups["lid"].Value != "0";
                 var proto = m.Groups["p"].Value == "ICMPv6" ? "ipv6-icmp" : "icmp";
                 ev = outbound
                     ? new Ev(m.Groups["l"].Value, m.Groups["f"].Value, null, null, proto, FirewallAction.Allow, "traffic")
@@ -213,11 +249,13 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 if (!m.Success || !TrySplitSlash(m.Groups["a"].Value, out var a, out var ap) || !TrySplitSlash(m.Groups["b"].Value, out var b, out var bp))
                     return Fail(out ev);
                 var bytes = Long(m.Groups["bytes"].Value);
-                // Teardown does not say who initiated: the side with the lower (service) port is taken as the server.
+                // Teardown does not say who initiated: the Built message of the same file decides (Parser.Direction), without
+                // one the side with the lower (service) port is taken as the server.
                 var aIsServer = ap is not null && bp is not null && ap < bp;
                 ev = aIsServer
                     ? new Ev(b, a, bp, ap, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic", Bytes: bytes)
-                    : new Ev(a, b, ap, bp, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic", Bytes: bytes);
+                    : new Ev(a, b, ap, bp, Transport(m.Groups["p"].Value), FirewallAction.Allow, "traffic", Bytes: bytes) { InitiatorFirst = true };
+                ev = ev with { Connection = ConnectionKey(m) };
                 return ParseOutcome.Parsed;
             }
             case 313001:   // Denied ICMP type=8, code=0 from 203.0.113.5 on interface outside
@@ -262,7 +300,7 @@ public sealed partial class CiscoAsaFormat : ILogFormat
             }
             case 733102:   // Threat-detection adds host 203.0.113.5 to shun list
             {
-                var ip = Token(msg, "adds host ");
+                var ip = Token(msg, " adds host ") ?? Token(msg, " add host ");
                 if (!IsIp(ip)) return ParseOutcome.Skipped;
                 ev = new Ev(ip, null, null, null, null, FirewallAction.Deny, "threat", Threat: "Threat detection: host shunned");
                 return ParseOutcome.Parsed;
@@ -290,22 +328,28 @@ public sealed partial class CiscoAsaFormat : ILogFormat
             case 113015:   // AAA user authentication Rejected : reason = ... : local database : user = admin : user IP = 203.0.113.9
             case 113004:   // AAA user authentication Successful : server = x : user = admin [: user IP = ...]
             {
-                var ip = Between(msg, "user IP = ", " ")?.TrimEnd(':', ',');
+                // the last one: the user name in front of it may contain "user IP = 10.0.0.1"
+                var at = msg.LastIndexOf("user IP = ", StringComparison.Ordinal);
+                var ip = at < 0 ? null : Between(msg[at..], "user IP = ", " ")?.TrimEnd(':', ',');
                 if (!IsIp(ip)) return ParseOutcome.Skipped;
                 var action = id == 113004 ? FirewallAction.Allow : FirewallAction.Deny;
                 ev = new Ev(ip, null, null, null, null, action, "auth");
                 return ParseOutcome.Parsed;
             }
+            case 611101:   // User authentication succeeded: IP address: 10.0.0.12, Uname: admin
             case 611102:   // User authentication failed: IP address: 203.0.113.9, Uname: admin
             {
                 var ip = Token(msg, "IP address: ")?.TrimEnd(',');
                 if (!IsIp(ip)) return ParseOutcome.Skipped;
-                ev = new Ev(ip, null, null, null, null, FirewallAction.Deny, "auth");
+                ev = new Ev(ip, null, null, null, null, id == 611101 ? FirewallAction.Allow : FirewallAction.Deny, "auth");
                 return ParseOutcome.Parsed;
             }
             case 605004:   // Login denied from 203.0.113.9/51234 to outside:198.51.100.1/ssh for user "admin"
             case 605005:   // Login permitted from 10.0.0.12/51234 to inside:10.0.0.1/ssh for user "admin"
-                return FromTo(msg, "tcp", id == 605004 ? FirewallAction.Deny : FirewallAction.Allow, "auth", out ev);
+                // "from serial to console" has no address
+                return FromTo(msg, "tcp", id == 605004 ? FirewallAction.Deny : FirewallAction.Allow, "auth", out ev) == ParseOutcome.Parsed
+                    ? ParseOutcome.Parsed : ParseOutcome.Skipped;
+            case 716038:   // Group <g> User <u> IP <ip> Authentication: successful, Session Type: WebVPN.
             case 716039:   // Group <g> User <u> IP <ip> Authentication: rejected, Session Type: WebVPN.
             case 113039:   // Group <g> User <u> IP <ip> AnyConnect parent session started.
             case 716001:   // Group <g> User <u> IP <ip> WebVPN session started.
@@ -316,7 +360,7 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 var m = GroupUserIp().Match(msg);
                 if (!m.Success || !IsIp(m.Groups["ip"].Value)) return ParseOutcome.Skipped;
                 var rejected = id == 716039 || m.Groups["rest"].Value.Contains("rejected", StringComparison.OrdinalIgnoreCase);
-                var type = id is 716039 or 113039 or 716001 ? "auth" : "vpn";
+                var type = id is 716038 or 716039 or 113039 or 716001 ? "auth" : "vpn";
                 ev = new Ev(m.Groups["ip"].Value, null, null, null, null, rejected ? FirewallAction.Deny : FirewallAction.Allow, type, m.Groups["g"].Value);
                 return ParseOutcome.Parsed;
             }
@@ -328,6 +372,10 @@ public sealed partial class CiscoAsaFormat : ILogFormat
                 return ParseOutcome.Skipped;
         }
     }
+
+    /// <summary>Connection numbers are per firewall, so the addresses are part of the key (files with several devices).</summary>
+    private static string ConnectionKey(Match m) =>
+        $"{m.Groups["p"].Value} {m.Groups["id"].Value} {m.Groups["a"].Value} {m.Groups["b"].Value}";
 
     private static ParseOutcome Fail(out Ev? ev)
     {
@@ -356,7 +404,8 @@ public sealed partial class CiscoAsaFormat : ILogFormat
     private static ParseOutcome SrcDst(string msg, string? proto, FirewallAction action, string type, string? rule, out Ev? ev)
     {
         ev = null;
-        if (!SplitAny(Token(msg, " src "), out var s, out var sp) || !SplitAny(Token(msg, " dst "), out var d, out var dp))
+        var m = SrcDstPair().Match(msg);
+        if (!m.Success || !SplitAny(m.Groups["s"].Value, out var s, out var sp) || !SplitAny(m.Groups["d"].Value, out var d, out var dp))
             return ParseOutcome.Failed;
         var t = Transport(proto);
         var ports = t is "tcp" or "udp" or "sctp";
@@ -474,9 +523,9 @@ public sealed partial class CiscoAsaFormat : ILogFormat
         var word = FtdValue(msg, "AccessControlRuleAction");
         var act = word?.ToLowerInvariant() switch
         {
-            "allow" or "trust" => FirewallAction.Allow,
-            "block" => FirewallAction.Deny,
-            "block with reset" => FirewallAction.Reject,
+            "allow" or "trust" or "fastpath" => FirewallAction.Allow,
+            "block" or "interactive block" => FirewallAction.Deny,
+            "block with reset" or "interactive block with reset" => FirewallAction.Reject,
             _ => Action(word)
         };
         long? bytes = Long(FtdValue(msg, "InitiatorBytes")) is { } ib ? ib + (Long(FtdValue(msg, "ResponderBytes")) ?? 0) : null;

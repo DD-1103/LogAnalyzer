@@ -50,7 +50,8 @@ public sealed class WindowsFirewallFormat : ILogFormat
             var actionWord = t[c.Action].ToUpperInvariant();
             var action = actionWord switch
             {
-                "ALLOW" => FirewallAction.Allow,
+                // OPEN / OPEN-INBOUND / CLOSE: Windows XP / Server 2003 and ICF logs (end of an allowed connection = Allow)
+                "ALLOW" or "OPEN" or "OPEN-INBOUND" or "CLOSE" => FirewallAction.Allow,
                 "DROP" => FirewallAction.Drop,
                 _ => (FirewallAction?)null
             };

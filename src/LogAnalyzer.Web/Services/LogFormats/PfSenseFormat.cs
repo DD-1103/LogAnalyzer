@@ -33,7 +33,7 @@ public sealed class PfSenseFormat : ILogFormat
             {
                 // "... filterlog: 5,,,..." where the envelope could not split the tag
                 var tag = msg.IndexOf("filterlog", StringComparison.Ordinal);
-                if (tag < 0)
+                if (!env.RecordStartsAt(tag, 2))
                     return ParseOutcome.Failed;
                 var colon = msg.IndexOf(": ", tag, StringComparison.Ordinal);
                 if (colon < 0)
@@ -45,7 +45,9 @@ public sealed class PfSenseFormat : ILogFormat
             var f = _f;
 
             var actionWord = At(f, 6)?.ToLowerInvariant();
-            if (actionWord is not ("pass" or "block" or "reject" or "match" or "scrub" or "nat" or "rdr" or "binat"))
+            // Netgate documents pass, block and unkn(%u); the other words are pf actions OPNsense can log
+            if (actionWord is not ("pass" or "block" or "reject" or "match" or "scrub" or "nat" or "rdr" or "binat")
+                && actionWord?.StartsWith("unkn(", StringComparison.Ordinal) != true)
                 return ParseOutcome.Failed;
             var version = At(f, 8);
             int lengthIdx, protoTextIdx, protoIdIdx;

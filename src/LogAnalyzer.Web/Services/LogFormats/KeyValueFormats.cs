@@ -30,7 +30,39 @@ public abstract class FirewallLineParser(LogParseContext context) : ILineParser
         }
     }
 
+    /// <summary>The parser without the length limit and the catch-all (fuzz tests: it must not throw on its own either).</summary>
+    public ParseOutcome ParseUnguarded(string line, out ParsedLine? result) => ParseLine(line, out result);
+
     protected abstract ParseOutcome ParseLine(string line, out ParsedLine? result);
+
+    private const int MaxLeadingWords = 4;
+
+    /// <summary>
+    /// Reads the pairs of a vendor record. False when the text was written by another program (sshd, nginx, ...) or
+    /// has prose in front of the first pair: log text is attacker-controlled, so "Failed password for invalid user
+    /// type=traffic devid=x srcip=10.0.0.1 ..." must not become a firewall event.
+    /// </summary>
+    protected bool ReadRecord(SyslogEnvelope envelope, string? text = null, KvMode mode = KvMode.Spaces)
+    {
+        if (envelope.FromOtherProgram || StructuredRecord.IsCefOrLeef(envelope))
+            return false;
+        KeyValueReader.Read(text ?? envelope.Message, Kv, mode);
+        return Kv.Count > 0 && Kv.LeadingWords <= MaxLeadingWords;
+    }
+
+    /// <summary>An HTTP request without a firewall decision (JSON / logfmt web server logs): not a firewall event.</summary>
+    protected bool LooksLikeWebRequest() =>
+        Has("method", "http_method", "request_method", "requestmethod", "http.request.method", "request.method", "verb", "http.method")
+        && Has("uri", "url", "path", "request", "request_uri", "status", "status_code", "url.original", "url.path",
+            "http.response.status_code", "request.uri", "response", "http.url");
+
+    private bool Has(params ReadOnlySpan<string> keys)
+    {
+        foreach (var k in keys)
+            if (Kv.Has(k))
+                return true;
+        return false;
+    }
 
     /// <summary>Vendor time from the usual fields, else the syslog envelope.</summary>
     protected DateTimeOffset? TimeOf(SyslogEnvelope envelope) => FirewallTime.FromFields(Kv, Context) ?? envelope.Timestamp;
@@ -62,8 +94,7 @@ public sealed class FortiGateFormat : ILogFormat
                 || !(line.Contains("logid=", StringComparison.Ordinal) || line.Contains("devid=", StringComparison.Ordinal)))
                 return ParseOutcome.Failed;
             var envelope = SyslogEnvelope.Parse(line, Context);
-            KeyValueReader.Read(envelope.Message, Kv);
-            var type = Kv.Get("type")?.ToLowerInvariant();
+            var type = ReadRecord(envelope) ? Kv.Get("type")?.ToLowerInvariant() : null;
             if (type is null || !(Kv.Has("logid") || Kv.Has("devid")))
                 return ParseOutcome.Failed;
 
@@ -86,10 +117,16 @@ public sealed class FortiGateFormat : ILogFormat
 
                 case "utm" or "ips" or "virus" or "webfilter" or "app-ctrl" or "anomaly" or "attack" or "dlp" or "waf" or "dns":
                 {
-                    var threat = Kv.Get("attack") ?? Kv.Get("virus")
-                                 ?? (subtype == "webfilter" ? Kv.Get("catdesc") ?? Kv.Get("hostname") : null)
-                                 ?? Kv.Get("app") ?? Kv.Get("catdesc") ?? msg ?? subtype;
                     var action = Action(actionWord);
+                    var kind = type == "utm" ? subtype : type;
+                    // Web filter = which page was opened or blocked; application control / DNS logs of allowed traffic
+                    // only name the application or the query. Neither is an attack (or every page view would be a threat).
+                    if (kind == "webfilter")
+                        return Build(out result, time, action, src, dst, transport, "url", msg ?? Kv.Get("url") ?? Kv.Get("hostname"),
+                            rule, null, device, bytes);
+                    if (kind is "app-ctrl" or "dns" && action == FirewallAction.Allow)
+                        return Build(out result, time, action, src, dst, transport, "traffic", msg ?? Kv.Get("app"), rule, null, device, bytes);
+                    var threat = Kv.Get("attack") ?? Kv.Get("virus") ?? Kv.Get("app") ?? Kv.Get("catdesc") ?? msg ?? subtype;
                     if (action is FirewallAction.Allow or FirewallAction.Unknown)
                         action = FirewallAction.Alert;   // passthrough / pass / monitored / detected: seen, not stopped
                     return Build(out result, time, action, src, dst, transport, "threat", msg ?? logdesc, rule, threat, device, bytes);
@@ -158,7 +195,8 @@ public sealed class SophosFormat : ILogFormat
             if (!line.Contains("log_type=", StringComparison.Ordinal) && !line.Contains("log_component=", StringComparison.Ordinal))
                 return ParseOutcome.Failed;
             var envelope = SyslogEnvelope.Parse(line, Context);
-            KeyValueReader.Read(envelope.Message, Kv);
+            if (!ReadRecord(envelope))
+                return ParseOutcome.Failed;
             var logType = Kv.Get("log_type");
             var component = Kv.Get("log_component");
             if ((logType is null && component is null)
@@ -208,7 +246,8 @@ public sealed class SophosFormat : ILogFormat
                 return Build(out result, time, FirewallAction.Unknown, src, dst, transport, "event", message, rule, null, device, bytes);
             }
             var other = TryAction(status) ?? TryAction(subtype) ?? Action(Kv.Get("action"));
-            return Build(out result, time, other, src, dst, transport, type.Length == 0 ? "event" : type, message, rule, null, device, bytes);
+            var otherType = type switch { "" => "event", "content filtering" => "url", _ => type };
+            return Build(out result, time, other, src, dst, transport, otherType, message, rule, null, device, bytes);
         }
     }
 }
@@ -226,11 +265,17 @@ public sealed class SonicWallFormat : ILogFormat
     public int Specificity => 100;
     public ILineParser CreateParser(LogParseContext context) => new Parser(context);
 
-    // Message ids from the SonicOS log event reference (connection / drop / IPS / login events).
-    private static readonly HashSet<int> Opened = [97, 98, 537, 1153, 1235];
-    private static readonly HashSet<int> Dropped = [36, 37, 38, 41, 173, 524, 597, 598, 602, 1154];
-    private static readonly HashSet<int> Intrusion = [82, 83, 608, 609, 789, 790, 793, 794, 795, 796];
-    private static readonly HashSet<int> Login = [24, 29, 30, 31, 199, 200, 261, 262, 1080, 1236];
+    // Message ids checked against the "SonicOS 6.5.4 Log Events Reference Guide": 97 web site hit, 98 / 537 connection
+    // opened / closed, 526 web request allowed, 597 / 598 ICMP allowed, 602 DNS allowed, 1235 packet allowed;
+    // 36-41, 173-175, 522-534, 652, 1253, 1254, 1257 dropped; 82 / 83 / 177 port scan, 608 / 609 IPS, 789 / 790 IDP,
+    // 793 application firewall, 794 / 795 anti-spyware, 809 gateway anti-virus, 1154 / 1155 application control;
+    // 29 / 199 administrator login allowed, 30 / 35 / 200 denied, 31 user login allowed, 32 / 33 denied, 237 / 238 VPN / WAN
+    // administrator login allowed. 1080 (SSL VPN login) is not legible in that guide: decided by the message text.
+    private static readonly HashSet<int> Opened = [97, 98, 526, 537, 597, 598, 602, 1235];
+    private static readonly HashSet<int> Dropped = [36, 37, 38, 41, 173, 174, 175, 522, 524, 533, 534, 652, 1253, 1254, 1257];
+    private static readonly HashSet<int> Intrusion = [82, 83, 177, 608, 609, 789, 790, 793, 794, 795, 809, 1154, 1155];
+    private static readonly HashSet<int> Login = [29, 30, 31, 32, 33, 35, 199, 200, 237, 238, 1080];
+    private static readonly HashSet<int> LoginDenied = [30, 32, 33, 35, 200];
 
     private sealed class Parser(LogParseContext context) : FirewallLineParser(context)
     {
@@ -241,8 +286,7 @@ public sealed class SonicWallFormat : ILogFormat
                 || !line.Contains("id=", StringComparison.Ordinal))
                 return ParseOutcome.Failed;
             var envelope = SyslogEnvelope.Parse(line, Context);
-            KeyValueReader.Read(envelope.Message, Kv);
-            var m = Port(Kv.Get("m"));
+            var m = ReadRecord(envelope) ? Port(Kv.Get("m")) : null;
             if (!Kv.Has("id") || !Kv.Has("sn") || m is null)
                 return ParseOutcome.Failed;
 
@@ -261,14 +305,15 @@ public sealed class SonicWallFormat : ILogFormat
                 var colon = msg?.IndexOf(": ", StringComparison.Ordinal) ?? -1;
                 var threat = colon > 0 ? msg![(colon + 2)..] : msg;
                 var action = TryAction(fwAction)
-                             ?? (ContainsIgnoreCase(msg, "prevention") ? FirewallAction.Deny : FirewallAction.Alert);
+                             ?? (m is 609 or 790 or 794 or 1155 || ContainsIgnoreCase(msg, "prevention") || ContainsIgnoreCase(msg, "blocked")
+                                 ? FirewallAction.Deny : FirewallAction.Alert);
                 if (action == FirewallAction.Allow)
                     action = FirewallAction.Alert;
                 return Build(out result, time, action, src, dst, transport, "threat", msg, rule, threat, device, bytes);
             }
             if (Login.Contains(m.Value) || LooksLikeAuth(msg))
             {
-                var failed = LooksLikeFailure(msg) || (msg is null && m is 30 or 31 or 1080 or 1236);
+                var failed = LooksLikeFailure(msg) || LoginDenied.Contains(m.Value);
                 return Build(out result, time, failed ? FirewallAction.Deny : FirewallAction.Allow, src, dst, transport, "auth",
                     msg, rule, null, device, bytes);
             }
@@ -319,8 +364,7 @@ public sealed class StormshieldFormat : ILogFormat
                 || !(line.Contains("logtype=", StringComparison.Ordinal) || line.Contains("startime=", StringComparison.Ordinal)))
                 return ParseOutcome.Failed;
             var envelope = SyslogEnvelope.Parse(line, Context);
-            KeyValueReader.Read(envelope.Message, Kv);
-            if (!string.Equals(Kv.Get("id"), "firewall", StringComparison.OrdinalIgnoreCase)
+            if (!ReadRecord(envelope) || !string.Equals(Kv.Get("id"), "firewall", StringComparison.OrdinalIgnoreCase)
                 || !(Kv.Has("logtype") || Kv.Has("startime")) || (Kv.Has("sn") && Kv.Has("m")))
                 return ParseOutcome.Failed;
 
@@ -380,6 +424,23 @@ public sealed class ZyxelFormat : ILogFormat
     public int Specificity => 100;
     public ILineParser CreateParser(LogParseContext context) => new Parser(context);
 
+    /// <summary>"ACCESS BLOCK" / "ACCESS FORWARD" (note field, ZYnote in Zyxel's CEF output) to an action.</summary>
+    internal static FirewallAction? NoteAction(string? note)
+    {
+        if (note is null)
+            return null;
+        if (ContainsIgnoreCase(note, "block") || ContainsIgnoreCase(note, "deny"))
+            return FirewallAction.Deny;
+        if (ContainsIgnoreCase(note, "drop"))
+            return FirewallAction.Drop;
+        if (ContainsIgnoreCase(note, "reject") || ContainsIgnoreCase(note, "reset"))
+            return FirewallAction.Reject;
+        if (ContainsIgnoreCase(note, "forward") || ContainsIgnoreCase(note, "allow") || ContainsIgnoreCase(note, "accept")
+            || ContainsIgnoreCase(note, "permit"))
+            return FirewallAction.Allow;
+        return null;
+    }
+
     private sealed class Parser(LogParseContext context) : FirewallLineParser(context)
     {
         protected override ParseOutcome ParseLine(string line, out ParsedLine? result)
@@ -388,8 +449,7 @@ public sealed class ZyxelFormat : ILogFormat
             if (!line.Contains("devID=", StringComparison.Ordinal) || !line.Contains("cat=", StringComparison.Ordinal))
                 return ParseOutcome.Failed;
             var envelope = SyslogEnvelope.Parse(line, Context);
-            KeyValueReader.Read(envelope.Message, Kv);
-            if (!Kv.Has("devID") || !Kv.Has("cat"))
+            if (!ReadRecord(envelope) || !Kv.Has("devID") || !Kv.Has("cat"))
                 return ParseOutcome.Failed;
 
             var time = envelope.Timestamp ?? FirewallTime.FromFields(Kv, Context);
@@ -449,22 +509,6 @@ public sealed class ZyxelFormat : ILogFormat
             return TryAction(end < 0 ? rest : rest[..end]);
         }
 
-        private static FirewallAction? NoteAction(string? note)
-        {
-            if (note is null)
-                return null;
-            if (ContainsIgnoreCase(note, "block") || ContainsIgnoreCase(note, "deny"))
-                return FirewallAction.Deny;
-            if (ContainsIgnoreCase(note, "drop"))
-                return FirewallAction.Drop;
-            if (ContainsIgnoreCase(note, "reject") || ContainsIgnoreCase(note, "reset"))
-                return FirewallAction.Reject;
-            if (ContainsIgnoreCase(note, "forward") || ContainsIgnoreCase(note, "allow") || ContainsIgnoreCase(note, "accept")
-                || ContainsIgnoreCase(note, "permit"))
-                return FirewallAction.Allow;
-            return null;
-        }
-
         /// <summary>"from WAN to LAN, [type=Signature] 1051001 WEB-ATTACKS SQL Injection Action: Drop, Severity: High" -> the name.</summary>
         private static string? Signature(string? msg)
         {
@@ -515,26 +559,19 @@ public sealed class GenericKeyValueFormat : ILogFormat
             result = null;
             if (line.Length < 16 || CountChar(line, '=', 3) < 3)
                 return ParseOutcome.Failed;
-            // Web access log lines ("GET /a?src=1.2.3.4&... HTTP/1.1") and CEF / LEEF records are other formats.
-            if ((line.Contains(" HTTP/", StringComparison.Ordinal) && line.Contains("] \"", StringComparison.Ordinal))
-                || line.Contains("CEF:", StringComparison.Ordinal) || line.Contains("LEEF:", StringComparison.Ordinal))
-                return ParseOutcome.Failed;
-
+            // (Decided by the structure, never by words anywhere in the line: a URL could contain them and hide the event.)
             var envelope = SyslogEnvelope.Parse(line, Context);
             var message = envelope.Message;
             var commas = CountChar(message, ',', int.MaxValue);
             var equals = CountChar(message, '=', int.MaxValue);
             var mode = commas >= 2 && commas + 1 >= equals - 1 && message.Contains(", ", StringComparison.Ordinal) ? KvMode.Comma : KvMode.Spaces;
-            KeyValueReader.Read(message, Kv, mode);
-            if (Kv.Count < 3 || Kv.BareTokens > Kv.Count)
+            // Commas inside a value (a user name, a message) can make the guess wrong: then the other mode is tried.
+            if (!TryRead(envelope, message, mode) && !TryRead(envelope, message, mode == KvMode.Comma ? KvMode.Spaces : KvMode.Comma))
                 return ParseOutcome.Failed;
 
             var src = FirewallFields.Source(Kv);
             var dst = Destination(Kv);
             var action = ActionOf(Kv);
-            if (src.Ip is null || (dst.Ip is null && action is null))
-                return ParseOutcome.Failed;
-
             var time = TimeOf(envelope);
             if (time is null)
                 return ParseOutcome.Failed;
@@ -555,6 +592,18 @@ public sealed class GenericKeyValueFormat : ILogFormat
             return Build(out result, time, finalAction, src, dst, TransportOf(Kv), threat is null ? "traffic" : "threat",
                 message2, Kv.Get(KvField.Rule), threat, device,
                 Bytes(Kv.Get(KvField.SentBytes), Kv.Get(KvField.ReceivedBytes), Kv.Get(KvField.TotalBytes)));
+        }
+
+        /// <summary>A source address and a destination address or action; with both, free text in between does not matter.</summary>
+        private bool TryRead(SyslogEnvelope envelope, string message, KvMode mode)
+        {
+            if (!ReadRecord(envelope, message, mode) || Kv.Count < 3 || FirewallFields.Source(Kv).Ip is null)
+                return false;
+            var hasDestination = Destination(Kv).Ip is not null;
+            var hasAction = ActionOf(Kv) is not null;
+            return (hasDestination || hasAction)
+                   && (Kv.BareTokens <= Kv.Count || (hasDestination && hasAction))
+                   && (hasAction || !LooksLikeWebRequest());
         }
 
         private static int CountChar(string s, char c, int stopAt)

@@ -63,11 +63,11 @@ public static class KvAliases
         }
 
         Add(KvField.SourceIp, 0, "srcip", "sourceip", "srcaddr", "srcaddress", "sourceaddress", "sourceaddr", "srcipaddr",
-            "sourceipaddress", "ipsrc", "saddr", "clientip", "srcipv4", "srcipv6");
+            "sourceipaddress", "ipsrc", "saddr", "clientip", "srcipv4", "srcipv6", "srcv6");
         Add(KvField.SourceIp, 1, "src", "sip", "source");
         Add(KvField.SourceIp, 3, "remip", "remoteip", "remoteaddress");
         Add(KvField.DestinationIp, 0, "dstip", "destinationip", "dstaddr", "dstaddress", "destinationaddress", "destinationaddr",
-            "dstipaddr", "destinationipaddress", "ipdst", "daddr", "destip", "destaddr", "serverip", "dstipv4", "dstipv6");
+            "dstipaddr", "destinationipaddress", "ipdst", "daddr", "destip", "destaddr", "serverip", "dstipv4", "dstipv6", "dstv6");
         Add(KvField.DestinationIp, 1, "dst", "dip", "dest", "destination");
         Add(KvField.SourcePort, 0, "srcport", "sourceport", "spt", "sport", "srcpt", "clientport", "sourcetransportport");
         Add(KvField.DestinationPort, 0, "dstport", "destinationport", "dpt", "dport", "destport", "dstpt", "serverport",
@@ -171,6 +171,9 @@ public sealed class KeyValueLine
     /// <summary>Words that were not part of a pair (free text between the pairs).</summary>
     public int BareTokens { get; internal set; }
 
+    /// <summary>Words in front of the first pair: a vendor record has at most a few (host, product name).</summary>
+    public int LeadingWords { get; internal set; }
+
     internal void Reset(string text)
     {
         Text = text;
@@ -181,6 +184,7 @@ public sealed class KeyValueLine
         }
         Count = 0;
         BareTokens = 0;
+        LeadingWords = 0;
     }
 
     internal void Add(int keyStart, int keyLength, int valueStart, int valueLength, bool escaped)
@@ -347,7 +351,8 @@ public static class KeyValueReader
     private static void ReadPairs(string s, KeyValueLine into, KvMode mode, int i)
     {
         var n = s.Length;
-        while (i < n)
+        // pairs beyond the limit are not stored, so there is no reason to look for them
+        while (i < n && into.Count < KeyValueLine.MaxPairs)
         {
             var c = s[i];
             if (IsSeparator(c, mode))
@@ -377,7 +382,7 @@ public static class KeyValueReader
 
             int valueStart, valueLength;
             var escaped = false;
-            if (i < n && (s[i] == '"' || (s[i] == '\'' && mode != KvMode.UntilNextKey)))
+            if (i < n && (s[i] == '"' || (s[i] == '\'' && mode != KvMode.UntilNextKey && ClosesSingleQuote(s, i + 1))))
             {
                 var quote = s[i];
                 valueStart = ++i;
@@ -422,8 +427,26 @@ public static class KeyValueReader
                         break;
                 }
             }
+            if (into.Count == 0)
+                into.LeadingWords = into.BareTokens;
             into.Add(keyStart, keyLength, valueStart, valueLength, escaped);
         }
+    }
+
+    private const int MaxSingleQuoted = 1024;
+
+    /// <summary>
+    /// A single quote only opens a value when another one closes it before white space, a separator or the end.
+    /// Otherwise a user named "'" would swallow the rest of the line (and hide the event).
+    /// </summary>
+    private static bool ClosesSingleQuote(string s, int i)
+    {
+        for (var end = Math.Min(s.Length, i + MaxSingleQuoted); i < end; i++)
+            if (s[i] == '\\')
+                i++;
+            else if (s[i] == '\'')
+                return i + 1 >= s.Length || char.IsWhiteSpace(s[i + 1]) || s[i + 1] is ',' or ';' or ']' or ')';
+        return false;
     }
 
     private static int TrimEnd(string s, int start, int length)
@@ -477,7 +500,8 @@ public static class KeyValueReader
             if (c == '=' && lastWhitespace >= start)
             {
                 var keyStart = lastWhitespace + 1;
-                var valid = keyStart < i && IsKeyStart(s[keyStart]);
+                // the length limit also keeps this linear for "aaaa...!====="
+                var valid = keyStart < i && i - keyStart <= KvAliases.MaxKeyLength && IsKeyStart(s[keyStart]);
                 for (var k = keyStart; valid && k < i; k++)
                     valid = IsKeyChar(s[k]);
                 if (valid)

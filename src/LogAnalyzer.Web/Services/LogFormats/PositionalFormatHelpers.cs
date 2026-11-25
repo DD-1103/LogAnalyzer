@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net;
 using LogAnalyzer.Web.Models;
 
 namespace LogAnalyzer.Web.Services.LogFormats;
@@ -11,28 +10,16 @@ namespace LogAnalyzer.Web.Services.LogFormats;
 internal static class PositionalFormatHelpers
 {
     /// <summary>
-    /// True for a literal IPv4 (exactly four dotted parts) or IPv6 address. <see cref="IPAddress.TryParse(string?, out IPAddress?)"/>
-    /// alone also accepts "12345" or "1.2" (shorthand IPv4), which would turn counters into addresses.
+    /// True for a literal IPv4 (exactly four dotted parts) or IPv6 address (a zone id is allowed), see
+    /// <see cref="ParsedLine.IsIpLiteral"/>.
     /// </summary>
     public static bool IsIp(string? value)
     {
-        if (string.IsNullOrEmpty(value) || value.Length > 45)
+        if (string.IsNullOrEmpty(value) || value.Length > 64)
             return false;
         var s = value.AsSpan();
-        if (s.Contains(':'))
-        {
-            var pct = s.IndexOf('%');
-            if (pct >= 0)
-                s = s[..pct];
-            return s.Length >= 2 && IPAddress.TryParse(s, out var v6) && v6.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
-        }
-        var dots = 0;
-        foreach (var c in s)
-        {
-            if (c == '.') dots++;
-            else if (c is < '0' or > '9') return false;
-        }
-        return dots == 3 && IPAddress.TryParse(s, out _);
+        var zone = s.IndexOf('%');
+        return ParsedLine.IsIpLiteral(zone > 0 && s[..zone].Contains(':') ? s[..zone] : s);
     }
 
     public static int? Port(string? value) =>
@@ -69,15 +56,15 @@ internal static class PositionalFormatHelpers
     {
         if (string.IsNullOrWhiteSpace(word))
             return FirewallAction.Unknown;
-        var w = word.Trim().ToLowerInvariant();
+        var w = word.Trim().ToLowerInvariant().Replace(' ', '-');
         return w switch
         {
             "allow" or "allowed" or "accept" or "accepted" or "permit" or "permitted" or "pass" or "passed" or "built"
                 or "teardown" or "est-allowed" or "established" or "create" or "close" => FirewallAction.Allow,
             "deny" or "denied" or "block" or "blocked" or "block-url" or "block-ip" or "sinkhole" or "discard" => FirewallAction.Deny,
-            "drop" or "dropped" or "drop-icmp" or "drop-all-packets" => FirewallAction.Drop,
+            "drop" or "dropped" or "drop-icmp" or "drop-all-packets" or "random-drop" => FirewallAction.Drop,
             "reject" or "rejected" or "reset" or "reset-client" or "reset-server" or "reset-both" => FirewallAction.Reject,
-            "alert" or "detect" or "detected" or "alarm" or "monitor" => FirewallAction.Alert,
+            "alert" or "detect" or "detected" or "alarm" or "monitor" or "syncookie-sent" => FirewallAction.Alert,
             _ => FirewallAction.Unknown
         };
     }
@@ -172,21 +159,16 @@ internal static class PositionalFormatHelpers
     /// <summary>Space-separated tokens of a string (no empty entries), cheap and allocation-bounded.</summary>
     public static string[] Tokens(string text) => text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    /// <summary>Value of key="value" or key=value in a free-text message (first occurrence, key must start a token).</summary>
+    /// <summary>
+    /// Value of key="value" or key=value in a free-text message (first occurrence, key must start a token). Text inside
+    /// another key's quoted value is never searched: a user name may contain anything.
+    /// </summary>
     public static string? QuotedValue(string text, string key)
     {
-        var search = key + "=";
-        var idx = 0;
-        while (true)
-        {
-            idx = text.IndexOf(search, idx, StringComparison.Ordinal);
-            if (idx < 0)
-                return null;
-            if (idx == 0 || text[idx - 1] is ' ' or '[' or ',' or '\t')
-                break;
-            idx += search.Length;
-        }
-        var start = idx + search.Length;
+        var idx = FindKey(text, key);
+        if (idx < 0)
+            return null;
+        var start = idx + key.Length + 1;
         if (start >= text.Length)
             return null;
         if (text[start] == '"')
@@ -203,6 +185,26 @@ internal static class PositionalFormatHelpers
         }
         var end = text.IndexOf(' ', start);
         return end < 0 ? text[start..] : text[start..end];
+    }
+
+    private static int FindKey(string text, string key)
+    {
+        var tokenStart = true;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (tokenStart && c == key[0] && i + key.Length < text.Length && text[i + key.Length] == '='
+                && string.CompareOrdinal(text, i, key, 0, key.Length) == 0)
+                return i;
+            if (c == '"')
+            {
+                for (i++; i < text.Length && text[i] != '"'; i++)
+                    if (text[i] == '\\')
+                        i++;
+            }
+            tokenStart = c is ' ' or '[' or ',' or '\t';
+        }
+        return -1;
     }
 
     /// <summary>The vendor's own time stamp when it parses, else the syslog header's.</summary>

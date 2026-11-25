@@ -37,7 +37,7 @@ public sealed class PaloAltoFormat : ILogFormat
 
             var env = SyslogEnvelope.Parse(line, context);
             var msg = env.Message;
-            if (!TrySplitCsv(msg, 0, _f) || _f.Count < 7)
+            if (env.FromOtherProgram || !TrySplitCsv(msg, 0, _f) || _f.Count < 7)
                 return ParseOutcome.Failed;
 
             var f = _f;
@@ -108,13 +108,13 @@ public sealed class PaloAltoFormat : ILogFormat
             var dst = At(f, 8);
             if (!IsIp(src) || !IsIp(dst))
                 return ParseOutcome.Failed;
-            var actionWord = At(f, 30)?.ToLowerInvariant();
+            var actionWord = At(f, 30)?.ToLowerInvariant().Replace(' ', '-');
             var isUrl = subtype == "url";
             var action = actionWord switch
             {
                 // URL filtering: "alert" / "continue" / "override" = the page was shown
                 "alert" or "allow" or "continue" or "override" when isUrl => FirewallAction.Allow,
-                "block-continue" or "block-override" => FirewallAction.Deny,
+                "block-continue" or "block-override" or "override-lockout" => FirewallAction.Deny,
                 // threat detected but let through
                 "allow" or "alert" or "continue" or "override" => FirewallAction.Alert,
                 _ => Action(actionWord)
@@ -207,7 +207,8 @@ public sealed class PaloAltoFormat : ILogFormat
             var desc = At(f, 14);
             if (eventId != "auth-fail" || desc is null)
                 return ParseOutcome.Skipped;
-            var from = desc.IndexOf("From: ", StringComparison.OrdinalIgnoreCase);
+            // the last "From: ": the user name in front of it may contain another one
+            var from = desc.LastIndexOf("From: ", StringComparison.OrdinalIgnoreCase);
             var userStart = desc.IndexOf("user '", StringComparison.OrdinalIgnoreCase);
             if (from < 0 || userStart < 0)
                 return ParseOutcome.Skipped;
