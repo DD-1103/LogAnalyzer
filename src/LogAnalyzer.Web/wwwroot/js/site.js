@@ -269,9 +269,34 @@
             badge.classList.toggle('d-none', !(value > 0));
         }
 
+        let timer = null;
+
+        // The session of this tab is over (logged out elsewhere, disabled, expired): say so and stop asking.
+        function sessionEnded() {
+            clearInterval(timer);
+            const main = document.getElementById('main');
+            if (!main || main.querySelector('.js-session-ended')) return;
+            const box = document.createElement('div');
+            box.className = 'alert alert-warning lg-flash js-session-ended';
+            box.setAttribute('role', 'alert');
+            const icon = document.createElement('i');
+            icon.className = 'bi bi-box-arrow-right';
+            icon.setAttribute('aria-hidden', 'true');
+            const text = document.createElement('div');
+            text.textContent = 'Your session in this tab has ended. ';
+            const link = document.createElement('a');
+            link.className = 'alert-link';
+            link.href = location.href.split('#')[0];
+            link.textContent = 'Sign in again';
+            text.appendChild(link);
+            box.append(icon, text);
+            main.prepend(box);
+        }
+
         async function refresh() {
             try {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+                if (res.status === 401) { sessionEnded(); return; }
                 if (!res.ok) return;
                 const c = await res.json();
                 setBadge('badge-files', c.processing, '');
@@ -280,11 +305,11 @@
                 setBadge('badge-soc2', c.soc2Waiting, '');
                 setBadge('badge-bell', c.notifications, '');
                 document.dispatchEvent(new CustomEvent('lg:navcounts', { detail: c }));
-            } catch { /* offline or session expired: keep the last values */ }
+            } catch { /* offline: keep the last values */ }
         }
 
+        timer = setInterval(refresh, 10000);
         refresh();
-        setInterval(refresh, 10000);
     }
 
     // ------------------------------------------------------------------ 6. Forms

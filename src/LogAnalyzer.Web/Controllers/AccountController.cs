@@ -22,14 +22,33 @@ public class AccountController(
     private static readonly Lazy<string> DummyHash =
         new(() => new PasswordHasher<AppUser>().HashPassword(new AppUser(), Guid.NewGuid().ToString()));
 
+    /// <summary>
+    /// "Sign in another account": opens the sign-in page of the first session slot without a sign-in. The slot is chosen
+    /// at the click, not when the menu was rendered, so an old tab never offers a slot that is in use by now.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet]
+    public IActionResult NewSession()
+    {
+        var cookieName = cookieOptions.Get(IdentityConstants.ApplicationScheme).Cookie.Name ?? "";
+        if (SessionSlots.FirstFreeSlot(Request.Cookies.Keys, cookieName) is { } slot)
+            return LocalRedirect(SessionSlots.PathBaseFor(HttpContext, slot).ToUriComponent() + "/Account/Login");
+        TempData["Error"] = $"All {SessionSlots.MaxSlot} extra sessions are in use. Log out in one of them to sign in another account.";
+        return RedirectToAction("Index", "Home");
+    }
+
     [AllowAnonymous]
     [HttpGet]
     public async Task<IActionResult> Login(string? returnUrl = null)
     {
+        // Signed in already: no sign-in form. Signing in here would replace the account of this session in all its tabs.
+        if (User.Identity?.IsAuthenticated == true)
+            return LocalRedirect(SessionSlots.IsLocalToCurrentSlot(Request, returnUrl) ? returnUrl! : Url.Content("~/"));
+
         // A sign-in cookie of this session slot that no longer works (expired, revoked) is removed, so the slot
         // counts as free again for "Sign in another account".
         var cookieName = cookieOptions.Get(IdentityConstants.ApplicationScheme).Cookie.Name;
-        if (User.Identity?.IsAuthenticated != true && cookieName is not null
+        if (cookieName is not null
             && Request.Cookies.ContainsKey(SessionSlots.CookieName(cookieName, SessionSlots.Current(HttpContext))))
             await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
         return View(new LoginViewModel { ReturnUrl = returnUrl });
@@ -38,6 +57,7 @@ public class AccountController(
     [AllowAnonymous]
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [ReloadOutdatedSignInForm]
     [EnableRateLimiting("login")]
     public async Task<IActionResult> Login(LoginViewModel model)
     {

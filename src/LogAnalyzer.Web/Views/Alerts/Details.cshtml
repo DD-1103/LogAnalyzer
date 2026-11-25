@@ -116,7 +116,7 @@
                     <dt class="col-sm-4">First / last seen</dt>
                     <dd class="col-sm-8">
                         @a.FirstSeen.ToString("dd/MM/yyyy HH:mm:ss") to @a.LastSeen.ToString("dd/MM/yyyy HH:mm:ss")
-                        <span class="text-body-secondary small">(@((a.LastSeen - a.FirstSeen).ToString(@"hh\:mm\:ss")))</span>
+                        <span class="text-body-secondary small">(@Format.Duration(a.LastSeen - a.FirstSeen))</span>
                     </dd>
 
                     <dt class="col-sm-4">Log file</dt>
@@ -335,7 +335,11 @@
     {
         <span class="lg-ti-pill tone-@Format.ConsensusTone(tiConsensus.Verdict)" title="@tiConsensus.Explanation">LogAnalyzer verdict: @tiConsensus.Label</span>
     }
-    <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-q="@a.SourceIp" class="small">full threat dashboard</a>
+    @* "1,234 other IPs" (merged alerts) is nothing to look up *@
+    @if (System.Net.IPAddress.TryParse(a.SourceIp, out _))
+    {
+        <a asp-controller="ThreatIntel" asp-action="Lookup" asp-route-q="@a.SourceIp" class="small">full threat dashboard</a>
+    }
     @if (isPublicIp && Model.Providers.Any(p => p.IsConfigured))
     {
         <form asp-controller="ThreatIntel" asp-action="Refresh" method="post" class="ms-auto">

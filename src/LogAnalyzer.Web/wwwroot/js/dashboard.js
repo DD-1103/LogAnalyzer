@@ -77,7 +77,7 @@
                     labels: data.hours,
                     datasets: [
                         {
-                            label: 'All requests', data: data.total, borderColor: p.accent(1), borderWidth: 2,
+                            label: 'All events', data: data.total, borderColor: p.accent(1), borderWidth: 2,
                             backgroundColor: c => c.chart.chartArea ? gradient(c.chart.ctx, c.chart.chartArea, p.accent(.32), p.accent(0)) : p.accent(.15),
                             fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: p.accent(1)
                         },
@@ -125,7 +125,7 @@
                 data: {
                     labels: data.types.map(t => t.name),
                     datasets: [{
-                        label: 'Malicious requests',
+                        label: 'Malicious events',
                         data: data.types.map(t => t.count),
                         backgroundColor: c => c.chart.chartArea
                             ? (() => {
@@ -186,7 +186,7 @@
             const place = document.createElement('div');
             place.textContent = [pt.city, pt.country].filter(Boolean).join(', ') || 'Unknown location';
             const stats = document.createElement('div');
-            stats.textContent = pt.alerts + ' alert(s), ' + pt.events + ' malicious requests';
+            stats.textContent = pt.alerts + ' alert(s), ' + pt.events + ' malicious events';
             box.append(title, place, stats);
             marker.bindPopup(box);
         }

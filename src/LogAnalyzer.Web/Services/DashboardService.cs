@@ -54,7 +54,7 @@ public sealed class DashboardService(AppDbContext db, GeoIpLookup geo)
             .OrderByDescending(x => x.Count)
             .ToList();
 
-        // ---- Requests per hour: all vs. flagged as malicious (pre-computed per file after detection) ----
+        // ---- Events per hour: all vs. flagged as malicious (pre-computed per file after detection) ----
         var hourStats = db.LogFileHourStats.AsNoTracking().AsQueryable();
         if (logFileId.HasValue)
             hourStats = hourStats.Where(s => s.LogFileId == logFileId);

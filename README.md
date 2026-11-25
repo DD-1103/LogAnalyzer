@@ -3,15 +3,15 @@
 **Design and Implementation of an Information System for Detecting Web Attacks Through Web Server Log Analysis**
 Master's diploma project – Information Systems Engineering, Faculty of Natural Sciences (FSHN), University of Tirana.
 
-LogAnalyzer imports Apache / Nginx access logs, detects web attacks with signature, threshold and machine-learning
-(Isolation Forest) rules, enriches attacker IPs with GeoIP and threat intelligence (AbuseIPDB, GreyNoise, VirusTotal),
+LogAnalyzer imports Apache / Nginx access logs and firewall logs (FortiGate, Palo Alto, Cisco ASA, iptables, CEF, ...),
+detects attacks with signature, threshold, distinct-count and machine-learning (Isolation Forest, web logs) rules, enriches attacker IPs with GeoIP and threat intelligence (AbuseIPDB, GreyNoise, VirusTotal),
 and gives analysts a dashboard, an alert triage workflow and PDF/CSV reports.
 
 ## Features
 
 | Area | What it does |
 |---|---|
-| Ingestion | Upload `.log` / `.txt` / `.gz` (≤ 500 MB). Background worker parses Common/Combined Log Format and bulk-inserts events (SqlBulkCopy). Parse and detection times are stored per file. |
+| Ingestion | Upload `.log` / `.txt` / `.gz` (≤ 500 MB). The log format is detected automatically or chosen on upload; a background worker parses the file and bulk-inserts events (SqlBulkCopy). A file of which no line can be read is marked Failed with an explanation. Parse and detection times are stored per file. |
 | Detection | **Signature** rules (regex on URL decoded twice, user agent or referrer), **threshold** rules (N matching requests per IP in a sliding window), **anomaly** rule (Isolation Forest over 11 per-IP behaviour features, with an explanation per alert). Regex timeout + ReDoS check on save. |
 | Rules (Admin) | Create / edit / enable / disable / delete; **test a rule against a stored log before saving**. |
 | Alerts | One alert per (rule, IP) with all evidence lines; status workflow New → Investigating → False positive / Closed, notes, assignment; CSV export (formula-injection safe). |

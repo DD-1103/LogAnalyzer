@@ -127,6 +127,7 @@
         loading = true;
         try {
             const res = await fetch(menu.dataset.list, { headers: { 'Accept': 'application/json' }, cache: 'no-store', credentials: 'same-origin' });
+            if (res.status === 401) { empty('Your session in this tab has ended. Reload the page to sign in again.'); return; }
             if (!res.ok) { empty('Notifications could not be loaded. Try again in a moment.'); return; }
             const items = await res.json();
             const unread = new Set(items.filter(n => !n.read).map(n => n.id));

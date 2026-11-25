@@ -52,6 +52,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Cookie.SameSite = SameSiteMode.Strict;
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = true;
+    SessionCookieEvents.Configure(options);
 });
 
 // Session slots (/s/1 ... /s/9): every slot has its own Identity cookies, so several accounts can be signed in at
@@ -173,6 +174,8 @@ builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<ReportService>();
 builder.Services.AddScoped<NotificationService>();
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+// On by default under a debugger (F5): a report then fails when a log line holds a character no installed font has.
+QuestPDF.Settings.CheckIfAllTextGlyphsAreAvailable = false;
 
 var app = builder.Build();
 

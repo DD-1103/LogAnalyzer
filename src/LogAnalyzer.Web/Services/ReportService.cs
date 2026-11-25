@@ -93,9 +93,11 @@ public sealed class ReportService(AppDbContext db)
                     {
                         t.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
                         SummaryRow(t, "Uploaded", $"{file.UploadedAt.ToLocalTime():dd/MM/yyyy HH:mm} by {file.UploaderDisplay}");
+                        SummaryRow(t, "Log kind", FirewallFormat.SourceLabel(file.Source)
+                            + (LogImport.FormatLabel(file) is { } format ? $" ({format})" : ""));
                         SummaryRow(t, "File size", Format.Bytes(file.SizeBytes));
                         SummaryRow(t, "Lines parsed / failed", $"{file.ParsedLines:N0} / {file.FailedLines:N0}");
-                        SummaryRow(t, "Malicious requests", $"{maliciousEvents:N0}");
+                        SummaryRow(t, file.Source == LogSource.Firewall ? "Malicious events" : "Malicious requests", $"{maliciousEvents:N0}");
                         SummaryRow(t, "Alerts", $"{alerts.Count} ({alerts.Count(a => a.Severity >= Severity.High)} high or critical)");
                         SummaryRow(t, "Attacking IPs", $"{attackingIps}");
                     });
@@ -202,16 +204,24 @@ public sealed class ReportService(AppDbContext db)
     private static void BodyCell(IContainer cell, string text) =>
         cell.BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(3).Text(text);
 
-    /// <summary>One evidence line: request for web logs, connection for firewall logs.</summary>
-    internal static string EvidenceLine(LogEvent e)
+    /// <summary>One evidence line: request for web logs, connection (or message, e.g. of a failed login) for firewall logs.</summary>
+    public static string EvidenceLine(LogEvent e)
     {
         string text;
         if (e.Action is not null)
         {
-            var target = Helpers.FirewallFormat.Endpoint(e.DestinationIp, e.DestinationPort);
-            var extra = e.ThreatName ?? e.RuleName;
-            text = $"{e.Method} {e.Transport} {Helpers.FirewallFormat.Endpoint(e.ClientIp, e.SourcePort)} -> {target}"
-                   + (extra is null ? "" : $"  [{extra}]");
+            var parts = new List<string> { e.Method };
+            if (e.Transport is not null)
+                parts.Add(e.Transport);
+            parts.Add(FirewallFormat.Endpoint(e.ClientIp, e.SourcePort));
+            // Events without a destination (logins, system messages) are only understandable with their message.
+            if (e.DestinationIp is null && e.DestinationPort is null)
+                parts.Add($" {e.Url}");
+            else
+                parts.Add($"-> {FirewallFormat.Endpoint(e.DestinationIp, e.DestinationPort)}");
+            if ((e.ThreatName ?? e.RuleName) is { } extra)
+                parts.Add($" [{extra}]");
+            text = string.Join(' ', parts);
         }
         else
         {
@@ -219,7 +229,8 @@ public sealed class ReportService(AppDbContext db)
             text = $"{e.Method} {url}  -> {e.StatusCode}";
         }
         if (text.Length > MaxUrlLength + 40)
-            text = text[..(MaxUrlLength + 40)] + "...";
-        return $"line {e.LineNumber}  {e.Timestamp:dd/MM HH:mm:ss}  {text}";
+            text = LogImport.Cut(text, MaxUrlLength + 40) + "...";
+        // Log text is untrusted: control characters (line breaks, escape sequences) must not change the layout.
+        return $"line {e.LineNumber}  {e.Timestamp:dd/MM HH:mm:ss}  {AuditLog.Clean(text)}";
     }
 }

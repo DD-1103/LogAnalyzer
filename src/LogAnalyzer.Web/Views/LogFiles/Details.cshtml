@@ -32,13 +32,13 @@
             </span>
             Uploaded @f.UploadedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm") by @f.UploaderDisplay.
         </p>
-        <div class="lg-chip-row mt-2" aria-label="Log kind and format">
-            <span class="lg-chip"><i class="bi @FirewallFormat.SourceIcon(f.Source)" aria-hidden="true"></i> @FirewallFormat.SourceLabel(f.Source)</span>
-            @if (f.Format is not null)
+        <div class="lg-chip-row mt-2">
+            @if (LogImport.FormatLabel(f) is { } formatLabel)
             {
-                <span class="lg-chip text-break"><i class="bi bi-file-earmark-code" aria-hidden="true"></i> @f.Format</span>
+                <span class="lg-chip"><i class="bi @FirewallFormat.SourceIcon(f.Source)" aria-hidden="true"></i> @FirewallFormat.SourceLabel(f.Source)</span>
+                <span class="lg-chip text-break"><i class="bi bi-file-earmark-code" aria-hidden="true"></i> @formatLabel</span>
             }
-            else if (!Format.IsBusy(f.Status) && f.Status != LogFileStatus.Pending)
+            else if (LogImport.NotRecognised(f))
             {
                 <span class="lg-chip"><i class="bi bi-question-circle" aria-hidden="true"></i> Format not recognised</span>
             }
@@ -79,6 +79,13 @@
                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Process again</button>
             </form>
         }
+    </div>
+}
+@if (LogImport.Notice(f) is { } notice)
+{
+    <div class="alert alert-warning lg-flash" role="status">
+        <i class="bi bi-file-earmark-break" aria-hidden="true"></i>
+        <div>@notice</div>
     </div>
 }
 @if (f.Status == LogFileStatus.Completed && f.DetectionWarnings is not null)
@@ -192,7 +199,7 @@
 {
     <div class="lg-panel lg-empty">
         <i class="bi bi-search" aria-hidden="true"></i>
-        <p class="mb-0">No events match these filters.</p>
+        <p class="mb-0">@(Model.Filtered ? "No events match these filters." : "This file has no events.")</p>
     </div>
 }
 else if (isFirewall)
