@@ -41,8 +41,9 @@ static int Usage()
           generate-firewall --lines 100000 --out fw.log [--format fortigate|paloalto|cisco-asa|iptables|cef]
                        [--labels fw.labels.csv] [--attack-ratio 0.03] [--seed 42]
                        Synthetic labelled firewall log (documentation IP ranges only): normal traffic, internet
-                       noise, a monitoring host, and port scans, sweeps, brute force, floods, C2 beacons, IPS
-                       events and failed logins (slow, evasive variants included).
+                       noise, a monitoring host, an authorised vulnerability scanner (a deliberate false positive),
+                       and port scans, sweeps, brute force, floods, C2 beacons, IPS events (not for iptables) and
+                       failed logins (slow, evasive variants included).
 
           detect       --log fw.log [--show-failed 5]
                        Shows which format the app detects for a file and how many lines it can read

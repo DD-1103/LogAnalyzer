@@ -10,8 +10,10 @@ namespace LogAnalyzer.Tools;
 /// Labels: normal, portscan, sweep, bruteforce, flood, c2, intrusion, authfail (iptables has no IPS, so no intrusion).
 /// Every label appears at least once in its plain form when the attack budget allows it (about 500 attack lines, i.e.
 /// 17,000 lines at the default ratio); a warning names the labels that did not fit. About one in five further campaigns
-/// is evasive (below the rule's rate, C2 on port 443). A benign monitoring host pings 40 servers per round (1% of the
-/// lines, a deliberate false positive of the sweep rule) and some users mistype a password (normal, below the threshold).
+/// is evasive (below the rule's rate, C2 on port 443). Benign but suspicious-looking: an authorised vulnerability scanner
+/// probes servers port by port (0.5% of the lines, label normal: a deliberate FALSE POSITIVE of the port-scan rule), a
+/// monitoring host pings 40 servers per round (1%; allowed, so the sweep rule must stay quiet) and some users mistype a
+/// password (below the threshold).
 /// The same seed, size, ratio and format give a byte-identical file (line ends are always LF).
 /// </summary>
 public static class FirewallGenerator
@@ -193,6 +195,11 @@ internal sealed class FirewallScenario
     private const double MonitoringShare = 0.01;
     private const int MaxMonitoringRounds = 288; // every 5 minutes
 
+    /// <summary>Ports the authorised vulnerability scanner probes per server, and the share of all lines it may take.</summary>
+    private const int ScannedPorts = 60;
+    private const double ScannerShare = 0.005;
+    private const int MaxScannerRounds = 48; // one server every half hour
+
     private const string WebServer = "10.0.1.10";
     private const string VpnGateway = "198.51.100.1";
 
@@ -273,6 +280,17 @@ internal sealed class FirewallScenario
             for (var h = 0; h < MonitoredHosts; h++)
                 events.Add(new FwEvent(Start + Span * ((r + 0.5) / rounds) + TimeSpan.FromMilliseconds(h * 50), "normal", FwKind.Traffic,
                     "10.0.0.250", 0, $"10.0.5.{10 + h}", 0, "icmp", true, false, "PING", "ping", 84));
+
+        // 3b. authorised vulnerability scanner: 60 ports of one server per round, only the service ports are open. It
+        // looks exactly like an attack, but the security team runs it, so the label is normal (allow-listing would fix it).
+        var scans = Math.Clamp((int)(lines * ScannerShare / ScannedPorts), 1, MaxScannerRounds);
+        for (var r = 0; r < scans; r++)
+            for (var p = 0; p < ScannedPorts; p++)
+            {
+                var port = 20 + p * 8; // 20, 28, ... 492
+                events.Add(new FwEvent(Start + Span * ((r + 0.25) / scans) + TimeSpan.FromMilliseconds(p * 200), "normal", FwKind.Traffic,
+                    "10.0.0.251", 40000 + p, $"10.0.1.{2 + r % 58}", port, "tcp", port == 80, false, "tcp/" + port, "incomplete", 0));
+            }
 
         // 4. users who mistype their password one to three times
         for (var burst = 0; burst < Math.Max(1, lines / 5000); burst++)

@@ -211,9 +211,9 @@ What the default firewall rules count (shown as chips on the rules page):
 
 Limitations to state in the thesis:
 * The generator and the rules have the same author, so the results only show that the engine works on the patterns it was
-  written for. In particular, a precision near 100 % on this log is not evidence for real traffic: its only deliberately
-  scan-like benign host is a monitoring system whose pings are allowed. Vulnerability scanners, peer-to-peer traffic,
-  passive FTP, backup systems and application servers are not in the generator.
+  written for. Precision on this log is set by the generator, not by real traffic: the false positives come from one
+  authorised vulnerability scanner (10.0.0.251, 0.5 % of the lines, label normal), a benign host that looks exactly like an
+  attacker. Peer-to-peer traffic, passive FTP, backup systems and application servers are not in the generator.
 * The formats were written from public vendor documentation and were **not tested on real devices**.
 * Real accuracy needs a lab firewall (pfSense / OPNsense VM, Kali with nmap and hydra, a normal-traffic VM) whose logs are
   labelled by attacker IP and time. Never use logs of AKSK or any other employer.
