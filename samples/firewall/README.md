@@ -46,10 +46,9 @@ Why a rule is missing:
 3. RouterOS has no signature-based IPS; its log has firewall rules with `action=log` and login messages.
 4. `filterlog` only has packet-filter decisions. Snort / Suricata, GUI and sshd write other syslog programs.
 5. `pfirewall.log` only has ALLOW / DROP lines. Windows logons are in the Security event log (4625).
-6. **Not the documented line.** The Meraki documentation shows `type=anyconnect_vpn_auth_failure msg= 'Peer IP=192.168.0.1Peer
-   port[8748] AAA[8]: AAA authenticate failed retval=7 - Authentication failure'` (as rendered there, maybe without a space), the
-   address inside the text. The sample has an extra `remote_ip=` field, because the parser currently skips the documented
-   line (2026-11-25). So this sample does **not** show that failed AnyConnect logins of a real MX are detected.
+6. The failed AnyConnect logins use the form of the Meraki documentation
+   (`type=anyconnect_vpn_auth_failure msg= 'Peer IP=... Peer port[...] AAA[8]: AAA authenticate failed '`); the user
+   name is not part of that line.
 
 ## The stories
 
@@ -123,7 +122,7 @@ Nothing was compared with a real device. The documentation pages were opened on 
 | `pfsense.log` | https://docs.netgate.com/pfsense/en/latest/monitoring/logs/raw-filter-format.html | checked | field order including ICMP echo |
 | `fortigate.log` | https://docs.fortinet.com/document/fortigate/7.4.0/fortios-log-message-reference (32002: `.../32002/32002-log-id-admin-login-fail`) | checked (32002 only) | traffic, ips and 39426 lines not checked |
 | `paloalto.log` | https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-admin/monitoring/use-syslog-for-monitoring/syslog-field-descriptions | checked (System log only) | index page; the `system-log-fields` page has the field order of the auth-fail lines; the other log types not checked |
-| `meraki.log` | https://documentation.meraki.com/General_Administration/Monitoring_and_Reporting/Syslog_Event_Types_and_Log_Samples | checked | flows and ids_alerted fields as documented; the AnyConnect failure line is **different** (note 6 above) |
+| `meraki.log` | https://documentation.meraki.com/General_Administration/Monitoring_and_Reporting/Syslog_Event_Types_and_Log_Samples | checked | flows and ids_alerted fields as documented; AnyConnect failure line as documented (note 6 above) |
 | `leef.log` | https://www.ibm.com/docs/en/dsm?topic=leef-overview, https://www.ibm.com/docs/en/dsm?topic=overview-leef-event-components | checked (header) | header order and 2.0 delimiter on the second page |
 | `json.log` (AWS Network Firewall) | https://docs.aws.amazon.com/network-firewall/latest/developerguide/firewall-logging-contents.html | checked (alert) | netflow events are only named there, no example |
 | `cisco-asa.log` | https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html | checked (302013 / 302015) | the guide covers the id ranges; it does not say that "for" is the outside end also for outbound connections; login messages not checked |

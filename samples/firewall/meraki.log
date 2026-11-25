@@ -56,12 +56,12 @@
 <134>1 1795257000.123496901 mx-lab security_event ids_alerted signature=1:2006549:7 priority=1 timestamp=1795257000.098765 dhost=00:00:5E:00:53:02 direction=ingress protocol=tcp/ip src=192.0.2.66:40112 dst=10.0.0.5:80 decision=blocked message: ET WEB_SERVER SQL injection attempt
 <134>1 1795257020.123496902 mx-lab ids-alerts signature=1:2006550:7 priority=1 timestamp=1795257020.098765 dhost=00:00:5E:00:53:02 direction=ingress protocol=tcp/ip src=192.0.2.66:40113 dst=10.0.0.5:80 message: ET WEB_SERVER Directory traversal attempt
 <134>1 1795257040.123496903 mx-lab security_event ids_alerted signature=1:2006551:7 priority=1 timestamp=1795257040.098765 dhost=00:00:5E:00:53:02 direction=ingress protocol=tcp/ip src=192.0.2.66:40114 dst=10.0.0.5:80 decision=blocked message: ET WEB_SERVER Remote code execution attempt
-<134>1 1795257600.123508333 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user admin' remote_ip=192.0.2.99
-<134>1 1795257615.123508334 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user admin' remote_ip=192.0.2.99
-<134>1 1795257630.123508335 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user jdoe' remote_ip=192.0.2.99
-<134>1 1795257642.123508336 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user admin' remote_ip=192.0.2.99
-<134>1 1795257651.123508337 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user admin' remote_ip=192.0.2.99
-<134>1 1795257663.123508338 mx-lab events type=anyconnect_vpn_auth_failure msg='AnyConnect authentication failed for user jdoe' remote_ip=192.0.2.99
+<134>1 1795257600.123508333 mx-lab events type=anyconnect_vpn_auth_failure msg= 'Peer IP=192.0.2.99 Peer port[8748] AAA[8]: AAA authenticate failed '
+<134>1 1795257615.123508334 mx-lab events type=anyconnect_vpn_auth_failure msg= 'Peer IP=192.0.2.99 Peer port[8749] AAA[8]: AAA authenticate failed '
+<134>1 1795257630.123508335 mx-lab events type=anyconnect_vpn_auth_failure msg= 'Peer IP=192.0.2.99 Peer port[8750] AAA[8]: AAA authenticate failed '
+<134>1 1795257642.123508336 mx-lab events type=anyconnect_vpn_auth_failure msg= 'Peer IP=192.0.2.99 Peer port[8751] AAA[8]: AAA authenticate failed '
+<134>1 1795257651.123508337 mx-lab events type=anyconnect_vpn_auth_failure msg= 'Peer IP=192.0.2.99 Peer port[8752] AAA[8]: AAA authenticate failed '
+<134>1 1795257663.123508338 mx-lab events type=anyconnect_vpn_auth_failure msg= 'Peer IP=192.0.2.99 Peer port[8753] AAA[8]: AAA authenticate failed '
 <134>1 1795258200.123505941 mx-lab flows src=10.0.0.23 dst=198.51.100.200 mac=00:00:5E:00:53:01 protocol=tcp sport=49152 dport=4444 pattern: allow all
 <134>1 1795258230.123505942 mx-lab flows src=10.0.0.23 dst=198.51.100.200 mac=00:00:5E:00:53:01 protocol=tcp sport=49153 dport=4444 pattern: allow all
 <134>1 1795258500.123456789 mx-lab events type=vpn_connectivity_change vpn_type='site-to-site' peer_contact='198.51.100.7:500' peer_ident='lab-peer' connectivity='true'
