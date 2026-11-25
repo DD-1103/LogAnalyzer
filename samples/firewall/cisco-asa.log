@@ -57,11 +57,11 @@ Nov 21 2026 10:11:45 fw01 : %ASA-4-733101: Host 203.0.113.5 is attacking. Curren
 Nov 21 2026 10:11:50 fw01 : %ASA-2-106017: Deny IP due to Land Attack from 192.0.2.44 to 192.0.2.44
 Nov 21 2026 10:11:55 fw01 : %ASA-4-419002: Received duplicate TCP SYN from outside:192.0.2.44/43100 to inside:10.0.0.20/443 with different initial sequence number.
 Nov 21 2026 10:13:00 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42100 to outside:198.51.100.1/ssh for user "admin"
-Nov 21 2026 10:13:00 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42100 to outside:198.51.100.1/ssh for user "admin"
-Nov 21 2026 10:13:10 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42101 to outside:198.51.100.1/ssh for user "root"
-Nov 21 2026 10:13:10 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42101 to outside:198.51.100.1/ssh for user "root"
+Nov 21 2026 10:13:06 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42101 to outside:198.51.100.1/ssh for user "admin"
+Nov 21 2026 10:13:10 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42102 to outside:198.51.100.1/ssh for user "root"
+Nov 21 2026 10:13:16 fw01 : %ASA-6-605004: Login denied from 203.0.113.9/42103 to outside:198.51.100.1/ssh for user "cisco"
 Nov 21 2026 10:13:20 fw01 : %ASA-6-113015: AAA user authentication Rejected : reason = Invalid password : local database : user = admin : user IP = 203.0.113.9
-Nov 21 2026 10:13:20 fw01 : %ASA-6-113015: AAA user authentication Rejected : reason = Invalid password : local database : user = admin : user IP = 203.0.113.9
+Nov 21 2026 10:13:26 fw01 : %ASA-6-113015: AAA user authentication Rejected : reason = Invalid password : local database : user = operator : user IP = 203.0.113.9
 Nov 21 2026 10:13:30 fw01 : %ASA-6-716039: Group <DfltGrpPolicy> User <jdoe> IP <198.51.100.99> Authentication: rejected, Session Type: WebVPN.
 Nov 21 2026 10:13:40 fw01 : %ASA-4-113039: Group <GroupPolicy_VPN> User <jdoe> IP <198.51.100.99> AnyConnect parent session started.
 Nov 21 2026 10:15:00 fw01 : %ASA-6-302013: Built outbound TCP connection 7001 for outside:198.51.100.66/4444 (198.51.100.66/4444) to inside:10.0.0.23/50999 (198.51.100.1/50999)

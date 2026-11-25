@@ -7,9 +7,12 @@ namespace LogAnalyzer.Tools;
 /// "generate-firewall": synthetic, labelled firewall log for evaluating the firewall rules (same idea as "generate" for
 /// web logs). All addresses are documentation ranges (outside: 198.51.100.0/24, 192.0.2.0/24, 203.0.113.0/24) or RFC 1918
 /// (inside: 10.0.0.0/16); nothing comes from a real network.
-/// Labels: normal, portscan, sweep, bruteforce, flood, c2, intrusion, authfail. Evasive variants (slow scan, slow
-/// brute force) and a benign monitoring host that pings many hosts are included on purpose, so the results show
-/// realistic misses and false positives.
+/// Labels: normal, portscan, sweep, bruteforce, flood, c2, intrusion, authfail (iptables has no IPS, so no intrusion).
+/// Every label appears at least once in its plain form when the attack budget allows it (about 500 attack lines, i.e.
+/// 17,000 lines at the default ratio); a warning names the labels that did not fit. About one in five further campaigns
+/// is evasive (below the rule's rate, C2 on port 443). A benign monitoring host pings 40 servers per round (1% of the
+/// lines, a deliberate false positive of the sweep rule) and some users mistype a password (normal, below the threshold).
+/// The same seed, size, ratio and format give a byte-identical file (line ends are always LF).
 /// </summary>
 public static class FirewallGenerator
 {
@@ -28,12 +31,16 @@ public static class FirewallGenerator
             throw new ArgumentException("--lines must be at least 1000 and --attack-ratio between 0 and 0.5.");
         var labels = a.Optional("labels") ?? Path.ChangeExtension(output, null) + ".labels.csv";
 
-        var events = new FirewallScenario(seed, ratio).Build(lines);
+        var scenario = new FirewallScenario(seed, ratio, hasIps: format != "iptables");
+        var events = scenario.Build(lines);
         var counts = Write(events, format, output, labels);
         Console.WriteLine($"Wrote {events.Count:N0} {format} lines to {output}");
         Console.WriteLine($"Labels: {labels}");
         foreach (var (label, count) in counts.OrderByDescending(kv => kv.Value))
             Console.WriteLine($"  {label,-12} {count,10:N0}  ({100.0 * count / events.Count:0.00}%)");
+        if (scenario.MissingLabels.Count > 0)
+            Console.WriteLine($"Warning: the attack budget ({lines * ratio:N0} lines) is too small for: {string.Join(", ", scenario.MissingLabels)}. " +
+                              "Use more --lines or a higher --attack-ratio.");
         return 0;
     }
 
@@ -42,6 +49,7 @@ public static class FirewallGenerator
         var counts = new Dictionary<string, int>();
         using var log = new StreamWriter(logPath, false, new UTF8Encoding(false), 1 << 16);
         using var lab = new StreamWriter(labelsPath, false, new UTF8Encoding(false), 1 << 16);
+        log.NewLine = lab.NewLine = "\n"; // the same bytes on Windows and Linux
         lab.WriteLine("line,label");
         var n = 0;
         foreach (var e in events)
@@ -93,7 +101,7 @@ public static class FirewallGenerator
         var t = Ts(e.Time, "yyyy/MM/dd HH:mm:ss");
         var zones = e.Inbound ? "untrust,trust,ethernet1/1,ethernet1/2" : "trust,untrust,ethernet1/2,ethernet1/1";
         if (e.Kind == FwKind.Auth)
-            // GLOBALPROTECT logs are complex; failed portal logins appear as SYSTEM-like lines that parsers may skip.
+            // Failed administrator / GlobalProtect logins are SYSTEM log lines with event id "auth-fail".
             return $"1,{t},012801000001,SYSTEM,auth,2561,{t},vsys1,auth-fail,,0,0,general,medium,\"failed authentication for user '{e.User}'. Reason: Invalid username/password. auth profile 'GP-Auth', vsys 'vsys1', From: {e.Src}.\",{n},0x0,0,0,0,0,,PA-3220";
         if (e.Kind == FwKind.Threat)
             return $"1,{t},012801000001,THREAT,vulnerability,2561,{t},{e.Src},{e.Dst},0.0.0.0,0.0.0.0,allow-web,,,web-browsing,vsys1,{zones},Forward,{t},{n},1,{e.SrcPort},{e.DstPort},0,0,0x2000,{Proto(e)},reset-both,\"login.php\",{e.Threat}(91234),any,critical,client-to-server,{n},0x0,US,10.0.0.0-10.255.255.255,0";
@@ -109,25 +117,47 @@ public static class FirewallGenerator
         if (e.Kind == FwKind.Auth)
             return $"{head} %ASA-6-605004: Login denied from {e.Src}/{e.SrcPort} to outside:{e.Dst}/ssh for user \"{e.User}\"";
         if (e.Kind == FwKind.Threat)
-            return $"{head} %ASA-4-400013: IPS:2003 ICMP redirect from {e.Src} to {e.Dst} on interface outside";
+        {
+            // The ASA itself only has a short list of packet signatures (messages 4000nn), no web attack names.
+            var (id, sig, name) = AsaSignatures[Array.IndexOf(FirewallScenario.ThreatNames, e.Threat) % AsaSignatures.Length];
+            return $"{head} %ASA-4-{id}: IPS:{sig} {name} from {e.Src} to {e.Dst} on interface outside";
+        }
         if (!e.Allowed)
             return e.Proto == "icmp"
                 ? $"{head} %ASA-3-313001: Denied ICMP type=8, code=0 from {e.Src} on interface {inIf}"
                 : $"{head} %ASA-4-106023: Deny {Proto(e)} src {inIf}:{e.Src}/{e.SrcPort} dst {outIf}:{e.Dst}/{e.DstPort} by access-group \"{inIf.ToUpperInvariant()}_IN\" [0x0, 0x0]";
         if (e.Proto == "icmp")
             return $"{head} %ASA-6-302020: Built {(e.Inbound ? "inbound" : "outbound")} ICMP connection for faddr {(e.Inbound ? e.Src : e.Dst)}/0 gaddr {(e.Inbound ? e.Dst : e.Src)}/0 laddr {(e.Inbound ? e.Dst : e.Src)}/0 type 8 code 0";
-        var p = e.Proto.ToUpperInvariant();
-        return $"{head} %ASA-6-302013: Built {(e.Inbound ? "inbound" : "outbound")} {p} connection {n} for {inIf}:{e.Src}/{e.SrcPort} ({e.Src}/{e.SrcPort}) to {outIf}:{e.Dst}/{e.DstPort} ({e.Dst}/{e.DstPort})";
+        // "for" names the outside (lower security) end and "to" the inside end, also for outbound connections.
+        var (message, p) = e.Proto == "udp" ? ("302015", "UDP") : ("302013", "TCP");
+        string source = $"{e.Src}/{e.SrcPort}", destination = $"{e.Dst}/{e.DstPort}";
+        var (outside, inside) = e.Inbound ? (source, destination) : (destination, source);
+        return $"{head} %ASA-6-{message}: Built {(e.Inbound ? "inbound" : "outbound")} {p} connection {n} for outside:{outside} ({outside}) to inside:{inside} ({inside})";
     }
+
+    private static readonly (string Id, int Signature, string Name)[] AsaSignatures =
+    [
+        ("400013", 2003, "ICMP redirect"), ("400026", 3040, "TCP NULL flags"), ("400027", 3041, "TCP SYN+FIN flags"),
+        ("400028", 3042, "TCP FIN only flags"), ("400032", 4051, "UDP Snork attack")
+    ];
 
     private static string Iptables(FwEvent e)
     {
         var bsd = $"{Ts(e.Time, "MMM")} {e.Time.Day,2} {Ts(e.Time, "HH:mm:ss")}";
-        var head = $"{bsd} gw01 kernel: [{e.Time.TimeOfDay.TotalSeconds.ToString("0.000000", CultureInfo.InvariantCulture)}]";
+        // kernel uptime: the gateway booted an hour before the log starts
+        var uptime = (e.Time - FirewallScenario.Start).TotalSeconds + 3600;
+        var head = $"{bsd} gw01 kernel: [{uptime.ToString("0.000000", CultureInfo.InvariantCulture)}]";
         if (e.Kind == FwKind.Auth)
-            return $"{bsd} gw01 sshd[2211]: Failed password for invalid user {e.User} from {e.Src} port {e.SrcPort} ssh2";
-        var prefix = e.Kind == FwKind.Threat ? "[UFW BLOCK]" : e.Allowed ? "[UFW ALLOW]" : "[UFW BLOCK]";
-        var ports = e.Proto == "icmp" ? "TYPE=8 CODE=0 ID=1 SEQ=1" : $"SPT={e.SrcPort} DPT={e.DstPort} WINDOW=64240 RES=0x00 SYN URGP=0";
+            return $"{bsd} gw01 sshd[{2000 + e.SrcPort % 20000}]: Failed password for {(e.User == "root" ? "" : "invalid user ")}{e.User} from {e.Src} port {e.SrcPort} ssh2";
+        if (e.Kind == FwKind.Threat)
+            throw new InvalidOperationException("netfilter has no IPS: the scenario for iptables must not contain threat events.");
+        var prefix = e.Allowed ? "[UFW ALLOW]" : "[UFW BLOCK]";
+        var ports = e.Proto switch
+        {
+            "icmp" => "TYPE=8 CODE=0 ID=1 SEQ=1",
+            "udp" => $"SPT={e.SrcPort} DPT={e.DstPort} LEN=40",
+            _ => $"SPT={e.SrcPort} DPT={e.DstPort} WINDOW=64240 RES=0x00 SYN URGP=0"
+        };
         return $"{head} {prefix} IN={(e.Inbound ? "eth0" : "eth1")} OUT={(e.Inbound ? "eth1" : "eth0")} SRC={e.Src} DST={e.Dst} LEN=60 TOS=0x00 PREC=0x00 TTL=52 ID=54321 DF PROTO={e.Proto.ToUpperInvariant()} {ports}";
     }
 
@@ -138,7 +168,8 @@ public static class FirewallGenerator
             return $"CEF:0|ExampleVendor|ExampleFirewall|1.0|auth-fail|Administrator login failed|7|rt={rt} src={e.Src} dst={e.Dst} suser={e.User} act=deny cat=auth dvchost=fw01 outcome=failure";
         if (e.Kind == FwKind.Threat)
             return $"CEF:0|ExampleVendor|ExampleFirewall|1.0|ips-{e.DstPort}|{e.Threat}|9|rt={rt} src={e.Src} spt={e.SrcPort} dst={e.Dst} dpt={e.DstPort} proto={e.Proto.ToUpperInvariant()} act=drop cat=threat cs1Label=Rule cs1=ips-default dvchost=fw01";
-        return $"CEF:0|ExampleVendor|ExampleFirewall|1.0|traffic|{(e.Allowed ? "Connection allowed" : "Connection denied")}|{(e.Allowed ? 1 : 5)}|rt={rt} src={e.Src} spt={e.SrcPort} dst={e.Dst} dpt={e.DstPort} proto={e.Proto.ToUpperInvariant()} act={(e.Allowed ? "allow" : "deny")} cat=traffic cs1Label=Rule cs1={(e.Allowed ? "allow-web" : "deny-all")} dvchost=fw01 in={e.Bytes}";
+        var (spt, dpt) = e.Proto == "icmp" ? ("", "") : ($" spt={e.SrcPort}", $" dpt={e.DstPort}");
+        return $"CEF:0|ExampleVendor|ExampleFirewall|1.0|traffic|{(e.Allowed ? "Connection allowed" : "Connection denied")}|{(e.Allowed ? 1 : 5)}|rt={rt} src={e.Src}{spt} dst={e.Dst}{dpt} proto={e.Proto.ToUpperInvariant()} act={(e.Allowed ? "allow" : "deny")} cat=traffic cs1Label=Rule cs1={(e.Allowed ? "allow-web" : "deny-all")} dvchost=fw01 in={e.Bytes}";
     }
 }
 
@@ -147,12 +178,23 @@ internal enum FwKind { Traffic, Threat, Auth }
 internal sealed record FwEvent(DateTime Time, string Label, FwKind Kind, string Src, int SrcPort, string Dst, int DstPort, string Proto,
     bool Allowed, bool Inbound, string Service = "HTTPS", string App = "ssl", long Bytes = 0, string? Threat = null, string? User = null);
 
-/// <summary>Builds the event list (sorted by time). Deterministic for a given seed.</summary>
-internal sealed class FirewallScenario(int seed, double attackRatio)
+/// <summary>
+/// Builds exactly the requested number of events, sorted by time (stable). Deterministic for a given seed.
+/// A campaign is created at offset zero and then moved to a random start at which all of it fits into the 24 hours, and
+/// it is only added when it fits the attack budget: no campaign is ever cut, so a label always means a complete attack.
+/// </summary>
+internal sealed class FirewallScenario
 {
-    private readonly Random _rnd = new(seed);
-    private static readonly DateTime Start = new(2026, 11, 2, 8, 0, 0, DateTimeKind.Utc);
+    internal static readonly DateTime Start = new(2026, 11, 2, 8, 0, 0, DateTimeKind.Utc);
     private static readonly TimeSpan Span = TimeSpan.FromHours(24);
+
+    /// <summary>Hosts the monitoring server pings per round, and the share of all lines its pings may take.</summary>
+    private const int MonitoredHosts = 40;
+    private const double MonitoringShare = 0.01;
+    private const int MaxMonitoringRounds = 288; // every 5 minutes
+
+    private const string WebServer = "10.0.1.10";
+    private const string VpnGateway = "198.51.100.1";
 
     private static readonly (int Port, string Proto, string Service, string App)[] Outbound =
     [
@@ -160,58 +202,103 @@ internal sealed class FirewallScenario(int seed, double attackRatio)
         (53, "udp", "DNS", "dns"), (123, "udp", "NTP", "ntp"), (993, "tcp", "IMAPS", "imap"), (587, "tcp", "SMTP", "smtp")
     ];
 
-    private static readonly string[] ThreatNames =
+    internal static readonly string[] ThreatNames =
     [
         "HTTP.URI.SQL.Injection", "Apache.Log4j.Error.Log.Remote.Code.Execution", "PHPUnit.Eval-stdin.PHP.Remote.Code.Execution",
         "Bash.Function.Definitions.Remote.Code.Execution", "WordPress.xmlrpc.php.Brute.Force.Login"
     ];
 
+    /// <summary>In the order of their size, so a small budget still covers as many labels as possible.</summary>
+    private enum Campaign { Intrusion, AuthFailures, Beacon, Sweep, BruteForce, PortScan, Flood }
+
+    private readonly Random _rnd;
+    private readonly double _attackRatio;
+    private readonly bool _hasIps;
+    private readonly int[] _attackers;
+    private int _nextAttacker;
+
+    public FirewallScenario(int seed, double attackRatio, bool hasIps)
+    {
+        _rnd = new Random(seed);
+        _attackRatio = attackRatio;
+        _hasIps = hasIps;
+        _attackers = Enumerable.Range(1, 254).ToArray();
+        _rnd.Shuffle(_attackers);
+    }
+
+    /// <summary>Labels whose plain campaign did not fit the attack budget.</summary>
+    public List<string> MissingLabels { get; } = [];
+
     private string Inside() => $"10.0.{_rnd.Next(2, 20)}.{_rnd.Next(10, 250)}";
-    private string Outside() => _rnd.Next(2) == 0 ? $"198.51.100.{_rnd.Next(1, 255)}" : $"192.0.2.{_rnd.Next(1, 255)}";
-    private string Attacker() => $"203.0.113.{_rnd.Next(1, 255)}";
+    private string Outside() => _rnd.Next(2) == 0 ? $"198.51.100.{_rnd.Next(2, 255)}" : $"192.0.2.{_rnd.Next(1, 255)}";
+
+    /// <summary>Each campaign gets its own address until all 254 are used (then they are reused in the same order).</summary>
+    private string Attacker() => $"203.0.113.{_attackers[_nextAttacker++ % _attackers.Length]}";
     private int Ephemeral() => _rnd.Next(32768, 61000);
-    private DateTime RandomTime() => Start + TimeSpan.FromSeconds(_rnd.NextDouble() * Span.TotalSeconds);
-    private const string WebServer = "10.0.1.10";
-    private const string VpnGateway = "198.51.100.1";
+    private DateTime RandomStart(TimeSpan duration) => Start + TimeSpan.FromTicks((long)(_rnd.NextDouble() * (Span - duration).Ticks));
 
     public List<FwEvent> Build(int lines)
     {
-        var events = new List<FwEvent>(lines + 1000);
-        var attackBudget = (int)(lines * attackRatio);
+        var events = new List<FwEvent>(lines);
+        var budget = (int)(lines * _attackRatio);
 
-        // Attack campaigns until the budget is used (each campaign is a realistic burst).
-        var attackEvents = new List<FwEvent>();
-        while (attackEvents.Count < attackBudget)
+        // 1. one plain, compact campaign per label
+        foreach (var kind in Enum.GetValues<Campaign>())
         {
-            var roll = _rnd.Next(100);
-            if (roll < 22) PortScan(attackEvents, slow: _rnd.Next(5) == 0);
-            else if (roll < 36) Sweep(attackEvents);
-            else if (roll < 54) BruteForce(attackEvents, slow: _rnd.Next(5) == 0);
-            else if (roll < 66) Flood(attackEvents);
-            else if (roll < 76) Beacon(attackEvents);
-            else if (roll < 88) Intrusion(attackEvents);
-            else AuthFailures(attackEvents);
+            if (kind == Campaign.Intrusion && !_hasIps)
+                continue;
+            var plain = Create(kind, compact: true, evasive: false);
+            if (events.Count + plain.Count <= budget)
+                events.AddRange(plain);
+            else
+                MissingLabels.Add(plain[0].Label);
         }
-        events.AddRange(attackEvents);
 
-        // Benign monitoring host: pings 40 servers every 5 minutes (looks like a sweep - a realistic false positive).
-        for (var t = Start; t < Start + Span && events.Count < lines / 2; t = t.AddMinutes(5))
-            for (var h = 0; h < 40; h++)
-                events.Add(new FwEvent(t.AddMilliseconds(h * 50), "normal", FwKind.Traffic, "10.0.0.250", 0, $"10.0.5.{10 + h}", 0, "icmp",
-                    true, false, "PING", "ping", 84));
+        // 2. random campaigns of random size until nothing fits any more
+        for (var misses = 0; misses < 20;)
+        {
+            var campaign = Create(Roll(), compact: false, evasive: _rnd.Next(5) == 0);
+            if (events.Count + campaign.Count <= budget)
+            {
+                events.AddRange(campaign);
+                misses = 0;
+            }
+            else
+                misses++;
+        }
 
-        // Normal traffic fills the rest.
+        // 3. benign monitoring host: pings 40 servers per round, at most every 5 minutes (looks like a sweep)
+        var rounds = Math.Clamp((int)(lines * MonitoringShare / MonitoredHosts), 1, MaxMonitoringRounds);
+        for (var r = 0; r < rounds; r++)
+            for (var h = 0; h < MonitoredHosts; h++)
+                events.Add(new FwEvent(Start + Span * ((r + 0.5) / rounds) + TimeSpan.FromMilliseconds(h * 50), "normal", FwKind.Traffic,
+                    "10.0.0.250", 0, $"10.0.5.{10 + h}", 0, "icmp", true, false, "PING", "ping", 84));
+
+        // 4. users who mistype their password one to three times
+        for (var burst = 0; burst < Math.Max(1, lines / 5000); burst++)
+        {
+            var src = Outside();
+            var user = new[] { "jdoe", "asmith", "ops" }[_rnd.Next(3)];
+            var t = RandomStart(TimeSpan.FromMinutes(2));
+            for (int i = 0, n = _rnd.Next(1, 4); i < n; i++)
+            {
+                events.Add(new FwEvent(t, "normal", FwKind.Auth, src, Ephemeral(), VpnGateway, 443, "tcp", false, true, User: user));
+                t = t.AddSeconds(_rnd.Next(5, 20));
+            }
+        }
+
+        // 5. normal traffic fills the rest
         while (events.Count < lines)
         {
-            var r = _rnd.Next(100);
-            var t = RandomTime();
-            if (r < 70)
+            var roll = _rnd.Next(100);
+            var t = RandomStart(TimeSpan.Zero);
+            if (roll < 70)
             {
                 var o = Outbound[_rnd.Next(Outbound.Length)];
                 events.Add(new FwEvent(t, "normal", FwKind.Traffic, Inside(), Ephemeral(), Outside(), o.Port, o.Proto, true, false,
                     o.Service, o.App, _rnd.Next(400, 250_000)));
             }
-            else if (r < 92)
+            else if (roll < 92)
                 events.Add(new FwEvent(t, "normal", FwKind.Traffic, Outside(), Ephemeral(), WebServer, 443, "tcp", true, true,
                     "HTTPS", "ssl", _rnd.Next(800, 90_000)));
             else
@@ -223,95 +310,147 @@ internal sealed class FirewallScenario(int seed, double attackRatio)
             }
         }
 
-        events.Sort((a, b) => a.Time.CompareTo(b.Time));
-        if (events.Count > lines)
-            events.RemoveRange(lines, events.Count - lines);
-        return events;
+        return events.OrderBy(e => e.Time).ToList(); // stable, List.Sort is not
     }
 
-    private void PortScan(List<FwEvent> list, bool slow)
+    private Campaign Roll()
     {
+        while (true)
+        {
+            var kind = _rnd.Next(100) switch
+            {
+                < 22 => Campaign.PortScan,
+                < 36 => Campaign.Sweep,
+                < 54 => Campaign.BruteForce,
+                < 66 => Campaign.Flood,
+                < 76 => Campaign.Beacon,
+                < 88 => Campaign.Intrusion,
+                _ => Campaign.AuthFailures
+            };
+            if (kind != Campaign.Intrusion || _hasIps)
+                return kind;
+        }
+    }
+
+    /// <summary>A complete campaign at a random time of the day. Evasive = too slow for the rule's window (C2: port 443).</summary>
+    private List<FwEvent> Create(Campaign kind, bool compact, bool evasive)
+    {
+        var list = kind switch
+        {
+            Campaign.PortScan => PortScan(compact, evasive),
+            Campaign.Sweep => Sweep(compact, evasive),
+            Campaign.BruteForce => BruteForce(compact, evasive),
+            Campaign.Flood => Flood(compact, evasive),
+            Campaign.Beacon => Beacon(compact, evasive),
+            Campaign.Intrusion => Intrusion(compact),
+            _ => AuthFailures(compact, evasive)
+        };
+        var shift = RandomStart(list[^1].Time - Start) - Start;
+        return list.ConvertAll(e => e with { Time = e.Time + shift });
+    }
+
+    /// <summary>The number of events is drawn once per campaign.</summary>
+    private int Size(bool compact, int min, int compactMax, int max) => _rnd.Next(min, (compact ? compactMax : max) + 1);
+
+    private List<FwEvent> PortScan(bool compact, bool slow)
+    {
+        var list = new List<FwEvent>();
         var src = Attacker();
         var dst = $"10.0.1.{_rnd.Next(2, 60)}";
-        var t = RandomTime();
-        var ports = Enumerable.Range(1, 1024).OrderBy(_ => _rnd.Next()).Take(_rnd.Next(60, 300)).ToList();
-        foreach (var p in ports)
+        var t = Start;
+        var ports = Enumerable.Range(1, 1024).ToArray();
+        _rnd.Shuffle(ports);
+        foreach (var p in ports.Take(Size(compact, 60, 100, 300)))
         {
             t = t.AddMilliseconds(slow ? _rnd.Next(8000, 15000) : _rnd.Next(20, 200));
             list.Add(new FwEvent(t, "portscan", FwKind.Traffic, src, Ephemeral(), dst, p, "tcp", p is 443, true, "tcp/" + p, "incomplete", 0));
         }
+        return list;
     }
 
-    private void Sweep(List<FwEvent> list)
+    private List<FwEvent> Sweep(bool compact, bool slow)
     {
+        var list = new List<FwEvent>();
         var src = Attacker();
         var port = _rnd.Next(2) == 0 ? 445 : 3389;
-        var t = RandomTime();
-        for (var h = 2; h < _rnd.Next(40, 120); h++)
+        var t = Start;
+        for (int h = 0, hosts = Size(compact, 40, 60, 120); h < hosts; h++)
         {
-            t = t.AddMilliseconds(_rnd.Next(100, 1500));
-            list.Add(new FwEvent(t, "sweep", FwKind.Traffic, src, Ephemeral(), $"10.0.3.{h}", port, "tcp", false, true, "tcp/" + port, "incomplete", 0));
+            t = t.AddMilliseconds(slow ? _rnd.Next(20_000, 40_000) : _rnd.Next(100, 1500));
+            list.Add(new FwEvent(t, "sweep", FwKind.Traffic, src, Ephemeral(), $"10.0.3.{h + 2}", port, "tcp", false, true, "tcp/" + port, "incomplete", 0));
         }
+        return list;
     }
 
-    private void BruteForce(List<FwEvent> list, bool slow)
+    private List<FwEvent> BruteForce(bool compact, bool slow)
     {
+        var list = new List<FwEvent>();
         var src = Attacker();
         var (port, svc) = _rnd.Next(2) == 0 ? (22, "SSH") : (3389, "RDP");
-        var t = RandomTime();
-        for (var i = 0; i < _rnd.Next(40, 160); i++)
+        var t = Start;
+        for (int i = 0, n = Size(compact, 40, 70, 160); i < n; i++)
         {
             t = t.AddMilliseconds(slow ? _rnd.Next(40_000, 90_000) : _rnd.Next(800, 4000));
             list.Add(new FwEvent(t, "bruteforce", FwKind.Traffic, src, Ephemeral(), "10.0.1.20", port, "tcp", true, true, svc,
                 svc.ToLowerInvariant(), _rnd.Next(2000, 6000)));
         }
+        return list;
     }
 
-    private void Flood(List<FwEvent> list)
+    private List<FwEvent> Flood(bool compact, bool slow)
     {
+        var list = new List<FwEvent>();
         var src = Attacker();
-        var t = RandomTime();
-        for (var i = 0; i < _rnd.Next(150, 400); i++)
+        var t = Start;
+        for (int i = 0, n = Size(compact, 150, 200, 400); i < n; i++)
         {
-            t = t.AddMilliseconds(_rnd.Next(10, 150));
+            t = t.AddMilliseconds(slow ? _rnd.Next(650, 1200) : _rnd.Next(10, 150));
             list.Add(new FwEvent(t, "flood", FwKind.Traffic, src, Ephemeral(), $"10.0.1.{_rnd.Next(2, 6)}", 53, "udp", false, true, "DNS", "dns", 0));
         }
+        return list;
     }
 
-    private void Beacon(List<FwEvent> list)
+    private List<FwEvent> Beacon(bool compact, bool hidden)
     {
+        var list = new List<FwEvent>();
         var src = Inside();
         var c2 = Attacker();
-        var port = new[] { 4444, 1337, 6667, 31337 }[_rnd.Next(4)];
-        var t = RandomTime();
-        for (var i = 0; i < _rnd.Next(10, 40); i++)
+        var port = hidden ? 443 : new[] { 4444, 1337, 6667, 31337 }[_rnd.Next(4)];
+        var t = Start;
+        for (int i = 0, n = Size(compact, 10, 20, 40); i < n; i++)
         {
             t = t.AddSeconds(60 + _rnd.Next(-5, 6));
-            list.Add(new FwEvent(t, "c2", FwKind.Traffic, src, Ephemeral(), c2, port, "tcp", true, false, "tcp/" + port, "unknown-tcp", _rnd.Next(200, 900)));
+            list.Add(new FwEvent(t, "c2", FwKind.Traffic, src, Ephemeral(), c2, port, "tcp", true, false, hidden ? "HTTPS" : "tcp/" + port,
+                hidden ? "ssl" : "unknown-tcp", _rnd.Next(200, 900)));
         }
+        return list;
     }
 
-    private void Intrusion(List<FwEvent> list)
+    private List<FwEvent> Intrusion(bool compact)
     {
+        var list = new List<FwEvent>();
         var src = Attacker();
-        var t = RandomTime();
-        for (var i = 0; i < _rnd.Next(2, 8); i++)
+        var t = Start;
+        for (int i = 0, n = Size(compact, 4, 8, 8); i < n; i++)
         {
             t = t.AddSeconds(_rnd.Next(1, 20));
             list.Add(new FwEvent(t, "intrusion", FwKind.Threat, src, Ephemeral(), WebServer, 443, "tcp", false, true,
                 Threat: ThreatNames[_rnd.Next(ThreatNames.Length)]));
         }
+        return list;
     }
 
-    private void AuthFailures(List<FwEvent> list)
+    private List<FwEvent> AuthFailures(bool compact, bool slow)
     {
+        var list = new List<FwEvent>();
         var src = Attacker();
-        var t = RandomTime();
-        var users = new[] { "admin", "root", "vpnuser", "test", "fortinet" };
-        for (var i = 0; i < _rnd.Next(6, 25); i++)
+        var t = Start;
+        var users = new[] { "admin", "root", "vpnuser", "test", "support" };
+        for (int i = 0, n = Size(compact, 6, 12, 25); i < n; i++)
         {
-            t = t.AddSeconds(_rnd.Next(3, 25));
+            t = t.AddSeconds(slow ? _rnd.Next(90, 180) : _rnd.Next(3, 25));
             list.Add(new FwEvent(t, "authfail", FwKind.Auth, src, Ephemeral(), VpnGateway, 443, "tcp", false, true, User: users[_rnd.Next(users.Length)]));
         }
+        return list;
     }
 }
