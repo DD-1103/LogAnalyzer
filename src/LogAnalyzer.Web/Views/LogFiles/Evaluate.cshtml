@@ -6,6 +6,11 @@
 
     // <progress> value in invariant culture (0..1)
     string P(double v) => Math.Clamp(v, 0, 1).ToString("0.####", CultureInfo.InvariantCulture);
+
+    var firewall = f.Source == LogSource.Firewall;
+    string[] labelNames = firewall
+        ? ["portscan", "sweep", "bruteforce", "flood", "c2", "intrusion", "authfail"]
+        : ["sqli", "xss", "traversal", "bruteforce", "direnum", "scanner"];
 }
 @section Head {
     <link rel="stylesheet" href="~/css/views-b.css" asp-append-version="true" />
@@ -33,15 +38,11 @@
                 <span class="lg-icon lg-tint-indigo" aria-hidden="true"><i class="bi bi-clipboard-data"></i></span>
                 <p class="mb-0 text-body-secondary">
                     The CSV needs two columns: <code>line,label</code>. Use <code>normal</code> for benign lines and an attack name
-                    @if (f.Source == LogSource.Firewall)
+                    for malicious ones:
+                    @foreach (var name in labelNames)
                     {
-                        <text>(<code>portscan</code>, <code>sweep</code>, <code>bruteforce</code>, <code>flood</code>, <code>intrusion</code>, <code>c2</code>, <code>authfail</code>)</text>
+                        <code class="me-1">@name</code>
                     }
-                    else
-                    {
-                        <text>(<code>sqli</code>, <code>xss</code>, <code>traversal</code>, <code>bruteforce</code>, <code>direnum</code>, <code>scanner</code>)</text>
-                    }
-                    for malicious ones.
                 </p>
             </div>
         </div>
@@ -157,7 +158,7 @@
                         <thead>
                             <tr>
                                 <th>Attack type</th>
-                                <th class="text-end">TP</th><th class="text-end">FP</th><th class="text-end">FN</th>
+                                <th class="text-end">TP</th><th class="text-end">FP</th><th class="text-end">FP on normal</th><th class="text-end">FN</th>
                                 <th class="text-end">Precision</th><th class="text-end">Recall</th><th class="text-end">F1</th>
                             </tr>
                         </thead>
@@ -168,6 +169,7 @@
                                     <td>@m.Name</td>
                                     <td class="text-end">@m.TP</td>
                                     <td class="text-end">@m.FP</td>
+                                    <td class="text-end">@r.FalsePositivesOnNormalLines.GetValueOrDefault(m.Name)</td>
                                     <td class="text-end">@m.FN</td>
                                     <td class="text-end">@Format.Percent(m.Precision)</td>
                                     <td class="text-end">@Format.Percent(m.Recall)</td>
@@ -178,16 +180,22 @@
                     </table>
                 </div>
                 <p class="lg-note">
-                    Per-type FP counts lines flagged by that rule type but labelled as a different (or no) attack.
-                    @(f.Source == LogSource.Firewall
-                        ? "Example: a port scan with many blocked connections is labelled portscan but also matches the flood rule."
-                        : "Example: sqlmap requests are labelled sqli but also match the scanner user-agent rule.")
+                    Per-type FP counts lines flagged by that rule type but labelled as a different (or no) attack;
+                    <em>FP on normal</em> is the part on benign lines, the real false alarms.
+                    @if (firewall)
+                    {
+                        <text>Example: a fast blocked port scan is labelled <code>portscan</code> but is also a flood of blocked connections.</text>
+                    }
+                    else
+                    {
+                        <text>Example: sqlmap requests are labelled <code>sqli</code> but also match the scanner user-agent rule.</text>
+                    }
                 </p>
             </div></div>
         </div>
     </div>
 
-    <h2 class="lg-section-title">Rules vs. anomaly detection (RQ2)</h2>
+    <h2 class="lg-section-title">@(firewall ? "Firewall rules" : "Rules vs. anomaly detection (RQ2)")</h2>
     <div class="table-responsive">
         <table class="table table-sm align-middle">
             <thead>
@@ -216,9 +224,15 @@
         </table>
     </div>
     <p class="lg-note">
-        @(f.Source == LogSource.Firewall
-            ? "Anomaly detection runs on web access logs only, so its row is empty for firewall logs."
-            : "Anomaly alerts are per IP, so all requests of a flagged IP count as flagged. If the anomaly rule is disabled, its row is empty.")
+        @if (firewall)
+        {
+            <text>Anomaly detection (Isolation Forest) only runs on web access logs, so there is nothing to compare here.</text>
+        }
+        else
+        {
+            <text>Anomaly alerts are per IP, so all requests of a flagged IP count as flagged. If the anomaly rule is disabled,
+            its row is empty.</text>
+        }
         Re-run detection after changing rules, then evaluate again.
     </p>
 }

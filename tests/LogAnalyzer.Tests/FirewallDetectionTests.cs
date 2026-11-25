@@ -518,7 +518,8 @@ public class FirewallDetectionTests
     [MemberData(nameof(DefaultRuleNames))]
     public void Each_default_firewall_rule_fires_on_its_attack(string name)
     {
-        const string attacker = "203.0.113.66";
+        // "Suspicious outbound" is about inside hosts; every other attack of this test comes from outside.
+        var attacker = name == "Connection to backdoor / C2 port" ? "10.0.0.66" : "203.0.113.66";
         var attack = new List<DetectionEvent>();
         switch (name)
         {

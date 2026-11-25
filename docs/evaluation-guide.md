@@ -22,6 +22,28 @@ $tools = "tools/LogAnalyzer.Tools/bin/Debug/net10.0/loganalyzer-tools.exe"
 | Synthetic log (`generate`) | RQ3 performance at any size; RQ1/RQ2 on realistic traffic mixes incl. evasive attacks and benign crawlers | generator writes labels per line |
 | CSIC 2010 HTTP dataset | RQ1 signature rules on independent, public attack data | `normal` / `attack` from the two files |
 | DVWA lab (Kali → Apache) | RQ1 + RQ2 on real tool traffic (sqlmap, Hydra, Nikto, gobuster) | `label-by-ip` (attacker VM IP) |
+| Synthetic firewall log (`generate-firewall`) | firewall rules (section 6; not part of RQ1–RQ3 until the scope change is approved) | generator writes labels per line |
+
+### Label names
+
+A labels file is a CSV with the columns `line,label` (one row per log line). `normal` = benign, `malformed` = ignored,
+anything else = malicious. A name from this table also counts for the per-type table (upper / lower case does not matter);
+other names (e.g. `attack`) only count for the overall figures.
+
+| Label | Attack type | Log kind |
+|---|---|---|
+| `sqli` | SQL injection | web |
+| `xss` | XSS | web |
+| `traversal` | Path traversal / LFI | web |
+| `direnum` | Directory enumeration | web |
+| `scanner` | Scanner | web |
+| `bruteforce` | Brute force | web and firewall |
+| `portscan` | Port scan | firewall |
+| `sweep`, `networksweep` | Network sweep | firewall |
+| `flood`, `blocked` | Blocked traffic | firewall |
+| `c2`, `outbound` | Suspicious outbound | firewall |
+| `intrusion`, `threat` | Intrusion (event of the firewall's own IPS / antivirus) | firewall |
+| `authfail` | Authentication failure | firewall |
 
 ---
 
@@ -152,7 +174,53 @@ any lowered alert was a true targeted attack (it should not be).
 
 ---
 
-## 6. What to put in the thesis tables
+## 6. Firewall logs
+
+> **Scope:** firewall logs were added on 2026-11-21. Agree the scope change with the supervisors before these results go
+> into the evaluation chapter.
+
+```powershell
+& $tools generate-firewall --lines 100000 --format fortigate --out fw.log --seed 42   # writes fw.log + fw.labels.csv
+& $tools detect --log fw.log                                                          # format and lines read, offline
+```
+
+Formats of the generator: `fortigate`, `paloalto`, `cisco-asa`, `iptables`, `cef`. For each one: run `detect` (how many lines
+are read), upload `fw.log` (Log files → Upload, format *Auto*), wait for *Completed*, then **Evaluate** with `fw.labels.csv`.
+Report per format: lines read, overall precision / recall / F1 / FPR, the per-type table, and *unparsed* lines (the
+end-to-end figures on the Evaluate page count unparsed attack lines as missed).
+
+Reading the results:
+* Anomaly detection only runs on web logs, so a firewall evaluation has one row (the rules) and no RQ2 comparison.
+* One line can be evidence of several rules: a fast blocked port scan also is a flood of blocked connections. In the per-type
+  table such a line is a TP for `portscan` and an FP for *BlockedTraffic*. The column *FP on normal* shows how many of the
+  false positives are benign lines; report that one as the false-alarm figure of a rule.
+* Evidence is everything in the time window when a rule fires, so a benign line of the attacker inside the window is flagged
+  too, and an attack that stays below a threshold (slow scan, slow brute force) is missed completely.
+
+What the default firewall rules count (shown as chips on the rules page):
+* *Port scan* and *Brute force* count **per target host**; brute force counts connections (client ports), not log lines.
+* *Network sweep* counts **blocked** connections only. Every client that loads one web page contacts more than 20 hosts, so
+  counting allowed traffic flags ordinary browsing, DNS resolvers, mail servers and monitoring. The price: a sweep that the
+  firewall allows (e.g. inside a flat network) is missed.
+* *Suspicious outbound* needs an **internal (private) source address**; inside hosts with public or global IPv6 addresses are
+  not covered.
+* Replies (flow logs write both directions) are recognised when the request was logged before, for 15 to 30 minutes. If the
+  firewall logs blocked packets only, late replies of a busy server can still look like a port scan.
+* A scan that spreads over many ports **and** hosts with fewer than 15 ports per host is only found as a sweep (20 or more
+  blocked hosts) or a flood (100 blocked packets per minute).
+
+Limitations to state in the thesis:
+* The generator and the rules have the same author, so the results only show that the engine works on the patterns it was
+  written for. In particular, a precision near 100 % on this log is not evidence for real traffic: its only deliberately
+  scan-like benign host is a monitoring system whose pings are allowed. Vulnerability scanners, peer-to-peer traffic,
+  passive FTP, backup systems and application servers are not in the generator.
+* The formats were written from public vendor documentation and were **not tested on real devices**.
+* Real accuracy needs a lab firewall (pfSense / OPNsense VM, Kali with nmap and hydra, a normal-traffic VM) whose logs are
+  labelled by attacker IP and time. Never use logs of AKSK or any other employer.
+
+---
+
+## 7. What to put in the thesis tables
 
 * Table 6.x – dataset summary (lines, attacks per type, source).
 * Table 6.x – overall precision / recall / F1 / FPR per dataset (rules only).

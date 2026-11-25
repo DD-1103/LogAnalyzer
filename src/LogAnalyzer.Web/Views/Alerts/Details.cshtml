@@ -109,6 +109,11 @@
                             }
                         </dd>
                     }
+                    else if (!string.IsNullOrEmpty(a.Details))
+                    {
+                        <dt class="col-sm-4">Why</dt>
+                        <dd class="col-sm-8 text-break">@a.Details</dd>
+                    }
 
                     <dt class="col-sm-4">Matching events</dt>
                     <dd class="col-sm-8 fw-semibold">@a.EventCount.ToString("N0")</dd>

@@ -169,6 +169,9 @@ public sealed class ReportService(AppDbContext db)
                             if (a.OriginalSeverity is not null)
                                 box.Item().Text(a.SeverityNote ?? $"Severity lowered from {a.OriginalSeverity}").Italic();
 
+                            if (!string.IsNullOrWhiteSpace(a.Details))
+                                box.Item().Text($"Why: {a.Details}");
+
                             if (!string.IsNullOrWhiteSpace(a.Notes))
                                 box.Item().Text($"Analyst notes: {a.Notes}").Italic();
 

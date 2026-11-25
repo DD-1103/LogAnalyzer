@@ -18,8 +18,18 @@ public sealed class EvaluationResult
     public required Metrics Overall { get; init; }
     public required List<Metrics> PerAttackType { get; init; }
 
-    /// <summary>RQ2: rules only vs. anomaly detection only vs. both together.</summary>
+    /// <summary>
+    /// RQ2: rules only vs. anomaly detection only vs. both together. Firewall logs have only the first row, because
+    /// anomaly rules never run on them (a 0 % anomaly row would look like a failed detector).
+    /// </summary>
     public required List<Metrics> Comparison { get; init; }
+
+    /// <summary>
+    /// Attack type name -> how many of its false positives are lines labelled "normal". The other false positives are
+    /// lines of a different attack, which is expected when one line is evidence of several rules (a fast blocked port
+    /// scan is also a flood of blocked connections).
+    /// </summary>
+    public required IReadOnlyDictionary<string, int> FalsePositivesOnNormalLines { get; init; }
     public int LabelledLines { get; init; }
     public int IgnoredLines { get; init; }
 
@@ -109,16 +119,19 @@ public sealed class EvaluationService(AppDbContext db)
                 .ToListAsync(ct))
             .ToHashSet();
 
-        return Compute(labels, eventLines, flagged, byRules, byAnomaly);
+        var source = await db.LogFiles.AsNoTracking().Where(f => f.Id == logFileId).Select(f => f.Source).FirstOrDefaultAsync(ct);
+        return Compute(labels, eventLines, flagged, byRules, byAnomaly, source);
     }
 
     /// <summary>The metric computation itself (pure, unit-tested).</summary>
     public static EvaluationResult Compute(Dictionary<int, string> labels, HashSet<int> eventLines,
-        Dictionary<int, HashSet<AttackType>> flagged, HashSet<int> byRules, HashSet<int> byAnomaly)
+        Dictionary<int, HashSet<AttackType>> flagged, HashSet<int> byRules, HashSet<int> byAnomaly,
+        LogSource source = LogSource.WebAccess)
     {
         var comparison = new[] { new int[4], new int[4], new int[4] }; // rules, anomaly, both
         int tp = 0, fp = 0, fn = 0, tn = 0, ignored = 0, unparsedMalicious = 0, unparsedNormal = 0;
         var perType = LabelMap.Values.Distinct().ToDictionary(t => t, _ => new int[4]); // TP, FP, FN, TN
+        var onNormal = perType.Keys.ToDictionary(t => t.ToString(), _ => 0);
 
         foreach (var (lineNo, label) in labels)
         {
@@ -158,8 +171,16 @@ public sealed class EvaluationService(AppDbContext db)
                 else if (!actual && predicted) c[1]++;
                 else if (actual) c[2]++;
                 else c[3]++;
+                if (predicted && !isMalicious)
+                    onNormal[type.ToString()]++;
             }
         }
+
+        var rulesRow = new Metrics(
+            source == LogSource.Firewall
+                ? "Firewall rules (signature + threshold + distinct count)"
+                : "Rules only (signature + threshold)",
+            comparison[0][0], comparison[0][1], comparison[0][2], comparison[0][3]);
 
         return new EvaluationResult
         {
@@ -167,9 +188,10 @@ public sealed class EvaluationService(AppDbContext db)
             PerAttackType = perType
                 .Select(p => new Metrics(p.Key.ToString(), p.Value[0], p.Value[1], p.Value[2], p.Value[3]))
                 .ToList(),
-            Comparison =
+            FalsePositivesOnNormalLines = onNormal,
+            Comparison = source == LogSource.Firewall ? [rulesRow] :
             [
-                new Metrics("Rules only (signature + threshold)", comparison[0][0], comparison[0][1], comparison[0][2], comparison[0][3]),
+                rulesRow,
                 new Metrics("Anomaly detection only (Isolation Forest)", comparison[1][0], comparison[1][1], comparison[1][2], comparison[1][3]),
                 new Metrics("Rules + anomaly detection", comparison[2][0], comparison[2][1], comparison[2][2], comparison[2][3])
             ],

@@ -187,11 +187,14 @@ else
                                     <div class="text-body-secondary">IPs with at least @r.Threshold requests, 11 behaviour features</div>
                                     break;
                             }
-                            @if (firewall && (r.ActionFilter is not null || r.PortFilter is not null))
+                            @if (firewall && (r.ActionFilter is not null || r.PortFilter is not null
+                                              || FirewallSemantics.CountsPerTarget(r) || FirewallSemantics.InternalSourceOnly(r)))
                             {
                                 <div class="d-flex flex-wrap gap-1 mt-1">
                                     @if (r.ActionFilter is not null) { <span class="lg-chip">action @r.ActionFilter.Replace(",", ", ")</span> }
                                     @if (r.PortFilter is not null) { <span class="lg-chip">port @r.PortFilter.Replace(",", ", ")</span> }
+                                    @if (FirewallSemantics.CountsPerTarget(r)) { <span class="lg-chip">per target host</span> }
+                                    @if (FirewallSemantics.InternalSourceOnly(r)) { <span class="lg-chip">internal sources only</span> }
                                 </div>
                             }
                         </td>

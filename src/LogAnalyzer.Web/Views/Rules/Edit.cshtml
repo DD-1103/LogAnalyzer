@@ -111,7 +111,8 @@
                                 </select>
                             </div>
                             <div class="col-md-6 form-text align-self-end mb-2" data-show="f3">
-                                Destination port = port scan, destination IP = network sweep.
+                                Destination port = port scan (counted per target host), destination IP = network sweep.
+                                Replies to earlier connections are not counted.
                             </div>
                             <div class="col-12" data-show="w0 f0 f1 f3">
                                 <label asp-for="Pattern" class="form-label small">Pattern (.NET regular expression)</label>
@@ -161,6 +162,11 @@
                             </div>
                             <div class="col-12 form-text mt-0" data-show="f1">
                                 Alert when one source IP has at least <em>Threshold</em> events that pass the filters inside a sliding window.
+                                Attack type <em>Brute force</em> counts connections per target host (lines with the same client port once).
+                                With a port filter, replies to earlier connections are not counted.
+                            </div>
+                            <div class="col-12 form-text mt-0" data-show="f0 f1 f3">
+                                Attack type <em>Suspicious outbound</em> only looks at internal (private) source addresses.
                             </div>
                             <div class="col-12 form-text mt-0" data-show="f3">
                                 Alert when one source IP produces at least this many <em>different</em> values of the field inside
@@ -185,7 +191,7 @@
                             <div class="col-12" data-show="f0 f1 f3">
                                 <label asp-for="PortFilter" class="form-label small"></label>
                                 <input asp-for="PortFilter" class="form-control font-monospace" placeholder="any port, e.g. 22,3389,5900-5902" maxlength="200" />
-                                <div class="form-text">Destination ports and ranges, separated by commas (at most @PortSet.MaxEntries entries).</div>
+                                <div class="form-text">Destination ports and ranges, separated by commas (at most 200 characters).</div>
                             </div>
 
                             @* ---- Anomaly ---- *@
