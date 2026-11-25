@@ -245,7 +245,10 @@ public class RuleFormModel
     // Rule tester
     [Display(Name = "Test against")]
     public int? TestLogFileId { get; set; }
+    // Filled by the controller, never from the form.
+    [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
     public List<LogFileOption> LogFiles { get; set; } = [];
+    [Microsoft.AspNetCore.Mvc.ModelBinding.BindNever]
     public LogAnalyzer.Web.Services.RuleTestResult? TestResult { get; set; }
 
     /// <summary>Actions offered as checkboxes (Unknown = no decision in the line, not useful as a filter).</summary>
@@ -295,9 +298,12 @@ public class RuleFormModel
             Field = firewall ? RuleField.Message : RuleField.Url;
     }
 
-    /// <summary>The ticked actions as stored in the rule ("Deny,Drop"), or null for any action.</summary>
+    /// <summary>
+    /// The ticked actions as stored in the rule ("Deny,Drop"), or null for any action. Undefined values of a crafted
+    /// POST are kept ("99") so the validator rejects them: dropping them would silently widen the rule to any action.
+    /// </summary>
     public string? ActionFilter =>
-        Actions.Count == 0 ? null : string.Join(",", Actions.Where(Enum.IsDefined).Distinct().Order());
+        Actions.Count == 0 ? null : string.Join(",", Actions.Distinct().Order());
 
     public DetectionRule ToRule()
     {

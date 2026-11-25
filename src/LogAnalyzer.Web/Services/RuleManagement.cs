@@ -58,6 +58,9 @@ public static class RuleValidator
             else if (!firewall && !WebFields.Contains(rule.Field))
                 errors.Add("A web rule can inspect the URL, the user agent or the referrer.");
         }
+        if (firewall && rule is { Kind: RuleKind.DistinctCount, Field: RuleField.DestinationPort, Threshold: int needed }
+            && PortSet.TryParse(rule.PortFilter, out var ports, out _) && ports is not null && ports.Count < needed)
+            errors.Add($"The port filter lists {ports.Count} port(s), so {needed} different destination ports can never be reached.");
         if (!firewall && (!string.IsNullOrWhiteSpace(rule.ActionFilter) || !string.IsNullOrWhiteSpace(rule.PortFilter)))
             errors.Add("Action and port filters only apply to firewall rules.");
         if (firewall && (rule.MethodFilter is not null || rule.StatusFilter is not null))
@@ -210,7 +213,10 @@ public sealed class RuleTester(AppDbContext db, AnomalyDetector anomaly)
 
         result.Truncated = result.EventsScanned >= MaxEvents;
         result.DurationMs = sw.ElapsedMilliseconds;
-        result.AlertsWouldBeCreated = hits.Count;
+        // Like DetectionEngine: at most MaxAlertsPerRule alerts plus one for all other sources (anomaly rules: no limit).
+        result.AlertsWouldBeCreated = testRule.Kind == RuleKind.Anomaly
+            ? hits.Count
+            : Math.Min(hits.Count, DetectionEngine.MaxAlertsPerRule + 1);
         result.MatchedEvents = hits.SelectMany(h => h.EventIds).Distinct().Count();
         result.TopIps = hits.OrderByDescending(h => h.EventIds.Count).Take(10)
             .Select(h => (h.Ip, h.EventIds.Count)).ToList();

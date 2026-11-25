@@ -42,6 +42,12 @@ public sealed class CompiledRule
 
     public bool IsFirewall => Rule.AppliesTo == LogSource.Firewall;
 
+    /// <summary>Firewall semantics, fixed when the rule is compiled (see <see cref="FirewallSemantics"/>).</summary>
+    public bool CountsPerTarget { get; init; }
+    public bool CountsConnections { get; init; }
+    public bool InternalSourceOnly { get; init; }
+    public bool IgnoresReplies { get; init; }
+
     /// <summary>
     /// True when a pattern needs the backtracking engine (backreferences, lookarounds, atomic groups):
     /// only such rules can time out. All other rules use the linear-time NonBacktracking engine.
@@ -80,12 +86,27 @@ public sealed class RuleHit(int ruleId, string ip)
         if (last > Last) Last = last;
     }
 
-    public void Add(long id, DateTimeOffset ts)
+    public void Add(long id, DateTimeOffset ts) => TryAdd(id, ts);
+
+    /// <summary>Returns false when the event already was evidence of this hit.</summary>
+    private bool TryAdd(long id, DateTimeOffset ts)
     {
         if (!EventIds.Add(id))
-            return;
+            return false;
         if (ts < First) First = ts;
         if (ts > Last) Last = ts;
+        return true;
+    }
+
+    /// <summary>What the firewall evidence consists of (null for web hits and merged hits): explains the alert.</summary>
+    public TrafficSummary? Traffic { get; private set; }
+
+    /// <summary>Adds a firewall event and counts its target, port and action for the explanation.</summary>
+    public void AddTraffic(long id, DateTimeOffset ts, string? destinationIp, int? destinationPort, FirewallAction? action,
+        string? threat = null)
+    {
+        if (TryAdd(id, ts))
+            (Traffic ??= new TrafficSummary()).Add(destinationIp, destinationPort, action, threat);
     }
 }
 
@@ -93,10 +114,12 @@ public sealed class RuleHit(int ruleId, string ip)
 /// Pure rule-matching logic shared by the detection engine, the rule tester and the unit tests.
 /// Signature rules match a regex on one event; threshold rules count matching events per IP
 /// inside a sliding time window; distinct-count rules (firewall) count the different values of a field
-/// (destination ports = port scan, destination IPs = network sweep) per source IP inside the window.
+/// (destination ports of one host = port scan, destination IPs = network sweep) per source IP inside the window.
 /// Events must be fed in timestamp order.
 /// </summary>
-public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
+/// <param name="rules">The compiled rules.</param>
+/// <param name="idleWindowLimit">Firewall windows kept per rule before idle ones (nothing inside the time window) are removed.</param>
+public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules, int idleWindowLimit = 10_000)
 {
     /// <summary>Limits the damage of a badly written (catastrophic backtracking) regex.</summary>
     public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
@@ -108,7 +131,17 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
     private readonly Dictionary<int, int> _timeouts = [];
     private readonly Dictionary<int, long> _skipped = [];
     private readonly Dictionary<(int RuleId, string Ip), SlidingWindow> _windows = [];
-    private readonly Dictionary<(int RuleId, string Ip), DistinctWindow> _distinctWindows = [];
+
+    // Per rule (same index as rules): the open windows of its sources, for firewall threshold / distinct-count rules.
+    private readonly FirewallWindows?[] _firewallWindows = rules
+        .Select(r => r.IsFirewall && r.Rule.Kind is RuleKind.Threshold or RuleKind.DistinctCount
+            ? new FirewallWindows(r.Window, idleWindowLimit)
+            : null)
+        .ToArray();
+    private readonly ReplyTracker? _replies = rules.Any(r => r.IgnoresReplies) ? new ReplyTracker() : null;
+
+    /// <summary>Firewall windows currently in memory (idle ones are removed, so this does not grow with the log).</summary>
+    public int OpenFirewallWindows => _firewallWindows.Sum(w => w?.Count ?? 0);
 
     public IReadOnlyCollection<RuleHit> Hits => _hits.Values;
     public long EventsProcessed { get; private set; }
@@ -137,12 +170,14 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
     {
         EventsProcessed++;
         string? decodedUrl = null; // decoded only when a web rule needs it
+        var isReply = _replies is not null && _replies.Observe(e);
 
-        foreach (var r in rules)
+        for (var i = 0; i < rules.Count; i++)
         {
+            var r = rules[i];
             if (r.IsFirewall)
             {
-                ProcessFirewall(r, e);
+                ProcessFirewall(r, _firewallWindows[i], e, isReply);
                 continue;
             }
 
@@ -186,63 +221,47 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
     /// <summary>
     /// Firewall rules: the action and port filters apply to every kind; text fields are matched as logged
     /// (no URL decoding). Threshold and distinct-count rules work per source IP; events without a source are skipped.
+    /// What exactly is counted (connections, per target host, no replies) is described in <see cref="FirewallSemantics"/>.
     /// </summary>
-    private void ProcessFirewall(CompiledRule r, DetectionEvent e)
+    private void ProcessFirewall(CompiledRule r, FirewallWindows? windows, DetectionEvent e, bool isReply)
     {
         if (r.Actions is not null && !r.Actions.Contains(e.Action))
             return;
         if (r.Ports is not null && !r.Ports.Contains(e.DestinationPort))
             return;
+        if (r.InternalSourceOnly && !InternalAddress.IsInternal(e.ClientIp))
+            return;
 
-        switch (r.Rule.Kind)
+        var value = FieldValue(r.Rule.Field, e);
+        if (r.Rule.Kind == RuleKind.Signature)
         {
-            case RuleKind.Signature:
-            {
-                var value = FieldValue(r.Rule.Field, e);
-                if (r.Pattern is null || value is null)
-                    return;
-                var outcome = Evaluate(r, r.Pattern, value);
-                if (outcome == MatchOutcome.NoMatch)
-                    return;
-                var hit = GetHit(r.Rule.Id, e.ClientIp);
-                hit.Add(e.Id, e.Timestamp);
-                if (outcome == MatchOutcome.Timeout)
-                    hit.TimedOutEvents++;
+            if (r.Pattern is null || value is null)
                 return;
-            }
-
-            case RuleKind.Threshold:
-            {
-                if (!HasSource(e) || !MatchesFirewallPatterns(r, e, FieldValue(r.Rule.Field, e)))
-                    return;
-                var key = (r.Rule.Id, e.ClientIp);
-                if (!_windows.TryGetValue(key, out var window))
-                    _windows[key] = window = new SlidingWindow();
-                window.Add(e.Timestamp, e.Id);
-                window.DropOlderThan(e.Timestamp - r.Window);
-                if (window.Count >= r.Rule.Threshold)
-                    window.FlushPending(GetHit(r.Rule.Id, e.ClientIp));
+            var outcome = Evaluate(r, r.Pattern, value);
+            if (outcome == MatchOutcome.NoMatch)
                 return;
-            }
-
-            case RuleKind.DistinctCount:
-            {
-                if (!HasSource(e))
-                    return;
-                var value = FieldValue(r.Rule.Field, e);
-                if (value is null || !MatchesFirewallPatterns(r, e, value))
-                    return;
-                var key = (r.Rule.Id, e.ClientIp);
-                if (!_distinctWindows.TryGetValue(key, out var window))
-                    _distinctWindows[key] = window = new DistinctWindow();
-                window.Add(e.Timestamp, e.Id, value);
-                window.DropOlderThan(e.Timestamp - r.Window);
-                // Enough different values (ports, hosts, ...) inside the window: every event in it is evidence.
-                if (window.Distinct >= r.Rule.Threshold)
-                    window.FlushPending(GetHit(r.Rule.Id, e.ClientIp));
-                return;
-            }
+            var hit = GetHit(r.Rule.Id, e.ClientIp);
+            hit.AddTraffic(e.Id, e.Timestamp, e.DestinationIp, e.DestinationPort, e.Action, e.ThreatName);
+            if (outcome == MatchOutcome.Timeout)
+                hit.TimedOutEvents++;
+            return;
         }
+
+        if (windows is null || !HasSource(e) || (isReply && r.IgnoresReplies))
+            return;
+        var distinct = r.Rule.Kind == RuleKind.DistinctCount;
+        if ((distinct && value is null) || !MatchesFirewallPatterns(r, e, value))
+            return;
+
+        // What is counted: the different values of the field, the different connections (client ports), or every event.
+        var counted = distinct ? value : r.CountsConnections && e.SourcePort is int sourcePort ? PortText(sourcePort) : null;
+        var window = windows.Get(e.ClientIp, r.CountsPerTarget ? e.DestinationIp : null, e.Timestamp);
+        window.Add(e, counted);
+        window.DropOlderThan(e.Timestamp - r.Window);
+
+        // Threshold reached: every event in the window is evidence (each one is copied at most once).
+        if (window.Distinct >= r.Rule.Threshold)
+            window.FlushPending(GetHit(r.Rule.Id, e.ClientIp));
     }
 
     /// <summary>"-" (or nothing) means the line had no source address: it cannot be attributed to one attacker.</summary>
@@ -335,7 +354,11 @@ public sealed class DetectionCore(IReadOnlyList<CompiledRule> rules)
                 Window = TimeSpan.FromSeconds(rule.WindowSeconds ?? 60),
                 Backtracking = patternBacktracks || pathBacktracks,
                 Ports = ports,
-                Actions = actions
+                Actions = actions,
+                CountsPerTarget = FirewallSemantics.CountsPerTarget(rule),
+                CountsConnections = FirewallSemantics.CountsConnections(rule),
+                InternalSourceOnly = FirewallSemantics.InternalSourceOnly(rule),
+                IgnoresReplies = FirewallSemantics.IgnoresReplies(rule)
             };
 
             error = rule.Kind switch
@@ -464,28 +487,68 @@ internal sealed class SlidingWindow
     }
 }
 
-/// <summary>
-/// Events of one (distinct-count rule, source IP) inside the time window, oldest first, with a value -> count map so
-/// the number of DIFFERENT values (ports, hosts, ...) is known in O(1). Like <see cref="SlidingWindow"/>,
-/// <see cref="Pending"/> counts the newest events that are not evidence yet, so each event is copied at most once.
-/// </summary>
-internal sealed class DistinctWindow
+/// <summary>The open windows of one firewall rule: one per source IP, or per source and target host.</summary>
+internal sealed class FirewallWindows(TimeSpan length, int idleLimit)
 {
-    private readonly List<(DateTimeOffset Ts, long Id, string Value)> _items = [];
-    private readonly Dictionary<string, int> _counts = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Source, string Target), FirewallWindow> _windows = [];
+    private int _cleanupAt;
+
+    public int Count => _windows.Count;
+
+    public FirewallWindow Get(string source, string? target, DateTimeOffset now)
+    {
+        // Removes windows whose newest event is older than the window length: with events in timestamp order the next
+        // event of that source would drop all their events anyway, so the evidence stays identical. A clean-up visits
+        // every window, but only after their number has doubled since the last one: linear overall.
+        if (_windows.Count >= Math.Max(idleLimit, _cleanupAt))
+        {
+            var cutoff = now - length;
+            foreach (var (k, w) in _windows)
+                if (w.Newest < cutoff)
+                    _windows.Remove(k);
+            _cleanupAt = _windows.Count * 2;
+        }
+
+        var key = (source, target ?? string.Empty);
+        if (!_windows.TryGetValue(key, out var window))
+            _windows[key] = window = new FirewallWindow();
+        return window;
+    }
+}
+
+/// <summary>
+/// Firewall events of one source (and target) inside the time window, oldest first, with a value -> count map so the
+/// number of DIFFERENT values (ports, hosts, connections) is known in O(1); events without a value count one by one.
+/// Like <see cref="SlidingWindow"/>, <see cref="Pending"/> counts the newest events that are not evidence yet.
+/// </summary>
+internal sealed class FirewallWindow
+{
+    private readonly record struct Item(DateTimeOffset Ts, long Id, string? Value, string? DestinationIp, int? DestinationPort,
+        FirewallAction? Action);
+
+    private readonly List<Item> _items = new(1); // most sources have a single event: do not reserve four
+    private Dictionary<string, int>? _counts;
     private int _head;
+    private int _withoutValue;
 
     public int Count => _items.Count - _head;
     public int Pending { get; private set; }
+    public DateTimeOffset Newest => _items[^1].Ts;
 
     /// <summary>Number of different values among the events in the window.</summary>
-    public int Distinct => _counts.Count;
+    public int Distinct => _withoutValue + (_counts?.Count ?? 0);
 
-    public void Add(DateTimeOffset ts, long id, string value)
+    public void Add(DetectionEvent e, string? value)
     {
-        _items.Add((ts, id, value));
-        _counts[value] = _counts.GetValueOrDefault(value) + 1;
+        _items.Add(new Item(e.Timestamp, e.Id, value, e.DestinationIp, e.DestinationPort, e.Action));
         Pending++;
+        if (value is null)
+        {
+            _withoutValue++;
+            return;
+        }
+        _counts ??= new Dictionary<string, int>(StringComparer.Ordinal);
+        _counts[value] = _counts.GetValueOrDefault(value) + 1;
     }
 
     /// <summary>Removes events older than <paramref name="cutoff"/> (the newest event always stays).</summary>
@@ -493,16 +556,17 @@ internal sealed class DistinctWindow
     {
         while (Count > 1 && _items[_head].Ts < cutoff)
         {
-            var value = _items[_head].Value;
-            var left = _counts[value] - 1;
-            if (left == 0)
+            if (_items[_head].Value is not { } value)
+                _withoutValue--;
+            else if (_counts![value] == 1)
                 _counts.Remove(value);
             else
-                _counts[value] = left;
+                _counts[value]--;
             _head++;
         }
         if (Pending > Count)
             Pending = Count;
+        // Reclaim memory now and then instead of shifting the list on every event.
         if (_head > 1024 && _head > _items.Count / 2)
         {
             _items.RemoveRange(0, _head);
@@ -514,7 +578,57 @@ internal sealed class DistinctWindow
     public void FlushPending(RuleHit hit)
     {
         for (var i = _items.Count - Pending; i < _items.Count; i++)
-            hit.Add(_items[i].Id, _items[i].Ts);
+        {
+            var item = _items[i];
+            hit.AddTraffic(item.Id, item.Ts, item.DestinationIp, item.DestinationPort, item.Action);
+        }
         Pending = 0;
+    }
+}
+
+/// <summary>
+/// Recognises the second half of a connection: a packet from A:p to B is a reply when B connected to A:p before.
+/// Flow logs (AWS VPC) and packet logs write both directions; without this, every busy server looks like a port
+/// scanner or sweeper of its own clients. Blocked connections get no reply, so they are not remembered, and a scan
+/// from a fixed source port (nmap -g 53) is not mistaken for replies unless the target really uses that service.
+/// Memory is bounded: two generations of at most <see cref="MaxPerGeneration"/> (client, server, port) entries.
+/// </summary>
+internal sealed class ReplyTracker
+{
+    private const int MaxPerGeneration = 100_000;
+    private static readonly TimeSpan MaxGenerationAge = TimeSpan.FromMinutes(15);
+
+    private HashSet<(string Client, string Server, int Port)> _current = [];
+    private HashSet<(string Client, string Server, int Port)> _previous = [];
+    private DateTimeOffset? _started;
+
+    /// <summary>Remembers the event's connection; returns true when the event is a reply to an earlier one.</summary>
+    public bool Observe(DetectionEvent e)
+    {
+        if (e.DestinationIp is not { } destination || e.SourcePort is not int sourcePort || e.DestinationPort is not int destinationPort
+            || sourcePort == 0 || destinationPort == 0)
+            return false;
+        _started ??= e.Timestamp;
+        if (_current.Count >= MaxPerGeneration || e.Timestamp - _started > MaxGenerationAge)
+        {
+            (_previous, _current) = (_current, _previous);
+            _current.Clear();
+            _started = e.Timestamp;
+        }
+
+        var asReply = (destination, e.ClientIp, sourcePort);
+        if (_current.Contains(asReply))
+            return true;
+        if (_previous.Contains(asReply))
+        {
+            _current.Add(asReply); // still in use
+            return true;
+        }
+        // A packet from a service port to a client port is the second half of something that started earlier (or a
+        // scan): never remember it as a request, or the real request would look like the reply.
+        if (e.Action is not (FirewallAction.Deny or FirewallAction.Drop or FirewallAction.Reject)
+            && !(sourcePort < 1024 && destinationPort >= 1024))
+            _current.Add((e.ClientIp, destination, destinationPort));
+        return false;
     }
 }

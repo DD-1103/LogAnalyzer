@@ -4,21 +4,24 @@
 Master's diploma project – Information Systems Engineering, Faculty of Natural Sciences (FSHN), University of Tirana.
 
 LogAnalyzer imports Apache / Nginx access logs, detects web attacks with signature, threshold and machine-learning
-(Isolation Forest) rules, enriches attacker IPs with GeoIP and threat intelligence (AbuseIPDB, GreyNoise, VirusTotal),
-and gives analysts a dashboard, an alert triage workflow and PDF/CSV reports.
+(Isolation Forest) rules, enriches attacker IPs with GeoIP and threat intelligence (AbuseIPDB, GreyNoise, VirusTotal and
+others), and gives analysts a dashboard, an alert triage workflow and PDF/CSV reports. It also reads firewall logs
+(port scans, network sweeps, brute force, floods, C2 connections, IPS events, failed logins).
 
 ## Features
 
 | Area | What it does |
 |---|---|
 | Ingestion | Upload `.log` / `.txt` / `.gz` (≤ 500 MB). Background worker parses Common/Combined Log Format and bulk-inserts events (SqlBulkCopy). Parse and detection times are stored per file. |
-| Detection | **Signature** rules (regex on URL decoded twice, user agent or referrer), **threshold** rules (N matching requests per IP in a sliding window), **anomaly** rule (Isolation Forest over 11 per-IP behaviour features, with an explanation per alert). Regex timeout + ReDoS check on save. |
+| Firewall logs | Format detected from the first lines (or chosen at upload): FortiGate, Palo Alto PAN-OS, Cisco ASA / FTD, Check Point, Sophos, SonicWall, Juniper SRX, pfSense / OPNsense, Linux netfilter (iptables, UFW, firewalld, nftables), Windows Defender Firewall, WatchGuard, MikroTik, Huawei USG, Meraki MX, Stormshield, Zyxel, AWS VPC flow logs; vendor-neutral CEF, LEEF, JSON lines and key=value. Written from public documentation, not verified on real devices. |
+| Detection | **Signature** rules (regex on URL decoded twice, user agent or referrer), **threshold** rules (N matching requests per IP in a sliding window), **anomaly** rule (Isolation Forest over 11 per-IP behaviour features, with an explanation per alert); for firewall logs also **distinct-count** rules (different ports per host, different hosts) with action and port filters. Web rules never run on firewall files and vice versa. Regex timeout + ReDoS check on save. |
 | Rules (Admin) | Create / edit / enable / disable / delete; **test a rule against a stored log before saving**. |
 | Alerts | One alert per (rule, IP) with all evidence lines; status workflow New → Investigating → False positive / Closed, notes, assignment; CSV export (formula-injection safe). |
 | Enrichment | Offline GeoIP (DB-IP Lite / MaxMind GeoLite2). Threat intel providers behind one interface, cached per IP. GreyNoise "benign" lowers alert severity (original kept for evaluation). Private IPs are never sent out. |
 | Dashboard & reports | Traffic over time, alerts by severity / type, attack map, top attacking IPs with reputation; PDF incident report per log file. |
 | Evaluation | Upload a ground-truth labels CSV → precision, recall, F1, FPR, confusion matrix, per attack type, and **rules vs. Isolation Forest vs. both** (RQ2). |
-| Users (Admin) | Admin / Analyst roles, create, change role, disable, unlock, reset password; change own password. |
+| Users (Admin) | Admin / Analyst roles, create, change role, disable, unlock, reset password; change own password. SOC 1 / SOC 2 tiers with escalation and notifications. |
+| Sessions | Several accounts in one browser: each tab can use its own session slot (`/s/1` … `/s/9`, account menu → *Sign in another account*). |
 | Security | Every page requires login; lockout after 5 failures; login rate limit per IP; HttpOnly/Secure/SameSite=Strict cookie; antiforgery on all POSTs; strict CSP (no inline JS) and security headers; append-only **audit log**; secrets in user-secrets. |
 
 ## Tech stack
@@ -73,13 +76,14 @@ dotnet ef migrations add <Name>
 ## Tests and tools
 
 ```powershell
-dotnet test                                   # 74 unit tests: parser, decoding, CSV, rules, Isolation Forest, providers
+dotnet test                                   # unit tests: parsers, formats, rules, Isolation Forest, providers, sessions, security fixes
 dotnet build tools/LogAnalyzer.Tools
 tools/LogAnalyzer.Tools/bin/Debug/net10.0/loganalyzer-tools.exe        # usage
 ```
 
-`loganalyzer-tools` commands: `generate` (synthetic labelled log of any size), `csic` (CSIC 2010 converter),
-`label-by-ip` (DVWA lab ground truth), `bench` (in-memory throughput + accuracy).
+`loganalyzer-tools` commands: `generate` (synthetic labelled access log of any size), `generate-firewall` (synthetic
+labelled firewall log in five formats), `detect` (which format a file has and how many lines can be read, offline),
+`csic` (CSIC 2010 converter), `label-by-ip` (DVWA lab ground truth), `bench` (in-memory throughput + accuracy, web logs).
 See **[docs/evaluation-guide.md](docs/evaluation-guide.md)** for the full evaluation protocol.
 
 ## Project structure
@@ -87,15 +91,15 @@ See **[docs/evaluation-guide.md](docs/evaluation-guide.md)** for the full evalua
 ```
 src/LogAnalyzer.Web/
   Controllers/   Account, Home (dashboard), LogFiles, Alerts, Rules, ThreatIntel, Users, Audit
-  Services/      LogParser, LogProcessing (queue + worker), DetectionCore, DetectionEngine,
-                 AnomalyDetection (Isolation Forest), RuleManagement (validator, tester),
+  Services/      LogParser, LogFormats/ (one class per firewall vendor), LogProcessing (queue + worker),
+                 DetectionCore, DetectionEngine, FirewallFilters, SessionSlots, AnomalyDetection (Isolation Forest), RuleManagement (validator, tester),
                  ThreatIntel (providers, cache, GreyNoise rule), IpEnrichment (GeoIP),
                  EvaluationService, DashboardService, ReportService, AuditLog, SecurityHeaders
   Data/          AppDbContext, DbSeeder (roles, seed users, default rules)
   Models/        entities and enums        Views/  Razor views        wwwroot/js  site, dashboard, rule form
 tests/LogAnalyzer.Tests/     xUnit tests
-tools/LogAnalyzer.Tools/     generate / csic / label-by-ip / bench
-samples/                     sample-access.log + labels
+tools/LogAnalyzer.Tools/     generate / generate-firewall / detect / csic / label-by-ip / bench
+samples/                     sample-access.log + labels, firewall/ (one synthetic sample per format)
 docs/                        evaluation guide
 ```
 

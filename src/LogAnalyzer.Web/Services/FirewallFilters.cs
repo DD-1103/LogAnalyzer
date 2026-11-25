@@ -17,6 +17,9 @@ public sealed class PortSet
 
     private PortSet() { }
 
+    /// <summary>Number of different ports in the set.</summary>
+    public int Count => _bits.Sum(b => System.Numerics.BitOperations.PopCount(b));
+
     /// <summary>The entries as written (trimmed), e.g. ["22", "5900-5902"].</summary>
     public IReadOnlyList<string> Entries => _entries;
 
@@ -152,5 +155,155 @@ public sealed class ActionSet
         var actions = Enum.GetValues<FirewallAction>().Where(a => (mask & (1 << (int)a)) != 0).ToList();
         set = new ActionSet(mask, actions);
         return true;
+    }
+}
+
+/// <summary>
+/// What a firewall rule counts. The meaning follows from the rule's kind, field and attack type, so it needs no extra
+/// settings; the rules page shows it as chips and the rule form explains it.
+/// </summary>
+public static class FirewallSemantics
+{
+    /// <summary>
+    /// Counted per (source, target host): a port scan is many ports of ONE host and password guessing hits ONE host.
+    /// Counting over all targets would flag NAT gateways, proxies, peer-to-peer clients (one port per server) and
+    /// monitoring, backup or deployment hosts (one SSH session per server).
+    /// </summary>
+    public static bool CountsPerTarget(DetectionRule rule) => rule.AppliesTo == LogSource.Firewall
+        && (rule is { Kind: RuleKind.DistinctCount, Field: RuleField.DestinationPort } || CountsConnections(rule));
+
+    /// <summary>
+    /// Brute-force rules count connections (different client ports), not lines: firewalls log retransmitted SYNs
+    /// and the start and end of one session as separate lines.
+    /// </summary>
+    public static bool CountsConnections(DetectionRule rule) => rule.AppliesTo == LogSource.Firewall
+        && rule is { Kind: RuleKind.Threshold, AttackType: AttackType.BruteForce };
+
+    /// <summary>
+    /// "Suspicious outbound" is about inside hosts: only private (internal) source addresses count. An internet host
+    /// that probes port 4444 is background noise, not an outbound connection. For other sources (inside hosts with
+    /// public addresses, inbound bind shells) use a rule with another attack type.
+    /// </summary>
+    public static bool InternalSourceOnly(DetectionRule rule) => rule.AppliesTo == LogSource.Firewall
+        && rule.AttackType == AttackType.SuspiciousOutbound;
+
+    /// <summary>
+    /// Rules about contacted ports or hosts skip replies: the destination port of a reply is the client's temporary
+    /// port (any number, also 4444 or 9001) and its destination is a client, not a target.
+    /// </summary>
+    public static bool IgnoresReplies(DetectionRule rule) => rule.AppliesTo == LogSource.Firewall
+        && ((rule.Kind == RuleKind.DistinctCount && rule.Field is RuleField.DestinationPort or RuleField.DestinationIp)
+            || (rule.Kind is RuleKind.Threshold or RuleKind.DistinctCount && !string.IsNullOrWhiteSpace(rule.PortFilter)));
+}
+
+/// <summary>
+/// Address ranges organisations use inside their network. Unlike <see cref="IpAddressPolicy"/> (what may be sent to
+/// providers), documentation and other reserved ranges do not count as internal.
+/// </summary>
+public static class InternalAddress
+{
+    private static readonly System.Net.IPNetwork[] Networks =
+    [
+        System.Net.IPNetwork.Parse("10.0.0.0/8"),
+        System.Net.IPNetwork.Parse("172.16.0.0/12"),
+        System.Net.IPNetwork.Parse("192.168.0.0/16"),
+        System.Net.IPNetwork.Parse("100.64.0.0/10"),  // shared address space (carrier-grade NAT, overlay VPNs)
+        System.Net.IPNetwork.Parse("169.254.0.0/16"), // link-local
+        System.Net.IPNetwork.Parse("fc00::/7"),       // unique local
+        System.Net.IPNetwork.Parse("fe80::/10")       // link-local
+    ];
+
+    public static bool IsInternal(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out var address))
+            return false;
+        if (address.IsIPv4MappedToIPv6)
+            address = address.MapToIPv4();
+        foreach (var network in Networks)
+            if (network.Contains(address))
+                return true;
+        return false;
+    }
+}
+
+/// <summary>Counts what the evidence of a firewall alert consists of; gives the alert a short factual explanation.</summary>
+public sealed class TrafficSummary
+{
+    /// <summary>Different hosts / ports remembered per alert (bounds the memory of huge scans).</summary>
+    public const int MaxTracked = 1000;
+    private const int MaxThreats = 3;
+
+    private readonly HashSet<string> _hosts = new(StringComparer.Ordinal);
+    private readonly HashSet<int> _ports = [];
+    private readonly List<string> _threats = [];
+    private bool _moreHosts, _morePorts, _moreThreats;
+    private int _events, _allowed, _blocked, _alerted;
+
+    public void Add(string? destinationIp, int? destinationPort, FirewallAction? action, string? threat)
+    {
+        _events++;
+        switch (action)
+        {
+            case FirewallAction.Allow: _allowed++; break;
+            case FirewallAction.Deny or FirewallAction.Drop or FirewallAction.Reject: _blocked++; break;
+            case FirewallAction.Alert: _alerted++; break;
+        }
+        if (destinationIp is not null && !_hosts.Contains(destinationIp))
+        {
+            if (_hosts.Count < MaxTracked) _hosts.Add(destinationIp);
+            else _moreHosts = true;
+        }
+        if (destinationPort is int port && !_ports.Contains(port))
+        {
+            if (_ports.Count < MaxTracked) _ports.Add(port);
+            else _morePorts = true;
+        }
+        if (threat is not null && !_threats.Contains(threat))
+        {
+            if (_threats.Count < MaxThreats) _threats.Add(threat);
+            else _moreThreats = true;
+        }
+    }
+
+    /// <summary>
+    /// E.g. "24 events between 2026-11-21 10:10:00 and 10:10:46: 24 different destination ports (20-43) on 1 host
+    /// (10.0.0.5); 24 blocked."
+    /// </summary>
+    public string Describe(DateTimeOffset first, DateTimeOffset last)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        string N(int n) => n.ToString("N0", inv);
+        string AtLeast(int n, bool more) => more ? "more than " + N(n) : N(n);
+
+        var from = first.ToString("yyyy-MM-dd HH:mm:ss", inv);
+        var sameDay = first.Offset == last.Offset && first.Date == last.Date;
+        var to = last.ToString(sameDay ? "HH:mm:ss" : "yyyy-MM-dd HH:mm:ss", inv);
+        var when = first == last ? " at " + from : $" between {from} and {to}";
+
+        var ports = _ports.Count switch
+        {
+            0 => null,
+            1 => "destination port " + _ports.First().ToString(inv),
+            _ => AtLeast(_ports.Count, _morePorts) + " different destination ports" +
+                 (_morePorts ? "" : $" ({_ports.Min().ToString(inv)}-{_ports.Max().ToString(inv)})")
+        };
+        var hosts = _hosts.Count switch
+        {
+            0 => null,
+            1 => $"1 host ({_hosts.First()})",
+            _ => AtLeast(_hosts.Count, _moreHosts) + " different hosts"
+        };
+        var target = ports is not null && hosts is not null ? $"{ports} on {hosts}" : ports ?? hosts;
+
+        var decisions = new List<string>();
+        if (_allowed > 0) decisions.Add(N(_allowed) + " allowed");
+        if (_blocked > 0) decisions.Add(N(_blocked) + " blocked");
+        if (_alerted > 0) decisions.Add(N(_alerted) + " detected, not blocked");
+        if (_events - _allowed - _blocked - _alerted is > 0 and var rest) decisions.Add(N(rest) + " without a decision");
+
+        var text = $"{N(_events)} event{(_events == 1 ? "" : "s")}{when}{(target is null ? "" : ": " + target)}; {string.Join(", ", decisions)}.";
+        if (_threats.Count > 0)
+            text += " Threats: " + string.Join(", ", _threats.Select(t => t.Length <= 80 ? t : t[..80] + "...")) + (_moreThreats ? ", ..." : "") + ".";
+        return text;
     }
 }

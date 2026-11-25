@@ -115,15 +115,25 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
         return alertCount;
     }
 
-    private static string? Describe(RuleHit hit)
+    /// <summary>Alert title; events without a source address are grouped in one alert that says so.</summary>
+    public static string Title(DetectionRule rule, RuleHit hit, double score = double.NaN) =>
+        !double.IsNaN(score) ? $"Anomalous behaviour from {hit.Ip} (score {score:0.00})"
+        : rule.AppliesTo == LogSource.Firewall && hit.Ip is "" or "-" ? $"{rule.Name} (source address not logged)"
+        : $"{rule.Name} from {hit.Ip}";
+
+    /// <summary>Short factual explanation of an alert (null when there is nothing to add to the rule itself).</summary>
+    public static string? Describe(RuleHit hit)
     {
         var parts = new List<string>();
+        if (hit.Traffic is { } traffic)
+            parts.Add(traffic.Describe(hit.First, hit.Last));
         if (hit.MergedSources > 0)
             parts.Add($"The rule matched more than {MaxAlertsPerRule:N0} source addresses in this file; the events of the " +
                       $"{hit.MergedSources:N0} addresses with the fewest matches are grouped in this alert.");
         if (hit.TimedOutEvents > 0)
             parts.Add($"{hit.TimedOutEvents:N0} of these events were counted because the rule's regex timed out on them (fail-closed).");
-        return parts.Count == 0 ? null : string.Join(" ", parts);
+        var text = string.Join(" ", parts);
+        return text.Length switch { 0 => null, > 1000 => text[..1000], _ => text }; // column length
     }
 
     private async Task<int> SaveAlertsAsync(int logFileId, List<DetectionRule> rules,
@@ -148,7 +158,7 @@ public sealed class DetectionEngine(AppDbContext db, AnomalyDetector anomalyDete
             var isAnomaly = !double.IsNaN(score);
             var alert = new Alert
             {
-                Title = isAnomaly ? $"Anomalous behaviour from {hit.Ip} (score {score:0.00})" : $"{rule.Name} from {hit.Ip}",
+                Title = Title(rule, hit, score),
                 Score = isAnomaly ? Math.Round(score, 4) : null,
                 Details = isAnomaly ? details : Describe(hit),
                 RuleId = rule.Id,
