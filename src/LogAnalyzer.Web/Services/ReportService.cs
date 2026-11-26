@@ -151,16 +151,19 @@ public sealed class ReportService(AppDbContext db)
                     foreach (var a in shown)
                     {
                         ipInfo.TryGetValue(a.SourceIp, out var info);
-                        col.Item().Border(0.5f).BorderColor(Colors.Grey.Lighten1).Padding(8).Column(box =>
+                        // Start a box on the next page when only its title would fit (long boxes may still continue).
+                        col.Item().EnsureSpace(110).Border(0.5f).BorderColor(Colors.Grey.Lighten1).Padding(8).Column(box =>
                         {
                             box.Spacing(3);
                             box.Item().Text($"[{a.Severity}] {a.Title}").Bold();
                             box.Item().Text($"Rule: {a.Rule?.Name}  |  Events: {a.EventCount:N0}  |  Status: {a.Status}");
 
                             var location = info is null
-                                ? "unknown"
+                                ? ""
                                 : string.Join(", ", new[] { info.City, info.CountryName }.Where(s => !string.IsNullOrEmpty(s)));
-                            box.Item().Text($"Source: {a.SourceIp} ({(string.IsNullOrEmpty(location) ? "unknown" : location)})");
+                            if (string.IsNullOrEmpty(location))
+                                location = IpAddressPolicy.IsPublic(a.SourceIp) ? "unknown" : "internal or reserved address";
+                            box.Item().Text($"Source: {a.SourceIp} ({location})");
 
                             if (reputation.TryGetValue(a.SourceIp, out var rep))
                                 box.Item().Text("Threat intel: " + string.Join("  |  ",
@@ -217,11 +220,11 @@ public sealed class ReportService(AppDbContext db)
             if (e.Transport is not null)
                 parts.Add(e.Transport);
             parts.Add(FirewallFormat.Endpoint(e.ClientIp, e.SourcePort));
-            // Events without a destination (logins, system messages) are only understandable with their message.
-            if (e.DestinationIp is null && e.DestinationPort is null)
-                parts.Add($" {e.Url}");
-            else
+            if (e.DestinationIp is not null || e.DestinationPort is not null)
                 parts.Add($"-> {FirewallFormat.Endpoint(e.DestinationIp, e.DestinationPort)}");
+            // Events that are not connections (logins, system messages) are only understandable with their message.
+            if (e.DestinationPort is null && e.Transport is null && !string.IsNullOrWhiteSpace(e.Url))
+                parts.Add($" {e.Url}");
             if ((e.ThreatName ?? e.RuleName) is { } extra)
                 parts.Add($" [{extra}]");
             text = string.Join(' ', parts);

@@ -166,7 +166,7 @@
                             @foreach (var m in r.PerAttackType.Where(m => m.TP + m.FP + m.FN > 0))
                             {
                                 <tr>
-                                    <td>@m.Name</td>
+                                    <td>@(Enum.TryParse<AttackType>(m.Name, out var attackType) ? Format.AttackLabel(attackType) : m.Name)</td>
                                     <td class="text-end">@m.TP</td>
                                     <td class="text-end">@m.FP</td>
                                     <td class="text-end">@r.FalsePositivesOnNormalLines.GetValueOrDefault(m.Name)</td>

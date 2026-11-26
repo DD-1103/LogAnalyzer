@@ -440,6 +440,18 @@ public class SessionUploadReviewTests
         Assert.StartsWith("line 7  ", ReportService.EvidenceLine(login));
         Assert.EndsWith("10:00:00  DENY 203.0.113.9  Login failed for user admin", ReportService.EvidenceLine(login));
 
+        // A login to the firewall's own address has a destination but no port: the message still tells what happened.
+        login.DestinationIp = "198.51.100.1";
+        Assert.EndsWith("DENY 203.0.113.9 -> 198.51.100.1  Login failed for user admin", ReportService.EvidenceLine(login));
+
+        // A connection without ports (ICMP) is described by its endpoints; the message would only repeat them.
+        var ping = new LogEvent
+        {
+            LineNumber = 8, ClientIp = "203.0.113.9", DestinationIp = "10.0.0.7", Transport = "icmp",
+            Method = "DENY", Action = FirewallAction.Deny, Url = "deny icmp 203.0.113.9 -> 10.0.0.7"
+        };
+        Assert.EndsWith("DENY icmp 203.0.113.9 -> 10.0.0.7", ReportService.EvidenceLine(ping));
+
         login.DestinationIp = "10.0.0.5";
         login.DestinationPort = 22;
         login.Transport = "tcp";
